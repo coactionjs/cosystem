@@ -1,0 +1,25 @@
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    coverage: {
+      exclude: ["**/*.config.*", "**/*.d.ts", "**/coverage/**", "**/dist/**", "**/node_modules/**"],
+      provider: "v8",
+      reporter: ["text", "json-summary", "html"],
+      reportsDirectory: "coverage",
+    },
+    environment: "node",
+    globals: false,
+    passWithNoTests: true,
+    projects: [
+      {
+        extends: true,
+        test: {
+          include: ["src/**/*.test.ts"],
+          name: "@cosystem/core",
+          root: "./packages/core",
+        },
+      },
+    ],
+  },
+});

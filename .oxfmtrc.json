@@ -1,0 +1,18 @@
+{
+  "bracketSpacing": true,
+  "endOfLine": "lf",
+  "ignorePatterns": [
+    ".changeset/**",
+    ".turbo/**",
+    "coverage/**",
+    "dist/**",
+    "node_modules/**",
+    "pnpm-lock.yaml"
+  ],
+  "insertFinalNewline": true,
+  "printWidth": 100,
+  "semi": true,
+  "singleQuote": false,
+  "tabWidth": 2,
+  "trailingComma": "all"
+}

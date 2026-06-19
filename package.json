@@ -1,0 +1,65 @@
+{
+  "name": "cosystem",
+  "version": "0.0.0",
+  "private": true,
+  "description": "CoSystem - The meta-framework for coexisting UI frameworks.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "turbo run build",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build",
+    "ci": "pnpm run check",
+    "clean": "turbo run clean && rm -rf node_modules .turbo coverage",
+    "commit": "cz",
+    "dev": "turbo run dev --parallel",
+    "format": "oxfmt . --write",
+    "format:check": "oxfmt . --check",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint . --fix",
+    "prepare": "husky",
+    "release": "pnpm run build && changeset publish",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:turbo": "turbo run test",
+    "test:watch": "vitest",
+    "typecheck": "turbo run typecheck",
+    "version-packages": "changeset version"
+  },
+  "devDependencies": {
+    "@changesets/cli": "catalog:",
+    "@commitlint/cli": "catalog:",
+    "@commitlint/config-conventional": "catalog:",
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "commitizen": "catalog:",
+    "cz-git": "catalog:",
+    "husky": "catalog:",
+    "lint-staged": "catalog:",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "rolldown": "catalog:",
+    "tsdown": "catalog:",
+    "turbo": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "lint-staged": {
+    "*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}": [
+      "oxlint --fix",
+      "oxfmt --write"
+    ],
+    "*.{css,graphql,html,json,jsonc,json5,md,mdx,yaml,yml}": [
+      "oxfmt --write"
+    ]
+  },
+  "config": {
+    "commitizen": {
+      "path": "node_modules/cz-git"
+    }
+  },
+  "engines": {
+    "node": ">=22.12.0",
+    "pnpm": ">=11.8.0"
+  },
+  "packageManager": "pnpm@11.8.0"
+}

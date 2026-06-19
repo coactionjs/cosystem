@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "categories": {
+    "correctness": "error",
+    "perf": "warn",
+    "suspicious": "warn"
+  },
+  "env": {
+    "builtin": true,
+    "es2026": true,
+    "node": true
+  },
+  "ignorePatterns": [
+    "**/.changeset/**",
+    "**/.turbo/**",
+    "**/coverage/**",
+    "**/dist/**",
+    "**/node_modules/**"
+  ],
+  "plugins": ["import", "node", "promise", "typescript", "unicorn", "vitest"],
+  "rules": {
+    "eqeqeq": "error",
+    "import/no-cycle": "error",
+    "no-console": "off",
+    "unicorn/prefer-node-protocol": "error"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.spec.ts"],
+      "env": {
+        "vitest": true
+      }
+    }
+  ]
+}

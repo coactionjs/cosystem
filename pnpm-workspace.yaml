@@ -1,0 +1,23 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+catalogMode: strict
+
+catalog:
+  "@changesets/cli": "2.31.0"
+  "@commitlint/cli": "21.0.2"
+  "@commitlint/config-conventional": "21.0.2"
+  "@types/node": "22.19.21"
+  "@vitest/coverage-v8": "4.1.9"
+  "commitizen": "4.3.2"
+  "cz-git": "1.13.1"
+  "husky": "9.1.7"
+  "lint-staged": "17.0.7"
+  "oxfmt": "0.55.0"
+  "oxlint": "1.70.0"
+  "rolldown": "1.1.2"
+  "tsdown": "0.22.3"
+  "turbo": "2.9.18"
+  "typescript": "6.0.3"
+  "vitest": "4.1.9"
