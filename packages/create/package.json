@@ -1,6 +1,6 @@
 {
   "name": "@cosystem/create",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Project scaffolding utilities for CoSystem.",
   "license": "MIT",
   "bin": {
