@@ -161,6 +161,7 @@ describe("DI container", () => {
 
     class NeedsMissingLogger {
       static readonly inject = [MissingLoggerToken] as const;
+      readonly kind = "needsMissingLogger";
     }
 
     const container = createContainer();
@@ -172,7 +173,9 @@ describe("DI container", () => {
   });
 
   it("creates scoped instances per child container", () => {
-    class RequestContext {}
+    class RequestContext {
+      readonly id = Symbol("request");
+    }
 
     const root = createContainer();
     root.provide(provide(RequestContext, { scope: "scoped", useClass: RequestContext }));
@@ -185,8 +188,12 @@ describe("DI container", () => {
   });
 
   it("creates transient and resolution-scoped instances with expected identity", () => {
-    class TransientThing {}
-    class ResolutionThing {}
+    class TransientThing {
+      readonly id = Symbol("transient");
+    }
+    class ResolutionThing {
+      readonly id = Symbol("resolution");
+    }
     class UsesResolution {
       static readonly inject = [ResolutionThing, ResolutionThing] as const;
 
@@ -250,9 +257,11 @@ describe("DI container", () => {
   it("detects circular dependencies", () => {
     class First {
       static readonly inject = [] as const;
+      readonly name = "first";
     }
     class Second {
       static readonly inject = [First] as const;
+      readonly name = "second";
     }
 
     Object.defineProperty(First, "inject", { value: [Second] as const });
@@ -265,9 +274,13 @@ describe("DI container", () => {
   });
 
   it("detects lifetime leaks unless the dependency is leakSafe", () => {
-    class RequestContext {}
+    class RequestContext {
+      readonly id = Symbol("request");
+    }
     class ApiClient {
       static readonly inject = [RequestContext] as const;
+
+      constructor(readonly context: RequestContext) {}
     }
 
     const container = createContainer();

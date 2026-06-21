@@ -425,6 +425,7 @@ class RuntimeApp implements App {
       await this.waitForPendingEffects();
       await this.runLifecycle("onDispose", true);
       for (const scope of this.dynamicScopes.toReversed()) {
+        // eslint-disable-next-line no-await-in-loop -- dynamic scopes are disposed in reverse load order.
         await scope.dispose();
       }
       await Promise.all(this.plugins.map((plugin) => plugin.dispose?.()));
@@ -451,6 +452,7 @@ class RuntimeApp implements App {
       const results: LazyModuleLoadResult[] = [];
 
       for (const pendingModule of modules) {
+        // eslint-disable-next-line no-await-in-loop -- pending lazy modules load in registration order.
         results.push(await this.load(pendingModule));
       }
 
@@ -753,6 +755,7 @@ class RuntimeApp implements App {
 
     for (const moduleBinding of orderedModules) {
       const lifecycle = moduleBinding.instance as LifecycleModule;
+      // eslint-disable-next-line no-await-in-loop -- lifecycle hooks run in deterministic module order.
       await this.runWithAppInjectContext(() => lifecycle[method]?.());
     }
   }
@@ -840,6 +843,7 @@ class RuntimeApp implements App {
 
   private async waitForPendingEffects(): Promise<void> {
     while (this.pendingEffects.size > 0) {
+      // eslint-disable-next-line no-await-in-loop -- async effects may enqueue follow-up effects while settling.
       await Promise.all(this.pendingEffects);
     }
   }

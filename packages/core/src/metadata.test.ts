@@ -47,7 +47,9 @@ describe("module metadata storage", () => {
       static: false,
     } as unknown as ClassMethodDecoratorContext<object, () => void>);
 
-    class Counter {}
+    class Counter {
+      readonly count = 0;
+    }
 
     module({ name: "metadataCounter" })(Counter, {
       addInitializer() {},

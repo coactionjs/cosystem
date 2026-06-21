@@ -159,6 +159,7 @@ class RuntimeContainer implements ContainerImpl {
       entry.disposed = true;
 
       try {
+        // eslint-disable-next-line no-await-in-loop -- disposal order is observable and must remain sequential.
         await disposeValue(entry.value, entry.record);
       } catch (error) {
         errors.push(error);
