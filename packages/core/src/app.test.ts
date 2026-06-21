@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  AsyncProviderInSyncResolutionError,
   CosystemError,
   createApp,
   defineModule,
   inject,
   provide,
   testApp,
+  token,
   type Plugin,
 } from "./index.js";
 
@@ -181,6 +183,119 @@ describe("app runtime", () => {
     });
 
     expect(app.getModule(ProviderOverrideCounter).logger).toBeInstanceOf(ProviderLogger);
+  });
+
+  it("keeps non-module class and factory providers lazy by default", () => {
+    const ServiceToken = token<{ readonly value: string }>("LazyService");
+    const events: string[] = [];
+
+    class LazyService {
+      readonly value = "class";
+
+      constructor() {
+        events.push("class");
+      }
+    }
+
+    const app = createApp({
+      providers: [
+        LazyService,
+        provide(ServiceToken, {
+          useFactory: () => {
+            events.push("factory");
+            return { value: "factory" };
+          },
+        }),
+      ],
+    });
+
+    expect(events).toEqual([]);
+    expect(app.get(LazyService).value).toBe("class");
+    expect(app.get(ServiceToken).value).toBe("factory");
+    expect(events).toEqual(["class", "factory"]);
+  });
+
+  it("eagerly instantiates explicit eager providers after module binding", () => {
+    const events: string[] = [];
+
+    class EagerCounter {
+      count = 1;
+    }
+
+    defineModule(EagerCounter, {
+      name: "eagerCounter",
+      state: ["count"],
+    });
+
+    class EagerReader {
+      static readonly inject = [EagerCounter] as const;
+
+      constructor(counter: EagerCounter) {
+        events.push(`count:${counter.count}`);
+        counter.count = 3;
+      }
+    }
+
+    const app = createApp({
+      providers: [
+        EagerCounter,
+        provide(EagerReader, {
+          eager: true,
+          useClass: EagerReader,
+        }),
+      ],
+    });
+
+    expect(events).toEqual(["count:1"]);
+    expect(app.getModule(EagerCounter).count).toBe(3);
+    expect(app.store.getPureState()).toEqual({
+      eagerCounter: {
+        count: 3,
+      },
+    });
+  });
+
+  it("instantiates eager multi provider groups", () => {
+    const PluginToken = token<{ readonly name: string }>("Plugin");
+    const events: string[] = [];
+
+    const app = createApp({
+      providers: [
+        provide(PluginToken, {
+          eager: true,
+          multi: true,
+          useFactory: () => {
+            events.push("first");
+            return { name: "first" };
+          },
+        }),
+        provide(PluginToken, {
+          multi: true,
+          useFactory: () => {
+            events.push("second");
+            return { name: "second" };
+          },
+        }),
+      ],
+    });
+
+    expect(events).toEqual(["first", "second"]);
+    expect(app.getAll(PluginToken).map((plugin) => plugin.name)).toEqual(["first", "second"]);
+  });
+
+  it("fails fast when an eager factory is async in sync app creation", () => {
+    const AsyncToken = token<string>("Async");
+
+    expect(() =>
+      createApp({
+        providers: [
+          provide(AsyncToken, {
+            eager: true,
+            useFactory: async () => "ready",
+          }),
+        ],
+      }),
+    ).toThrow(AsyncProviderInSyncResolutionError);
   });
 
   it("runs plugin and module lifecycle hooks", async () => {

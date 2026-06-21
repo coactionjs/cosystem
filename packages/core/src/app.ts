@@ -10,6 +10,7 @@ import type {
   ClassProvideOptions,
   Constructor,
   Container,
+  ContainerImpl,
   InjectionToken,
   Provider,
   ProviderInput,
@@ -209,6 +210,7 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
 
   app.bindModules();
   app.attachRuntimeMetadata();
+  instantiateEagerProviders(container);
   app.runModuleCreatedHooks();
   app.init();
   appContainerMap.set(app, container);
@@ -748,6 +750,23 @@ function instantiateModules(container: Container, moduleTokens: readonly Injecti
   }
 
   return modules;
+}
+
+function instantiateEagerProviders(container: Container): void {
+  const internalContainer = container as ContainerImpl;
+
+  for (const [token, records] of internalContainer.records) {
+    if (!records.some((record) => record.eager)) {
+      continue;
+    }
+
+    if (records.some((record) => record.multi)) {
+      container.getAll(token);
+      continue;
+    }
+
+    container.get(token);
+  }
 }
 
 function createRootState(modules: readonly ModuleBinding[]): RootState {

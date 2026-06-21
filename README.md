@@ -106,6 +106,27 @@ const app = createApp({
 `@state` intentionally targets standard accessor decorators. Plain fields should
 use `defineModule()` metadata until a future compatibility layer is added.
 
+## Provider Lifetime
+
+`@module` providers are instantiated during `createApp()` so their state can be
+bound to the Coaction-backed app store. Plain class and factory providers stay
+lazy unless a module or another eager provider depends on them.
+
+Use `eager: true` for startup services that must be created during app
+composition:
+
+```ts
+const app = createApp({
+  providers: [
+    Counter,
+    provide(Analytics, {
+      eager: true,
+      useClass: Analytics,
+    }),
+  ],
+});
+```
+
 ## UI Adapters
 
 CoSystem does not own rendering. There is no `ViewModule`, root component base
