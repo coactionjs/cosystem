@@ -43,3 +43,34 @@ bootstrapApplication(CounterView, {
   providers: [provideCoSystem(app)],
 });
 ```
+
+The Angular adapter can also consume worker-hosted state through Angular DI and
+signals:
+
+```ts
+import { Component } from "@angular/core";
+import { bootstrapApplication } from "@angular/platform-browser";
+import type { WorkerClient } from "@cosystem/core";
+import { injectWorkerModule, injectWorkerSignal, provideWorkerClient } from "@cosystem/angular";
+
+type CounterState = {
+  readonly counter: {
+    readonly count: number;
+  };
+};
+
+@Component({
+  selector: "counter-view",
+  template: ` <button (click)="counter.increase()">{{ count() }}</button> `,
+})
+class WorkerCounterView {
+  readonly counter = injectWorkerModule<Counter>("counter");
+  readonly count = injectWorkerSignal((state) => (state as CounterState).counter.count);
+}
+
+function renderWorkerCounter(client: WorkerClient) {
+  void bootstrapApplication(WorkerCounterView, {
+    providers: [provideWorkerClient(client)],
+  });
+}
+```

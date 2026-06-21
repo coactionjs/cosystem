@@ -411,6 +411,31 @@ class CounterView {
 }
 ```
 
+Angular can inject worker-hosted modules and expose state as Angular signals:
+
+```ts
+import { injectWorkerModule, injectWorkerSignal, provideWorkerClient } from "@cosystem/angular";
+
+type CounterState = {
+  readonly counter: {
+    readonly count: number;
+  };
+};
+
+bootstrapApplication(AppComponent, {
+  providers: [provideWorkerClient(client)],
+});
+
+@Component({
+  selector: "counter-view",
+  template: `<button (click)="counter.increase()">{{ count() }}</button>`,
+})
+class WorkerCounterView {
+  readonly counter = injectWorkerModule<Counter>("counter");
+  readonly count = injectWorkerSignal((state) => (state as CounterState).counter.count);
+}
+```
+
 ## Testing
 
 ```ts

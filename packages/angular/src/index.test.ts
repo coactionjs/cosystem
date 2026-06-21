@@ -2,12 +2,29 @@ import {
   createEnvironmentInjector,
   runInInjectionContext,
   type EnvironmentInjector,
+  type Signal,
 } from "@angular/core";
 import { describe, expect, it } from "vitest";
 
-import { createApp, defineModule } from "@cosystem/core";
+import {
+  createApp,
+  createMemoryWorkerTransportPair,
+  createWorkerApp,
+  createWorkerClient,
+  defineModule,
+  type AsyncMethodProxy,
+} from "@cosystem/core";
 
-import { injectCoSystemApp, injectModule, injectSignal, provideCoSystem } from "./index.js";
+import {
+  injectCoSystemApp,
+  injectModule,
+  injectSignal,
+  injectWorkerClient,
+  injectWorkerModule,
+  injectWorkerSignal,
+  provideCoSystem,
+  provideWorkerClient,
+} from "./index.js";
 
 class Counter {
   count = 0;
@@ -106,4 +123,47 @@ describe("Angular adapter", () => {
 
     injector.destroy();
   });
+
+  it("exposes worker modules and selected worker state as Angular signals", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({
+      transport: clientTransport,
+    });
+    const host = createWorkerApp({
+      providers: [Counter],
+      sync: "patch",
+      transport: hostTransport,
+    });
+    const injector = createEnvironmentInjector(
+      [provideWorkerClient(client)],
+      null as unknown as EnvironmentInjector,
+    );
+    let counter: AsyncMethodProxy<Counter> | undefined;
+    let count: Signal<number> | undefined;
+
+    await client.ready;
+
+    runInInjectionContext(injector, () => {
+      expect(injectWorkerClient()).toBe(client);
+
+      counter = injectWorkerModule<Counter>("angularCounter");
+      count = injectWorkerSignal((state) => (state as WorkerCounterState).angularCounter.count);
+
+      expect(count()).toBe(0);
+    });
+
+    await counter?.increase(4);
+
+    expect(count?.()).toBe(4);
+
+    injector.destroy();
+    client.dispose();
+    await host.dispose();
+  });
 });
+
+interface WorkerCounterState {
+  readonly angularCounter: {
+    readonly count: number;
+  };
+}
