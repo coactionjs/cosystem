@@ -49,3 +49,35 @@ render(
   document.getElementById("root")!,
 );
 ```
+
+The Solid adapter can also render worker-hosted state through a `WorkerClient`:
+
+```tsx
+import { render } from "solid-js/web";
+import type { WorkerClient } from "@cosystem/core";
+import { WorkerClientProvider, useWorkerModule, useWorkerSelector } from "@cosystem/solid";
+
+type CounterState = {
+  readonly counter: {
+    readonly count: number;
+  };
+};
+
+function WorkerCounterView() {
+  const counter = useWorkerModule<Counter>("counter");
+  const count = useWorkerSelector((state) => (state as CounterState).counter.count);
+
+  return <button onClick={() => counter.increase()}>{count()}</button>;
+}
+
+function renderWorkerCounter(client: WorkerClient) {
+  render(
+    () => (
+      <WorkerClientProvider client={client}>
+        <WorkerCounterView />
+      </WorkerClientProvider>
+    ),
+    document.getElementById("root")!,
+  );
+}
+```

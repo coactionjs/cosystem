@@ -342,6 +342,29 @@ function CounterView() {
 </CoSystemProvider>;
 ```
 
+Solid can render worker-hosted state through a worker client provider:
+
+```tsx
+import { WorkerClientProvider, useWorkerModule, useWorkerSelector } from "@cosystem/solid";
+
+type CounterState = {
+  readonly counter: {
+    readonly count: number;
+  };
+};
+
+function WorkerCounterView() {
+  const counter = useWorkerModule<Counter>("counter");
+  const count = useWorkerSelector((state) => (state as CounterState).counter.count);
+
+  return <button onClick={() => counter.increase()}>{count()}</button>;
+}
+
+<WorkerClientProvider client={client}>
+  <WorkerCounterView />
+</WorkerClientProvider>;
+```
+
 Angular:
 
 ```ts
