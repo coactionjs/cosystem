@@ -1,0 +1,44 @@
+{
+  "name": "@cosystem/vue",
+  "version": "0.0.0",
+  "description": "Vue adapter for CoSystem.",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf coverage dist .turbo",
+    "dev": "tsdown --watch",
+    "test": "cd ../.. && vitest run --project @cosystem/vue",
+    "test:coverage": "cd ../.. && vitest run --coverage --project @cosystem/vue",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@cosystem/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@cosystem/tsconfig": "workspace:*",
+    "@vue/server-renderer": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "vue": "catalog:"
+  },
+  "peerDependencies": {
+    "vue": ">=3.5.0 <4"
+  }
+}

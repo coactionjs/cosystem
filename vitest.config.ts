@@ -20,6 +20,22 @@ export default defineConfig({
           root: "./packages/core",
         },
       },
+      {
+        extends: true,
+        test: {
+          include: ["src/**/*.test.ts"],
+          name: "@cosystem/react",
+          root: "./packages/react",
+        },
+      },
+      {
+        extends: true,
+        test: {
+          include: ["src/**/*.test.ts"],
+          name: "@cosystem/vue",
+          root: "./packages/vue",
+        },
+      },
     ],
   },
 });

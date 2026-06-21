@@ -1,0 +1,46 @@
+{
+  "name": "@cosystem/react",
+  "version": "0.0.0",
+  "description": "React adapter for CoSystem.",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf coverage dist .turbo",
+    "dev": "tsdown --watch",
+    "test": "cd ../.. && vitest run --project @cosystem/react",
+    "test:coverage": "cd ../.. && vitest run --coverage --project @cosystem/react",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@cosystem/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@cosystem/tsconfig": "workspace:*",
+    "@types/react": "catalog:",
+    "@types/react-test-renderer": "catalog:",
+    "react": "catalog:",
+    "react-test-renderer": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "react": ">=18.3.0 || >=19.0.0"
+  }
+}
