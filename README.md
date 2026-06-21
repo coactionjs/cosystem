@@ -1,6 +1,165 @@
-# cosystem
+# CoSystem
 
 CoSystem - The meta-framework for coexisting UI frameworks.
+
+CoSystem creates a typed application core powered by Coaction, then lets each UI
+framework render with its own native API. Business modules are plain classes
+with lightweight DI, OO state, actions, computed getters, and test-friendly app
+composition.
+
+## Packages
+
+- `@cosystem/core`: DI container, module metadata, app runtime, decorators, and
+  `testApp`
+- `@cosystem/react`: React context and hooks for consuming a CoSystem app
+- `@cosystem/vue`: Vue provide/inject composables for consuming a CoSystem app
+
+## Core API
+
+```ts
+import { action, computed, createApp, module as module_, provide, state } from "@cosystem/core";
+
+abstract class Logger {
+  abstract info(message: string): void;
+}
+
+@module_({
+  deps: [Logger],
+  name: "counter",
+})
+class Counter {
+  constructor(readonly logger: Logger) {}
+
+  @state
+  accessor count = 0;
+
+  @computed
+  get double(): number {
+    return this.count * 2;
+  }
+
+  @action
+  increase(step = 1): void {
+    this.count += step;
+    this.logger.info(`count:${this.count}`);
+  }
+}
+
+const app = createApp({
+  providers: [Counter, provide(Logger, { useValue: console })],
+});
+
+const counter = app.getModule(Counter);
+counter.increase();
+```
+
+The same module can be defined without decorators:
+
+```ts
+import { createApp, defineModule, provide } from "@cosystem/core";
+
+class Counter {
+  count = 0;
+
+  constructor(readonly logger: Logger) {}
+
+  get double(): number {
+    return this.count * 2;
+  }
+
+  increase(step = 1): void {
+    this.count += step;
+    this.logger.info(`count:${this.count}`);
+  }
+}
+
+defineModule(Counter, {
+  actions: ["increase"],
+  computed: ["double"],
+  deps: [Logger],
+  name: "counter",
+  state: ["count"],
+});
+
+const app = createApp({
+  providers: [Counter, provide(Logger, { useValue: console })],
+});
+```
+
+`@state` intentionally targets standard accessor decorators. Plain fields should
+use `defineModule()` metadata until a future compatibility layer is added.
+
+## UI Adapters
+
+CoSystem does not own rendering. There is no `ViewModule`, root component base
+class, or `render()` abstraction. UI packages only provide context and
+subscription helpers.
+
+React:
+
+```tsx
+import { createRoot } from "react-dom/client";
+import { CoSystemProvider, useModule, useSelector } from "@cosystem/react";
+
+function CounterView() {
+  const counter = useModule(Counter);
+  const count = useSelector(() => counter.count);
+
+  return <button onClick={() => counter.increase()}>{count}</button>;
+}
+
+createRoot(document.getElementById("root")!).render(
+  <CoSystemProvider app={app}>
+    <CounterView />
+  </CoSystemProvider>,
+);
+```
+
+Vue:
+
+```ts
+import { createApp as createVueApp, defineComponent, h } from "vue";
+import { provideCoSystem, useModule, useSelector } from "@cosystem/vue";
+
+const CounterView = defineComponent({
+  setup() {
+    const counter = useModule(Counter);
+    const count = useSelector(() => counter.count);
+
+    return () => h("button", { onClick: () => counter.increase() }, count.value);
+  },
+});
+
+createVueApp({
+  setup() {
+    provideCoSystem(app);
+    return () => h(CounterView);
+  },
+}).mount("#app");
+```
+
+## Testing
+
+```ts
+import { provide, testApp } from "@cosystem/core";
+
+const app = testApp({
+  providers: [Counter, provide(Logger, { useValue: console })],
+  strictActions: true,
+});
+
+const counter = app.getModule(Counter);
+counter.increase(2);
+
+expect(app.test.getActions()).toMatchObject([
+  {
+    method: "increase",
+    module: "counter",
+  },
+]);
+```
+
+More focused examples live in [`examples/`](./examples).
 
 ## Tooling
 
@@ -42,6 +201,9 @@ pnpm run commit
 
 ```text
 apps/              # applications and services
-packages/core/     # starter publishable TypeScript package
+examples/          # API usage examples
+packages/core/     # CoSystem core runtime
+packages/react/    # React adapter
 packages/tsconfig/ # shared TypeScript configuration package
+packages/vue/      # Vue adapter
 ```
