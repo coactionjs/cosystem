@@ -1,6 +1,6 @@
 import { action, computed, effect, module, state } from "./decorators.js";
 
-abstract class FixtureLogger {
+export abstract class FixtureLogger {
   abstract info(message: string): void;
 }
 
@@ -8,7 +8,7 @@ abstract class FixtureLogger {
   deps: [FixtureLogger],
   name: "decoratorFixture",
 })
-class DecoratorFixture {
+export class DecoratorFixture {
   constructor(readonly logger: FixtureLogger) {}
 
   @state
@@ -30,5 +30,3 @@ class DecoratorFixture {
     this.logger.info(`effect:${this.count}`);
   }
 }
-
-void DecoratorFixture;

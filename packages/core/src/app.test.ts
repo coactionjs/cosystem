@@ -3,10 +3,15 @@ import { describe, expect, it } from "vitest";
 import {
   AsyncProviderInSyncResolutionError,
   CosystemError,
+  action as actionDecorator,
+  computed as computedDecorator,
   createApp,
   defineModule,
+  effect as effectDecorator,
   inject,
+  module as moduleDecorator,
   provide,
+  state as stateDecorator,
   testApp,
   token,
   type Plugin,
@@ -72,6 +77,103 @@ defineModule(ProviderOverrideCounter, {
 });
 
 describe("app runtime", () => {
+  it("binds standard decorator metadata to the app runtime", async () => {
+    const metadata: Record<PropertyKey, unknown> = {};
+
+    class DecoratedRuntimeCounter {
+      count = 0;
+
+      constructor(readonly logger: Logger) {}
+
+      get double(): number {
+        return this.count * 2;
+      }
+
+      increase(step = 1): void {
+        this.count += step;
+        this.logger.info(String(this.count));
+      }
+
+      recordCount(): void {
+        this.logger.info(`effect:${this.count}`);
+      }
+    }
+
+    stateDecorator(
+      undefined as never,
+      {
+        addInitializer() {},
+        kind: "accessor",
+        metadata,
+        name: "count",
+        private: false,
+        static: false,
+      } as unknown as ClassAccessorDecoratorContext<DecoratedRuntimeCounter, number>,
+    );
+    computedDecorator(
+      Object.getOwnPropertyDescriptor(DecoratedRuntimeCounter.prototype, "double")?.get as never,
+      {
+        addInitializer() {},
+        kind: "getter",
+        metadata,
+        name: "double",
+        private: false,
+        static: false,
+      } as unknown as ClassGetterDecoratorContext<DecoratedRuntimeCounter, number>,
+    );
+    actionDecorator(DecoratedRuntimeCounter.prototype.increase, {
+      addInitializer() {},
+      kind: "method",
+      metadata,
+      name: "increase",
+      private: false,
+      static: false,
+    } as unknown as ClassMethodDecoratorContext<
+      DecoratedRuntimeCounter,
+      DecoratedRuntimeCounter["increase"]
+    >);
+    effectDecorator(DecoratedRuntimeCounter.prototype.recordCount, {
+      addInitializer() {},
+      kind: "method",
+      metadata,
+      name: "recordCount",
+      private: false,
+      static: false,
+    } as unknown as ClassMethodDecoratorContext<
+      DecoratedRuntimeCounter,
+      DecoratedRuntimeCounter["recordCount"]
+    >);
+    moduleDecorator({
+      deps: [Logger],
+      name: "decoratedRuntimeCounter",
+    })(DecoratedRuntimeCounter, {
+      addInitializer() {},
+      kind: "class",
+      metadata,
+      name: "DecoratedRuntimeCounter",
+    } as ClassDecoratorContext<typeof DecoratedRuntimeCounter>);
+
+    const logger = new MemoryLogger();
+    const app = testApp({
+      providers: [DecoratedRuntimeCounter, provide(Logger, { useValue: logger })],
+    });
+    const counter = app.getModule(DecoratedRuntimeCounter);
+
+    await app.test.flushEffects();
+
+    expect(counter.count).toBe(0);
+    expect(counter.double).toBe(0);
+    expect(logger.messages).toEqual(["effect:0"]);
+
+    counter.increase(2);
+    await app.test.flushEffects();
+
+    expect(counter.count).toBe(2);
+    expect(counter.double).toBe(4);
+    expect(app.store.getPureState()).toEqual({ decoratedRuntimeCounter: { count: 2 } });
+    expect(logger.messages).toEqual(["effect:0", "2", "effect:2"]);
+  });
+
   it("binds no-decorator modules to the Coaction-backed app store", () => {
     const logger = new MemoryLogger();
     const app = createApp({
