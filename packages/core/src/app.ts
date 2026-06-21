@@ -192,7 +192,18 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
   }
 
   for (const override of options.overrides ?? []) {
-    container.override(normalizeAppProvider(override).provider);
+    const normalized = normalizeAppProvider(override);
+
+    if (
+      normalized.moduleToken !== undefined &&
+      !moduleTokens.some((moduleToken) => moduleToken === normalized.moduleToken)
+    ) {
+      throw new CosystemError(
+        `Cannot add ${tokenName(normalized.moduleToken)} as a new CoSystem module through overrides.`,
+      );
+    }
+
+    container.override(normalized.provider);
   }
 
   container.freeze();

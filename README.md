@@ -249,6 +249,9 @@ const startedApp = await testApp({
 expect(startedApp.started).toBe(true);
 ```
 
+`testApp({ overrides })` can replace providers discovered from `providers`, but
+it cannot add a new `@module` after app module discovery.
+
 More focused examples live in [`examples/`](./examples).
 
 ## Worker Prototype

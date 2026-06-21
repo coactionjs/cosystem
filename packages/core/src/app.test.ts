@@ -137,6 +137,61 @@ describe("app runtime", () => {
     expect(app.test.getState()).toEqual({ counter: { count: 5 } });
   });
 
+  it("rejects overrides that add a new module after provider discovery", () => {
+    class OverrideOnlyModule {
+      readonly value = "override";
+    }
+
+    defineModule(OverrideOnlyModule, {
+      name: "overrideOnly",
+      state: ["value"],
+    });
+
+    expect(() =>
+      testApp({
+        overrides: [OverrideOnlyModule],
+        providers: [],
+      }),
+    ).toThrow(/Cannot add OverrideOnlyModule as a new CoSystem module through overrides/);
+  });
+
+  it("allows overrides to replace an already discovered module token", () => {
+    class OriginalModule {
+      value = "original";
+    }
+
+    defineModule(OriginalModule, {
+      name: "originalModule",
+      state: ["value"],
+    });
+
+    class ReplacementModule extends OriginalModule {
+      override value = "replacement";
+    }
+
+    defineModule(ReplacementModule, {
+      name: "replacementModule",
+      state: ["value"],
+    });
+
+    const app = testApp({
+      overrides: [
+        provide(OriginalModule, {
+          useClass: ReplacementModule,
+        }),
+      ],
+      providers: [OriginalModule],
+    });
+
+    expect(app.getModule(OriginalModule)).toBeInstanceOf(ReplacementModule);
+    expect(app.getModule(OriginalModule).value).toBe("replacement");
+    expect(app.store.getPureState()).toEqual({
+      replacementModule: {
+        value: "replacement",
+      },
+    });
+  });
+
   it("records Coaction patches through testApp when patches are enabled", () => {
     const app = testApp({
       engine: {
