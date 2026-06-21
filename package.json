@@ -51,10 +51,10 @@
   "lint-staged": {
     "*.{cjs,cts,js,jsx,mjs,mts,ts,tsx}": [
       "oxlint --fix",
-      "oxfmt --write"
+      "oxfmt --write --no-error-on-unmatched-pattern"
     ],
     "*.{css,graphql,html,json,jsonc,json5,md,mdx,yaml,yml}": [
-      "oxfmt --write"
+      "oxfmt --write --no-error-on-unmatched-pattern"
     ]
   },
   "config": {
