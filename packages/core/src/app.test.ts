@@ -118,6 +118,24 @@ describe("app runtime", () => {
     expect(app.test.getState()).toEqual({ counter: { count: 3 } });
   });
 
+  it("reflects applied Coaction patches through module state accessors", () => {
+    const app = createApp({
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+    const counter = app.getModule(Counter);
+
+    app.store.apply(app.store.getPureState(), [
+      {
+        op: "replace",
+        path: ["counter", "count"],
+        value: 7,
+      },
+    ] as never);
+
+    expect(counter.count).toBe(7);
+    expect(counter.double).toBe(14);
+  });
+
   it("runs plugin and module lifecycle hooks", async () => {
     const events: string[] = [];
 
