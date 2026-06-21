@@ -7,6 +7,7 @@ import {
   type RouteLocation,
 } from "@cosystem/router";
 
+// oxlint-disable-next-line import/no-unassigned-import -- Vite loads example styles through CSS side effects.
 import "./styles.css";
 
 const root = document.getElementById("app");

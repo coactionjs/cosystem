@@ -1,5 +1,6 @@
 import { createApp, defineModule, provide } from "@cosystem/core";
 
+// oxlint-disable-next-line import/no-unassigned-import -- Vite loads example styles through CSS side effects.
 import "./styles.css";
 
 abstract class Logger {

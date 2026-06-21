@@ -1,3 +1,4 @@
+// oxlint-disable-next-line import/no-unassigned-import -- Angular requires Zone.js as a runtime side effect.
 import "zone.js";
 
 import { Component } from "@angular/core";

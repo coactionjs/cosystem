@@ -36,7 +36,13 @@ const double = useComputed((app) => app.getModule(Counter).double);
   color: #1f2933;
   background: #eef6f4;
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
 }
 
 :global(*) {

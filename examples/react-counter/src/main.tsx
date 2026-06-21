@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { createApp, defineModule } from "@cosystem/core";
 import { CoSystemProvider, useModule, useSelector } from "@cosystem/react";
 
+// oxlint-disable-next-line import/no-unassigned-import -- Vite loads example styles through CSS side effects.
 import "./styles.css";
 
 class Counter {
