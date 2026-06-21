@@ -315,6 +315,23 @@ const counter = moduleStore(Counter);
 const count = selectedModuleStore(Counter, (module) => module.count);
 ```
 
+Svelte can also consume worker-hosted modules as readable stores:
+
+```ts
+import { setWorkerClient, workerModuleStore, workerSelectorStore } from "@cosystem/svelte";
+
+type CounterState = {
+  readonly counter: {
+    readonly count: number;
+  };
+};
+
+setWorkerClient(client);
+
+const counter = workerModuleStore<Counter>("counter");
+const count = workerSelectorStore((state) => (state as CounterState).counter.count);
+```
+
 Svelte 5 rune-friendly helpers are available from a separate subpath so the
 main Svelte 4 store contract stays unchanged:
 
@@ -323,6 +340,15 @@ import { moduleRune, selectedModuleRune } from "@cosystem/svelte/runes";
 
 const counter = moduleRune(Counter, { app });
 const count = selectedModuleRune(Counter, (module) => module.count, { app });
+```
+
+Worker-hosted state has matching Svelte 5 rune helpers:
+
+```ts
+import { workerModuleRune, workerSelectorRune } from "@cosystem/svelte/runes";
+
+const counter = workerModuleRune<Counter>("counter", { client });
+const count = workerSelectorRune((state) => (state as CounterState).counter.count, { client });
 ```
 
 Solid:

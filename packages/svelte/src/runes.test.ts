@@ -1,9 +1,21 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createApp, defineModule } from "@cosystem/core";
+import {
+  createApp,
+  createMemoryWorkerTransportPair,
+  createWorkerApp,
+  createWorkerClient,
+  defineModule,
+} from "@cosystem/core";
 
-import { clearCoSystemApp, setCoSystemApp } from "./index.js";
-import { moduleRune, selectedModuleRune, selectorRune } from "./runes.js";
+import { clearCoSystemApp, clearWorkerClient, setCoSystemApp } from "./index.js";
+import {
+  moduleRune,
+  selectedModuleRune,
+  selectorRune,
+  workerModuleRune,
+  workerSelectorRune,
+} from "./runes.js";
 
 class RuneCounter {
   count = 0;
@@ -27,6 +39,7 @@ defineModule(RuneCounter, {
 describe("Svelte rune helpers", () => {
   afterEach(() => {
     clearCoSystemApp();
+    clearWorkerClient();
   });
 
   it("exposes module instances through Svelte 5 friendly rune objects", () => {
@@ -79,4 +92,39 @@ describe("Svelte rune helpers", () => {
 
     expect(double.current).toBe(6);
   });
+
+  it("reads worker-hosted state through Svelte 5 friendly rune objects", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({
+      transport: clientTransport,
+    });
+    const host = createWorkerApp({
+      providers: [RuneCounter],
+      sync: "patch",
+      transport: hostTransport,
+    });
+
+    await client.ready;
+
+    const counter = workerModuleRune<RuneCounter>("svelteRuneCounter", { client });
+    const count = workerSelectorRune(
+      (state) => (state as WorkerRuneCounterState).svelteRuneCounter.count,
+      { client },
+    );
+
+    expect(count.current).toBe(0);
+
+    await counter.current.increase(4);
+
+    expect(count.current).toBe(4);
+
+    client.dispose();
+    await host.dispose();
+  });
 });
+
+interface WorkerRuneCounterState {
+  readonly svelteRuneCounter: {
+    readonly count: number;
+  };
+}

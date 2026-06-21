@@ -1,14 +1,24 @@
 import { get } from "svelte/store";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createApp, defineModule } from "@cosystem/core";
+import {
+  createApp,
+  createMemoryWorkerTransportPair,
+  createWorkerApp,
+  createWorkerClient,
+  defineModule,
+} from "@cosystem/core";
 
 import {
   clearCoSystemApp,
+  clearWorkerClient,
   moduleStore,
   selectedModuleStore,
   selectorStore,
   setCoSystemApp,
+  setWorkerClient,
+  workerModuleStore,
+  workerSelectorStore,
 } from "./index.js";
 
 class Counter {
@@ -33,6 +43,7 @@ defineModule(Counter, {
 describe("Svelte adapter", () => {
   afterEach(() => {
     clearCoSystemApp();
+    clearWorkerClient();
   });
 
   it("exposes modules through Svelte readable stores", () => {
@@ -96,4 +107,41 @@ describe("Svelte adapter", () => {
 
     unsubscribe();
   });
+
+  it("updates worker selector stores from worker-hosted state changes", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({
+      transport: clientTransport,
+    });
+    const host = createWorkerApp({
+      providers: [Counter],
+      sync: "patch",
+      transport: hostTransport,
+    });
+
+    await client.ready;
+    setWorkerClient(client);
+
+    const counter = get(workerModuleStore<Counter>("svelteCounter"));
+    const values: number[] = [];
+    const store = workerSelectorStore((state) => (state as WorkerCounterState).svelteCounter.count);
+    const unsubscribe = store.subscribe((value) => {
+      values.push(value);
+    });
+
+    await counter.increase(3);
+
+    expect(get(store)).toBe(3);
+    expect(values).toEqual([0, 3]);
+
+    unsubscribe();
+    client.dispose();
+    await host.dispose();
+  });
 });
+
+interface WorkerCounterState {
+  readonly svelteCounter: {
+    readonly count: number;
+  };
+}

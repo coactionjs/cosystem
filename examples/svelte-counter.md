@@ -40,6 +40,32 @@
 </button>
 ```
 
+The Svelte adapter can also render worker-hosted state through readable stores:
+
+```svelte
+<script lang="ts">
+  import type { WorkerClient } from "@cosystem/core";
+  import { setWorkerClient, workerModuleStore, workerSelectorStore } from "@cosystem/svelte";
+
+  type CounterState = {
+    readonly counter: {
+      readonly count: number;
+    };
+  };
+
+  export let client: WorkerClient;
+
+  setWorkerClient(client);
+
+  const counter = workerModuleStore<Counter>("counter");
+  const count = workerSelectorStore((state) => (state as CounterState).counter.count);
+</script>
+
+<button on:click={() => $counter.increase()}>
+  {$count}
+</button>
+```
+
 Svelte 5 projects can use the rune-friendly subpath:
 
 ```svelte
@@ -67,6 +93,32 @@ Svelte 5 projects can use the rune-friendly subpath:
 
   const counter = moduleRune(Counter, { app });
   const count = selectedModuleRune(Counter, (module) => module.count, { app });
+</script>
+
+<button onclick={() => counter.current.increase()}>
+  {count.current}
+</button>
+```
+
+Worker-hosted state has matching Svelte 5 rune helpers:
+
+```svelte
+<script lang="ts">
+  import type { WorkerClient } from "@cosystem/core";
+  import { workerModuleRune, workerSelectorRune } from "@cosystem/svelte/runes";
+
+  type CounterState = {
+    readonly counter: {
+      readonly count: number;
+    };
+  };
+
+  export let client: WorkerClient;
+
+  const counter = workerModuleRune<Counter>("counter", { client });
+  const count = workerSelectorRune((state) => (state as CounterState).counter.count, {
+    client,
+  });
 </script>
 
 <button onclick={() => counter.current.increase()}>
