@@ -578,6 +578,31 @@ class RuntimeApp implements App {
       moduleBinding.actionDepth -= 1;
     }
 
+    if (error !== undefined) {
+      this.finishAction(event, error);
+      throw error;
+    }
+
+    if (isPromiseLike(result)) {
+      return Promise.resolve(result).then(
+        (value) => {
+          this.finishAction(event);
+          return value;
+        },
+        (caught) => {
+          this.emitError(caught, { phase: "action" });
+          this.finishAction(event, caught);
+          throw caught;
+        },
+      );
+    }
+
+    this.finishAction(event);
+
+    return result;
+  }
+
+  private finishAction(event: ActionEvent, error?: unknown): void {
     const endedEvent: ActionEvent = {
       ...event,
       endedAt: Date.now(),
@@ -585,12 +610,6 @@ class RuntimeApp implements App {
     };
     this.testInspector?.recordAction(endedEvent);
     this.emitActionEnd(endedEvent);
-
-    if (error !== undefined) {
-      throw error;
-    }
-
-    return result;
   }
 
   private async runLifecycle(method: keyof LifecycleModule, reverse = false): Promise<void> {

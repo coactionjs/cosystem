@@ -127,6 +127,9 @@ use `defineModule()` metadata until a future compatibility layer is added.
 runtime and invalidate when the state they read changes.
 `@effect` methods run after app initialization and rerun when the state they
 read changes.
+Async `@action` methods may return promises; synchronous writes before the first
+`await` are part of the action transaction, while post-await writes need another
+action boundary or non-strict writes.
 
 ## Provider Lifetime
 

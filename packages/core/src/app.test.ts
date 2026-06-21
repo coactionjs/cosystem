@@ -115,6 +115,114 @@ describe("app runtime", () => {
     expect(counter.count).toBe(1);
   });
 
+  it("records async actions after their returned promises resolve", async () => {
+    class AsyncActionCounter {
+      count = 0;
+
+      async increaseLater(step = 1): Promise<number> {
+        this.count += step;
+        await Promise.resolve();
+        return this.count;
+      }
+    }
+
+    defineModule(AsyncActionCounter, {
+      actions: ["increaseLater"],
+      name: "asyncActionCounter",
+      state: ["count"],
+    });
+
+    const app = testApp({
+      providers: [AsyncActionCounter],
+    });
+    const counter = app.getModule(AsyncActionCounter);
+    const result = counter.increaseLater(2);
+
+    expect(app.test.getActions()).toEqual([]);
+
+    await expect(result).resolves.toBe(2);
+
+    expect(app.test.getActions()).toMatchObject([
+      {
+        args: [2],
+        method: "increaseLater",
+        module: "asyncActionCounter",
+      },
+    ]);
+  });
+
+  it("records rejected async actions with their rejection error", async () => {
+    const errors: string[] = [];
+
+    class AsyncFailingAction {
+      async fail(): Promise<void> {
+        await Promise.resolve();
+        throw new Error("async boom");
+      }
+    }
+
+    defineModule(AsyncFailingAction, {
+      actions: ["fail"],
+      name: "asyncFailingAction",
+    });
+
+    const app = testApp({
+      plugins: [
+        {
+          onError(error, context) {
+            errors.push(`${context.phase}:${error instanceof Error ? error.message : error}`);
+          },
+        },
+      ],
+      providers: [AsyncFailingAction],
+    });
+
+    await expect(app.getModule(AsyncFailingAction).fail()).rejects.toThrow("async boom");
+
+    expect(errors).toEqual(["action:async boom"]);
+    expect(app.test.getActions()).toMatchObject([
+      {
+        error: expect.any(Error),
+        method: "fail",
+        module: "asyncFailingAction",
+      },
+    ]);
+  });
+
+  it("treats post-await state writes as outside the original action transaction", async () => {
+    class PostAwaitWriter {
+      count = 0;
+
+      async writeLater(): Promise<void> {
+        await Promise.resolve();
+        this.count = 1;
+      }
+    }
+
+    defineModule(PostAwaitWriter, {
+      actions: ["writeLater"],
+      name: "postAwaitWriter",
+      state: ["count"],
+    });
+
+    const app = testApp({
+      providers: [PostAwaitWriter],
+      strictActions: true,
+    });
+    const writer = app.getModule(PostAwaitWriter);
+
+    await expect(writer.writeLater()).rejects.toThrow(CosystemError);
+
+    expect(writer.count).toBe(0);
+    expect(app.test.getActions()).toMatchObject([
+      {
+        error: expect.any(CosystemError),
+        method: "writeLater",
+        module: "postAwaitWriter",
+      },
+    ]);
+  });
+
   it("records actions and state snapshots through testApp", () => {
     const originalLogger = new MemoryLogger();
     const overrideLogger = new MemoryLogger();
