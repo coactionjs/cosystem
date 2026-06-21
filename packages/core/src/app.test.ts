@@ -853,6 +853,39 @@ describe("app runtime", () => {
     expect(app.getModule(ProviderOverrideCounter).logger).toBeInstanceOf(ProviderLogger);
   });
 
+  it("returns the bound module facade from app get APIs even when module scope is not singleton", async () => {
+    class TransientScopedCounter {
+      count = 0;
+
+      increase(): void {
+        this.count += 1;
+      }
+    }
+
+    defineModule(TransientScopedCounter, {
+      actions: ["increase"],
+      name: "transientScopedCounter",
+      scope: "transient",
+      state: ["count"],
+    });
+
+    const app = createApp({
+      providers: [TransientScopedCounter],
+    });
+    const module = app.getModule(TransientScopedCounter);
+
+    module.increase();
+
+    expect(app.get(TransientScopedCounter)).toBe(module);
+    await expect(app.getAsync(TransientScopedCounter)).resolves.toBe(module);
+    expect(app.get(TransientScopedCounter).count).toBe(1);
+    expect(app.store.getPureState()).toEqual({
+      transientScopedCounter: {
+        count: 1,
+      },
+    });
+  });
+
   it("keeps non-module class and factory providers lazy by default", () => {
     const ServiceToken = token<{ readonly value: string }>("LazyService");
     const events: string[] = [];

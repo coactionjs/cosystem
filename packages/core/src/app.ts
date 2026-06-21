@@ -335,10 +335,22 @@ class RuntimeApp implements App {
   }
 
   get<T>(token: InjectionToken<T>): T {
+    const moduleBinding = this.moduleByToken.get(token);
+
+    if (moduleBinding !== undefined) {
+      return moduleBinding.instance as T;
+    }
+
     return this.#container.get(token);
   }
 
   getAsync<T>(token: InjectionToken<T>): Promise<T> {
+    const moduleBinding = this.moduleByToken.get(token);
+
+    if (moduleBinding !== undefined) {
+      return Promise.resolve(moduleBinding.instance as T);
+    }
+
     return this.#container.getAsync(token);
   }
 
