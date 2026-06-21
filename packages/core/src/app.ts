@@ -338,8 +338,14 @@ class RuntimeApp implements App {
     }
 
     await this.initPromise;
-    await this.runLifecycle("onStart");
-    this.isStarted = true;
+
+    try {
+      await this.runLifecycle("onStart");
+      this.isStarted = true;
+    } catch (error) {
+      this.emitError(error, { phase: "start" });
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {
@@ -347,8 +353,13 @@ class RuntimeApp implements App {
       return;
     }
 
-    await this.runLifecycle("onStop", true);
-    this.isStarted = false;
+    try {
+      await this.runLifecycle("onStop", true);
+      this.isStarted = false;
+    } catch (error) {
+      this.emitError(error, { phase: "stop" });
+      throw error;
+    }
   }
 
   async dispose(): Promise<void> {
@@ -357,11 +368,17 @@ class RuntimeApp implements App {
     }
 
     await this.stop();
-    await this.runLifecycle("onDispose", true);
-    await Promise.all(this.plugins.map((plugin) => plugin.dispose?.()));
-    await this.#container.dispose();
-    this.store.destroy();
-    this.isDisposed = true;
+
+    try {
+      await this.runLifecycle("onDispose", true);
+      await Promise.all(this.plugins.map((plugin) => plugin.dispose?.()));
+      await this.#container.dispose();
+      this.store.destroy();
+      this.isDisposed = true;
+    } catch (error) {
+      this.emitError(error, { phase: "dispose" });
+      throw error;
+    }
   }
 
   createScope(options?: ScopeOptions): AppScope {
@@ -408,8 +425,13 @@ class RuntimeApp implements App {
 
   init(): void {
     this.initPromise = (async () => {
-      await Promise.all(this.plugins.map((plugin) => plugin.setup?.(this)));
-      await this.runLifecycle("onInit");
+      try {
+        await Promise.all(this.plugins.map((plugin) => plugin.setup?.(this)));
+        await this.runLifecycle("onInit");
+      } catch (error) {
+        this.emitError(error, { phase: "init" });
+        throw error;
+      }
     })();
   }
 
@@ -512,6 +534,7 @@ class RuntimeApp implements App {
       });
     } catch (caught) {
       error = caught;
+      this.emitError(caught, { phase: "action" });
     } finally {
       moduleBinding.actionDepth -= 1;
     }
@@ -561,6 +584,12 @@ class RuntimeApp implements App {
   private emitPatch(event: PatchEvent): void {
     for (const plugin of this.plugins) {
       plugin.onPatch?.(event);
+    }
+  }
+
+  private emitError(error: unknown, context: ErrorContext): void {
+    for (const plugin of this.plugins) {
+      plugin.onError?.(error, context);
     }
   }
 

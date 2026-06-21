@@ -37,6 +37,17 @@ defineModule(Counter, {
   state: ["count"],
 });
 
+class FailingAction {
+  fail(): void {
+    throw new Error("boom");
+  }
+}
+
+defineModule(FailingAction, {
+  actions: ["fail"],
+  name: "failingAction",
+});
+
 describe("app runtime", () => {
   it("binds no-decorator modules to the Coaction-backed app store", () => {
     const logger = new MemoryLogger();
@@ -190,6 +201,23 @@ describe("app runtime", () => {
       "module:dispose",
       "plugin:dispose",
     ]);
+  });
+
+  it("emits plugin error hooks when an action fails", () => {
+    const errors: string[] = [];
+    const app = createApp({
+      plugins: [
+        {
+          onError(error, context) {
+            errors.push(`${context.phase}:${error instanceof Error ? error.message : error}`);
+          },
+        },
+      ],
+      providers: [FailingAction],
+    });
+
+    expect(() => app.getModule(FailingAction).fail()).toThrow("boom");
+    expect(errors).toEqual(["action:boom"]);
   });
 
   it("returns a started app when testApp autoStart is enabled", async () => {
