@@ -12,6 +12,7 @@ composition.
 - `@cosystem/core`: DI container, module metadata, app runtime, decorators, and
   `testApp`
 - `@cosystem/react`: React context and hooks for consuming a CoSystem app
+- `@cosystem/svelte`: Svelte context and readable stores for consuming a CoSystem app
 - `@cosystem/vue`: Vue provide/inject composables for consuming a CoSystem app
 
 ## Core API
@@ -131,6 +132,17 @@ const CounterView = defineComponent({
 });
 
 createVueApp(CounterView).use(cosystemPlugin(app)).mount("#app");
+```
+
+Svelte:
+
+```ts
+import { moduleStore, selectedModuleStore, setCoSystemApp } from "@cosystem/svelte";
+
+setCoSystemApp(app);
+
+const counter = moduleStore(Counter);
+const count = selectedModuleStore(Counter, (module) => module.count);
 ```
 
 ## Testing

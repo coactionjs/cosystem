@@ -1,0 +1,43 @@
+{
+  "name": "@cosystem/svelte",
+  "version": "0.0.0",
+  "description": "Svelte adapter for CoSystem.",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf coverage dist .turbo",
+    "dev": "tsdown --watch",
+    "test": "cd ../.. && vitest run --project @cosystem/svelte",
+    "test:coverage": "cd ../.. && vitest run --coverage --project @cosystem/svelte",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@cosystem/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@cosystem/tsconfig": "workspace:*",
+    "svelte": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "svelte": ">=4.0.0 || >=5.0.0"
+  }
+}

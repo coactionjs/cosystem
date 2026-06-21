@@ -32,6 +32,14 @@ export default defineConfig({
         extends: true,
         test: {
           include: ["src/**/*.test.ts"],
+          name: "@cosystem/svelte",
+          root: "./packages/svelte",
+        },
+      },
+      {
+        extends: true,
+        test: {
+          include: ["src/**/*.test.ts"],
           name: "@cosystem/vue",
           root: "./packages/vue",
         },
