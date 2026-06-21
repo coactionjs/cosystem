@@ -163,6 +163,40 @@ expect(startedApp.started).toBe(true);
 
 More focused examples live in [`examples/`](./examples).
 
+## Worker Prototype
+
+`@cosystem/core` includes a small worker-hosting prototype:
+
+```ts
+import {
+  createMemoryWorkerTransportPair,
+  createWorkerApp,
+  createWorkerClient,
+} from "@cosystem/core";
+
+const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+
+const client = createWorkerClient({
+  transport: clientTransport,
+});
+
+const host = createWorkerApp({
+  providers: [Counter],
+  transport: hostTransport,
+});
+
+await client.module<Counter>("counter").increase(1);
+
+console.log(client.getState());
+
+client.dispose();
+await host.dispose();
+```
+
+The prototype covers app creation, method delegation, and state snapshot sync. It
+does not attempt full shared-runtime conflict handling or framework-specific
+worker bootstrapping.
+
 ## Tooling
 
 This repository is set up as a modern TypeScript monorepo:

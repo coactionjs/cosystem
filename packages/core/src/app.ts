@@ -56,6 +56,7 @@ export interface App {
   getAsync<T>(token: InjectionToken<T>): Promise<T>;
   getAll<T>(token: InjectionToken<T>): T[];
   getModule<T>(token: InjectionToken<T>): T;
+  getModuleByName<T = unknown>(name: string): T;
   watch<T>(
     read: () => T,
     listener: (value: T, previous: T) => void,
@@ -257,6 +258,16 @@ class RuntimeApp implements App {
     }
 
     return value;
+  }
+
+  getModuleByName<T = unknown>(name: string): T {
+    const moduleBinding = this.moduleByName.get(name);
+
+    if (moduleBinding === undefined) {
+      throw new CosystemError(`${name} is not a CoSystem module.`);
+    }
+
+    return moduleBinding.instance as T;
   }
 
   watch<T>(

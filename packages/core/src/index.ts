@@ -44,6 +44,20 @@ export {
   type TestAppOptions,
 } from "./testApp.js";
 export { token, tokenName } from "./token.js";
+export {
+  createMemoryWorkerTransportPair,
+  createWorkerApp,
+  createWorkerClient,
+  type AsyncMethodProxy,
+  type CreateWorkerAppOptions,
+  type CreateWorkerClientOptions,
+  type SerializedWorkerError,
+  type WorkerAppHost,
+  type WorkerClient,
+  type WorkerMessage,
+  type WorkerStateMessage,
+  type WorkerTransport,
+} from "./worker.js";
 export type {
   BuildOptions,
   ClassProvider,
