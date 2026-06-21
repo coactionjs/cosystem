@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createDataTransportWorkerTransport,
   createMemoryWorkerTransportPair,
   createWorkerApp,
   createWorkerClient,
   defineModule,
+  type DataTransportLike,
+  type WorkerMessage,
   type WorkerStateMessage,
 } from "./index.js";
 
@@ -96,4 +99,90 @@ describe("worker prototype", () => {
     client.dispose();
     await host.dispose();
   });
+
+  it("adapts data-transport style listen and emit endpoints", async () => {
+    const [hostDataTransport, clientDataTransport] = createDataTransportPair();
+    const client = createWorkerClient({
+      transport: createDataTransportWorkerTransport(clientDataTransport),
+    });
+    const host = createWorkerApp({
+      providers: [WorkerCounter],
+      transport: createDataTransportWorkerTransport(hostDataTransport),
+    });
+
+    await expect(client.module<WorkerCounter>("workerCounter").increase(4)).resolves.toBe(4);
+
+    expect(client.getState()).toEqual({
+      workerCounter: {
+        count: 4,
+      },
+    });
+
+    client.dispose();
+    await host.dispose();
+  });
+
+  it("rejects pending calls when the client is disposed", async () => {
+    const [, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({
+      transport: clientTransport,
+    });
+    const pending = client.call("workerCounter", "increase", 1);
+
+    client.dispose();
+
+    await expect(pending).rejects.toThrow("Worker client disposed before response.");
+  });
 });
+
+function createDataTransportPair(): readonly [DataTransportLike, DataTransportLike] {
+  const leftListeners = new Map<WorkerMessage["type"], Set<(message: WorkerMessage) => unknown>>();
+  const rightListeners = new Map<WorkerMessage["type"], Set<(message: WorkerMessage) => unknown>>();
+
+  return [
+    createDataTransportEndpoint(leftListeners, rightListeners),
+    createDataTransportEndpoint(rightListeners, leftListeners),
+  ];
+}
+
+function createDataTransportEndpoint(
+  inbox: Map<WorkerMessage["type"], Set<(message: WorkerMessage) => unknown>>,
+  outbox: Map<WorkerMessage["type"], Set<(message: WorkerMessage) => unknown>>,
+): DataTransportLike {
+  return {
+    emit(options, message) {
+      const name = typeof options === "string" ? options : options.name;
+      const listeners = outbox.get(name);
+
+      if (listeners === undefined) {
+        return Promise.resolve(undefined);
+      }
+
+      let result: unknown;
+
+      for (const listener of listeners) {
+        result = listener(message);
+      }
+
+      return Promise.resolve(result);
+    },
+    listen(name, listener) {
+      let listeners = inbox.get(name);
+
+      if (listeners === undefined) {
+        listeners = new Set();
+        inbox.set(name, listeners);
+      }
+
+      listeners.add(listener);
+
+      return () => {
+        listeners.delete(listener);
+
+        if (listeners.size === 0) {
+          inbox.delete(name);
+        }
+      };
+    },
+  };
+}

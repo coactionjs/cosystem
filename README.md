@@ -283,6 +283,7 @@ More focused examples live in [`examples/`](./examples).
 
 ```ts
 import {
+  createDataTransportWorkerTransport,
   createMemoryWorkerTransportPair,
   createWorkerApp,
   createWorkerClient,
@@ -307,9 +308,24 @@ client.dispose();
 await host.dispose();
 ```
 
+For real worker, iframe, process, or broadcast channels, adapt a
+`data-transport` endpoint instead of using the in-memory pair:
+
+```ts
+const client = createWorkerClient({
+  transport: createDataTransportWorkerTransport(clientDataTransport),
+});
+
+const host = createWorkerApp({
+  providers: [Counter],
+  transport: createDataTransportWorkerTransport(hostDataTransport),
+});
+```
+
 The prototype covers app creation, method delegation, initial state snapshots,
-and patch sync messages. It does not attempt full shared-runtime conflict
-handling or framework-specific worker bootstrapping.
+patch sync messages, and a `data-transport`-style `listen`/`emit` bridge. It
+does not attempt full shared-runtime conflict handling or framework-specific
+worker bootstrapping.
 
 ## Logger Plugin
 

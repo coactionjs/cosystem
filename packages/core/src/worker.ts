@@ -6,6 +6,28 @@ export interface WorkerTransport {
   subscribe(listener: (message: WorkerMessage) => void): () => void;
 }
 
+export type DataTransportEmitOptions =
+  | WorkerMessage["type"]
+  | {
+      readonly name: WorkerMessage["type"];
+      readonly respond?: boolean;
+      readonly timeout?: number;
+      readonly silent?: boolean;
+      readonly skipBeforeEmit?: boolean;
+    };
+
+export interface DataTransportLike {
+  emit(options: DataTransportEmitOptions, message: WorkerMessage): Promise<unknown>;
+  listen(
+    name: WorkerMessage["type"],
+    listener: (message: WorkerMessage) => unknown,
+  ): (() => void) | void;
+}
+
+export interface DataTransportWorkerTransportOptions {
+  readonly onError?: (error: unknown, message: WorkerMessage) => void;
+}
+
 export type WorkerMessage =
   | WorkerCallMessage
   | WorkerResultMessage
@@ -224,6 +246,79 @@ export function createMemoryWorkerTransportPair(): readonly [WorkerTransport, Wo
   ];
 }
 
+export function createDataTransportWorkerTransport(
+  dataTransport: DataTransportLike,
+  options: DataTransportWorkerTransportOptions = {},
+): WorkerTransport {
+  const listeners = new Set<(message: WorkerMessage) => void>();
+  const disposers: (() => void)[] = [];
+  let listening = false;
+
+  const start = () => {
+    if (listening) {
+      return;
+    }
+
+    listening = true;
+
+    for (const type of workerMessageTypes) {
+      const dispose = dataTransport.listen(type, (message) => {
+        if (!isWorkerMessage(message)) {
+          return;
+        }
+
+        for (const listener of listeners) {
+          listener(message);
+        }
+      });
+
+      if (typeof dispose === "function") {
+        disposers.push(dispose);
+      }
+    }
+  };
+
+  const stop = () => {
+    if (!listening) {
+      return;
+    }
+
+    listening = false;
+
+    for (const dispose of disposers.splice(0)) {
+      dispose();
+    }
+  };
+
+  return {
+    post(message) {
+      void dataTransport
+        .emit(
+          {
+            name: message.type,
+            respond: false,
+          },
+          message,
+        )
+        .catch((error: unknown) => {
+          options.onError?.(error, message);
+        });
+    },
+    subscribe(listener) {
+      start();
+      listeners.add(listener);
+
+      return () => {
+        listeners.delete(listener);
+
+        if (listeners.size === 0) {
+          stop();
+        }
+      };
+    },
+  };
+}
+
 async function handleCall(
   app: App,
   transport: WorkerTransport,
@@ -285,6 +380,18 @@ function createMemoryWorkerTransport(
       };
     },
   };
+}
+
+const workerMessageTypes = ["call", "result", "state", "ready"] as const;
+
+function isWorkerMessage(message: unknown): message is WorkerMessage {
+  if (typeof message !== "object" || message === null || !("type" in message)) {
+    return false;
+  }
+
+  return workerMessageTypes.includes(
+    (message as { readonly type?: unknown }).type as WorkerMessage["type"],
+  );
 }
 
 function serializeError(error: unknown): SerializedWorkerError {

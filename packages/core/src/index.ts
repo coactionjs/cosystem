@@ -52,11 +52,15 @@ export {
 export { token, tokenName } from "./token.js";
 export {
   createMemoryWorkerTransportPair,
+  createDataTransportWorkerTransport,
   createWorkerApp,
   createWorkerClient,
   type AsyncMethodProxy,
   type CreateWorkerAppOptions,
   type CreateWorkerClientOptions,
+  type DataTransportEmitOptions,
+  type DataTransportLike,
+  type DataTransportWorkerTransportOptions,
   type SerializedWorkerError,
   type WorkerAppHost,
   type WorkerClient,
