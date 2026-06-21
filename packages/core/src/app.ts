@@ -25,7 +25,6 @@ import type {
 
 export interface EngineOptions {
   readonly patches?: boolean;
-  readonly devtools?: boolean;
   readonly transport?: unknown;
 }
 
