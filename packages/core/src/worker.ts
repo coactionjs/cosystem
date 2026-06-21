@@ -49,6 +49,32 @@ export interface PostMessageWorkerTransportOptions {
   readonly onError?: (error: unknown, message: WorkerMessage) => void;
 }
 
+export interface BroadcastMessageEventLike {
+  readonly data?: unknown;
+}
+
+export interface BroadcastChannelLike {
+  postMessage(message: unknown): void;
+  addEventListener(type: "message", listener: (event: BroadcastMessageEventLike) => void): void;
+  removeEventListener(type: "message", listener: (event: BroadcastMessageEventLike) => void): void;
+  close?(): void;
+}
+
+export interface BroadcastWorkerTransportOptions {
+  readonly channel?: string;
+  readonly peerId?: string;
+  readonly targetPeerId?: string;
+  readonly onError?: (error: unknown, message: WorkerMessage) => void;
+}
+
+export interface BroadcastWorkerMessageEnvelope {
+  readonly type: "cosystem:worker";
+  readonly channel: string;
+  readonly source: string;
+  readonly target?: string;
+  readonly message: WorkerMessage;
+}
+
 export type WorkerMessage =
   | WorkerCallMessage
   | WorkerResultMessage
@@ -149,6 +175,11 @@ interface WorkerSelectorWatcher<T> {
 
 type PatchPathSegment = string | number;
 type PatchContainer = Record<string, unknown> | unknown[];
+
+interface BroadcastCallRoute {
+  readonly id: number;
+  readonly source: string;
+}
 
 interface WorkerPatch {
   readonly op: "add" | "replace" | "remove";
@@ -440,6 +471,79 @@ export function createPostMessageWorkerTransport(
   };
 }
 
+export function createBroadcastWorkerTransport(
+  broadcast: BroadcastChannelLike,
+  options: BroadcastWorkerTransportOptions = {},
+): WorkerTransport {
+  const channel = options.channel ?? defaultBroadcastWorkerChannel;
+  const peerId = options.peerId ?? createWorkerPeerId();
+  const callRoutes = new Map<number, BroadcastCallRoute>();
+  let nextRoutedCallId = 1;
+
+  return {
+    post(message) {
+      try {
+        const routed = routeBroadcastWorkerMessage(message, callRoutes);
+        const target = routed.target ?? getBroadcastWorkerTarget(message, options);
+        const envelope: BroadcastWorkerMessageEnvelope = {
+          channel,
+          message: routed.message,
+          source: peerId,
+          type: "cosystem:worker",
+          ...(target === undefined ? {} : { target }),
+        };
+
+        // eslint-disable-next-line unicorn/require-post-message-target-origin -- BroadcastChannel-style endpoints do not accept targetOrigin.
+        broadcast.postMessage(envelope);
+      } catch (error) {
+        options.onError?.(error, message);
+      }
+    },
+    subscribe(listener) {
+      const handleMessage = (event: BroadcastMessageEventLike) => {
+        const envelope = event.data;
+
+        if (
+          !isBroadcastWorkerMessageEnvelope(envelope) ||
+          envelope.channel !== channel ||
+          envelope.source === peerId ||
+          (envelope.target !== undefined && envelope.target !== peerId)
+        ) {
+          return;
+        }
+
+        if (envelope.message.type === "call") {
+          const routedCallId = nextRoutedCallId;
+          nextRoutedCallId += 1;
+          callRoutes.set(routedCallId, {
+            id: envelope.message.id,
+            source: envelope.source,
+          });
+          listener({
+            ...envelope.message,
+            id: routedCallId,
+          });
+          return;
+        }
+
+        listener(envelope.message);
+      };
+
+      broadcast.addEventListener("message", handleMessage);
+
+      return () => {
+        broadcast.removeEventListener("message", handleMessage);
+      };
+    },
+  };
+}
+
+export function createMemoryBroadcastChannel(
+  name: string = defaultBroadcastWorkerChannel,
+): BroadcastChannelLike {
+  return new MemoryBroadcastChannel(name);
+}
+
 export function createDataTransportWorkerTransport(
   dataTransport: DataTransportLike,
   options: DataTransportWorkerTransportOptions = {},
@@ -510,6 +614,38 @@ export function createDataTransportWorkerTransport(
         }
       };
     },
+  };
+}
+
+function getBroadcastWorkerTarget(
+  message: WorkerMessage,
+  options: BroadcastWorkerTransportOptions,
+): string | undefined {
+  return message.type === "call" ? options.targetPeerId : undefined;
+}
+
+function routeBroadcastWorkerMessage(
+  message: WorkerMessage,
+  callRoutes: Map<number, BroadcastCallRoute>,
+): { readonly message: WorkerMessage; readonly target?: string } {
+  if (message.type !== "result") {
+    return { message };
+  }
+
+  const route = callRoutes.get(message.id);
+
+  if (route === undefined) {
+    return { message };
+  }
+
+  callRoutes.delete(message.id);
+
+  return {
+    message: {
+      ...message,
+      id: route.id,
+    },
+    target: route.source,
   };
 }
 
@@ -727,6 +863,94 @@ function createMemoryWorkerTransport(
 }
 
 const workerMessageTypes = ["call", "result", "state", "ready"] as const;
+const defaultBroadcastWorkerChannel = "cosystem:worker";
+const memoryBroadcastChannels = new Map<string, Set<MemoryBroadcastChannel>>();
+let nextWorkerPeerId = 1;
+
+class MemoryBroadcastChannel implements BroadcastChannelLike {
+  readonly name: string;
+  readonly #listeners = new Set<(event: BroadcastMessageEventLike) => void>();
+  #closed = false;
+
+  constructor(name: string) {
+    this.name = name;
+
+    let channels = memoryBroadcastChannels.get(name);
+
+    if (channels === undefined) {
+      channels = new Set();
+      memoryBroadcastChannels.set(name, channels);
+    }
+
+    channels.add(this);
+  }
+
+  postMessage(message: unknown): void {
+    if (this.#closed) {
+      return;
+    }
+
+    const channels = memoryBroadcastChannels.get(this.name);
+
+    if (channels === undefined) {
+      return;
+    }
+
+    for (const channel of channels) {
+      if (channel === this || channel.#closed) {
+        continue;
+      }
+
+      channel.dispatch({ data: message });
+    }
+  }
+
+  addEventListener(_type: "message", listener: (event: BroadcastMessageEventLike) => void): void {
+    if (!this.#closed) {
+      this.#listeners.add(listener);
+    }
+  }
+
+  removeEventListener(
+    _type: "message",
+    listener: (event: BroadcastMessageEventLike) => void,
+  ): void {
+    this.#listeners.delete(listener);
+  }
+
+  close(): void {
+    if (this.#closed) {
+      return;
+    }
+
+    this.#closed = true;
+    this.#listeners.clear();
+
+    const channels = memoryBroadcastChannels.get(this.name);
+
+    if (channels === undefined) {
+      return;
+    }
+
+    channels.delete(this);
+
+    if (channels.size === 0) {
+      memoryBroadcastChannels.delete(this.name);
+    }
+  }
+
+  private dispatch(event: BroadcastMessageEventLike): void {
+    for (const listener of this.#listeners) {
+      listener(event);
+    }
+  }
+}
+
+function createWorkerPeerId(): string {
+  const id = nextWorkerPeerId;
+  nextWorkerPeerId += 1;
+  return `peer:${id}`;
+}
 
 function isWorkerMessage(message: unknown): message is WorkerMessage {
   if (typeof message !== "object" || message === null || !("type" in message)) {
@@ -735,6 +959,22 @@ function isWorkerMessage(message: unknown): message is WorkerMessage {
 
   return workerMessageTypes.includes(
     (message as { readonly type?: unknown }).type as WorkerMessage["type"],
+  );
+}
+
+function isBroadcastWorkerMessageEnvelope(
+  message: unknown,
+): message is BroadcastWorkerMessageEnvelope {
+  if (!isRecord(message)) {
+    return false;
+  }
+
+  return (
+    message.type === "cosystem:worker" &&
+    typeof message.channel === "string" &&
+    typeof message.source === "string" &&
+    (message.target === undefined || typeof message.target === "string") &&
+    isWorkerMessage(message.message)
   );
 }
 

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createBroadcastWorkerTransport,
   createDataTransportWorkerTransport,
+  createMemoryBroadcastChannel,
   createMemoryWorkerTransportPair,
   createPostMessageWorkerTransport,
   createWorkerApp,
@@ -275,6 +277,54 @@ describe("worker prototype", () => {
 
     client.dispose();
     await host.dispose();
+  });
+
+  it("coordinates shared tab clients over a broadcast channel", async () => {
+    const channel = "worker-shared-tabs";
+    const hostChannel = createMemoryBroadcastChannel(channel);
+    const clientOneChannel = createMemoryBroadcastChannel(channel);
+    const clientTwoChannel = createMemoryBroadcastChannel(channel);
+    const clientOne = createWorkerClient({
+      transport: createBroadcastWorkerTransport(clientOneChannel, {
+        peerId: "client:one",
+        targetPeerId: "host",
+      }),
+    });
+    const clientTwo = createWorkerClient({
+      transport: createBroadcastWorkerTransport(clientTwoChannel, {
+        peerId: "client:two",
+        targetPeerId: "host",
+      }),
+    });
+    const host = createWorkerApp({
+      providers: [WorkerCounter],
+      sync: "patch",
+      transport: createBroadcastWorkerTransport(hostChannel, {
+        peerId: "host",
+      }),
+    });
+
+    await Promise.all([clientOne.ready, clientTwo.ready]);
+
+    expect(clientOne.select(selectWorkerCount)).toBe(0);
+    expect(clientTwo.select(selectWorkerCount)).toBe(0);
+
+    await expect(
+      Promise.all([
+        clientOne.module<WorkerCounter>("workerCounter").increase(2),
+        clientTwo.module<WorkerCounter>("workerCounter").increase(5),
+      ]),
+    ).resolves.toEqual([2, 7]);
+
+    expect(clientOne.select(selectWorkerCount)).toBe(7);
+    expect(clientTwo.select(selectWorkerCount)).toBe(7);
+
+    clientOne.dispose();
+    clientTwo.dispose();
+    await host.dispose();
+    hostChannel.close?.();
+    clientOneChannel.close?.();
+    clientTwoChannel.close?.();
   });
 
   it("removes postMessage listeners when unsubscribed", () => {

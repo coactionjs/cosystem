@@ -475,7 +475,9 @@ More focused examples live in [`examples/`](./examples).
 
 ```ts
 import {
+  createBroadcastWorkerTransport,
   createDataTransportWorkerTransport,
+  createMemoryBroadcastChannel,
   createMemoryWorkerTransportPair,
   createPostMessageWorkerTransport,
   createWorkerApp,
@@ -531,6 +533,35 @@ const client = createWorkerClient({
 await client.ready;
 ```
 
+For shared tab coordination, adapt a browser `BroadcastChannel`. The client
+should subscribe before the host starts so it receives the initial snapshot:
+
+```ts
+const hostChannel = new BroadcastChannel("counter-runtime");
+const clientChannel = new BroadcastChannel("counter-runtime");
+
+const client = createWorkerClient({
+  transport: createBroadcastWorkerTransport(clientChannel, {
+    peerId: "tab:client",
+    targetPeerId: "tab:host",
+  }),
+});
+
+const host = createWorkerApp({
+  providers: [Counter],
+  sync: "patch",
+  transport: createBroadcastWorkerTransport(hostChannel, {
+    peerId: "tab:host",
+  }),
+});
+
+await client.ready;
+await client.module<Counter>("counter").increase(1);
+```
+
+Tests and non-browser environments can use `createMemoryBroadcastChannel()` with
+the same transport API.
+
 For process, socket, or custom RPC channels, adapt a `data-transport` endpoint:
 
 ```ts
@@ -549,8 +580,9 @@ await client.ready;
 The prototype covers app creation, method delegation, initial state snapshots,
 patch-only sync messages after startup, client-side readiness, selector watches
 for worker-hosted state, `postMessage` endpoints, and a `data-transport`-style
-`listen`/`emit` bridge. It does not attempt full shared-runtime conflict
-handling or framework-specific worker bootstrapping.
+`listen`/`emit` bridge. It also supports BroadcastChannel-style shared tab
+coordination with routed call results. It does not attempt full shared-runtime
+conflict handling or framework-specific worker bootstrapping.
 
 ## Logger Plugin
 

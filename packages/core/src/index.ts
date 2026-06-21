@@ -63,10 +63,16 @@ export {
 export { token, tokenName } from "./token.js";
 export {
   createMemoryWorkerTransportPair,
+  createBroadcastWorkerTransport,
   createDataTransportWorkerTransport,
+  createMemoryBroadcastChannel,
   createPostMessageWorkerTransport,
   createWorkerApp,
   createWorkerClient,
+  type BroadcastChannelLike,
+  type BroadcastMessageEventLike,
+  type BroadcastWorkerMessageEnvelope,
+  type BroadcastWorkerTransportOptions,
   type AsyncMethodProxy,
   type CreateWorkerAppOptions,
   type CreateWorkerClientOptions,

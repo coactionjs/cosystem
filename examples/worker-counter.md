@@ -6,6 +6,7 @@ same `WorkerTransport` contract.
 
 ```ts
 import {
+  createBroadcastWorkerTransport,
   createMemoryWorkerTransportPair,
   createPostMessageWorkerTransport,
   createWorkerApp,
@@ -77,4 +78,35 @@ const client = createWorkerClient({
 });
 
 await client.ready;
+```
+
+For shared tabs, use a `BroadcastChannel` transport. The client subscribes
+before the host starts so it receives the initial snapshot:
+
+```ts
+const hostChannel = new BroadcastChannel("counter-runtime");
+const clientChannel = new BroadcastChannel("counter-runtime");
+
+const sharedClient = createWorkerClient({
+  transport: createBroadcastWorkerTransport(clientChannel, {
+    peerId: "tab:client",
+    targetPeerId: "tab:host",
+  }),
+});
+
+const sharedHost = createWorkerApp({
+  providers: [Counter],
+  sync: "patch",
+  transport: createBroadcastWorkerTransport(hostChannel, {
+    peerId: "tab:host",
+  }),
+});
+
+await sharedClient.ready;
+await sharedClient.module<Counter>("counter").increase(1);
+
+sharedClient.dispose();
+await sharedHost.dispose();
+hostChannel.close();
+clientChannel.close();
 ```
