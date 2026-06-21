@@ -518,6 +518,19 @@ client.dispose();
 await host.dispose();
 ```
 
+Worker hosts can isolate published state to selected top-level module sections.
+Method delegation still works for all hosted modules, but snapshots and patches
+only include the configured sections:
+
+```ts
+const host = createWorkerApp({
+  providers: [Counter],
+  stateSections: ["counter"],
+  sync: "patch",
+  transport: hostTransport,
+});
+```
+
 For real Worker, iframe, or `MessagePort` targets, adapt a `postMessage`
 endpoint instead of using the in-memory pair:
 

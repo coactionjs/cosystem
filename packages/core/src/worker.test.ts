@@ -31,6 +31,21 @@ defineModule(WorkerCounter, {
   state: ["count"],
 });
 
+class WorkerHidden {
+  value = "initial";
+
+  set(value: string): string {
+    this.value = value;
+    return this.value;
+  }
+}
+
+defineModule(WorkerHidden, {
+  actions: ["set"],
+  name: "workerHidden",
+  state: ["value"],
+});
+
 describe("worker prototype", () => {
   it("delegates module method calls and syncs app state snapshots", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
@@ -165,6 +180,59 @@ describe("worker prototype", () => {
       },
     });
     expect(client.select(selectWorkerCount)).toBe(2);
+
+    client.dispose();
+    await host.dispose();
+  });
+
+  it("isolates worker state sync to configured state sections", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({
+      transport: clientTransport,
+    });
+    const host = createWorkerApp({
+      providers: [WorkerCounter, WorkerHidden],
+      stateSections: ["workerCounter"],
+      sync: "patch",
+      transport: hostTransport,
+    });
+    const messages: WorkerStateMessage[] = [];
+
+    client.subscribe((message) => {
+      messages.push(message);
+    });
+
+    await client.ready;
+
+    expect(client.getState()).toEqual({
+      workerCounter: {
+        count: 0,
+      },
+    });
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.sections).toEqual(["workerCounter"]);
+
+    await expect(client.module<WorkerHidden>("workerHidden").set("secret")).resolves.toBe("secret");
+
+    expect(client.getState()).toEqual({
+      workerCounter: {
+        count: 0,
+      },
+    });
+    expect(messages).toHaveLength(1);
+
+    await client.module<WorkerCounter>("workerCounter").increase(3);
+
+    expect(client.getState()).toEqual({
+      workerCounter: {
+        count: 3,
+      },
+    });
+    expect(messages).toHaveLength(2);
+    expect(messages[1]).toMatchObject({
+      sections: ["workerCounter"],
+      sync: "patch",
+    });
 
     client.dispose();
     await host.dispose();

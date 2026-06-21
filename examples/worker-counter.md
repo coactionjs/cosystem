@@ -65,6 +65,19 @@ client.dispose();
 await host.dispose();
 ```
 
+Worker hosts can isolate published state to selected top-level module sections:
+
+```ts
+const isolatedHost = createWorkerApp({
+  providers: [Counter],
+  stateSections: ["counter"],
+  sync: "patch",
+  transport: hostTransport,
+});
+
+await isolatedHost.dispose();
+```
+
 For a real Web Worker or `MessagePort`, use the `postMessage` adapter on the
 endpoint that owns `postMessage`, `addEventListener`, and `removeEventListener`:
 

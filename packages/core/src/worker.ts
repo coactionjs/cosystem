@@ -100,6 +100,7 @@ export interface WorkerStateMessage {
   readonly type: "state";
   readonly state?: unknown;
   readonly patches?: readonly unknown[];
+  readonly sections?: readonly WorkerStateSection[];
   readonly sync: "patch" | "snapshot";
   readonly version: number;
 }
@@ -117,9 +118,11 @@ export interface SerializedWorkerError {
 export interface CreateWorkerAppOptions extends CreateAppOptions {
   readonly transport: WorkerTransport;
   readonly sync?: WorkerStateSyncMode;
+  readonly stateSections?: readonly WorkerStateSection[];
 }
 
 export type WorkerStateSyncMode = "snapshot" | "patch";
+export type WorkerStateSection = string;
 
 export interface WorkerAppHost {
   readonly app: App;
@@ -188,13 +191,13 @@ interface WorkerPatch {
 }
 
 export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost {
-  const { sync = "snapshot", transport, ...appOptions } = options;
+  const { stateSections, sync = "snapshot", transport, ...appOptions } = options;
   let publishPatches = false;
   const patchPlugin: Plugin = {
     name: "cosystem:worker-patches",
     onPatch(event) {
       if (publishPatches) {
-        publishState(app, transport, event.patches, sync);
+        publishState(app, transport, event.patches, sync, stateSections);
       }
     },
   };
@@ -209,7 +212,7 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
   const ready = app.start().then(() => {
     publishPatches = true;
     transport.post({ type: "ready" });
-    publishState(app, transport, [], "snapshot");
+    publishState(app, transport, [], "snapshot", stateSections);
     return undefined;
   });
   const unsubscribeTransport = transport.subscribe((message) => {
@@ -684,17 +687,67 @@ function publishState(
   transport: WorkerTransport,
   patches: readonly unknown[] = [],
   mode: WorkerStateSyncMode = "snapshot",
+  sections?: readonly WorkerStateSection[],
 ): void {
-  const isPatch = patches.length > 0;
+  const filteredPatches = filterWorkerPatches(patches, sections);
+  const isPatch = filteredPatches.length > 0;
+
+  if (patches.length > 0 && filteredPatches.length === 0) {
+    return;
+  }
+
+  const state = filterWorkerState(app.store.getPureState(), sections);
   const message: WorkerStateMessage = {
-    ...(isPatch && mode === "patch" ? {} : { state: app.store.getPureState() }),
+    ...(isPatch && mode === "patch" ? {} : { state }),
+    ...(sections === undefined ? {} : { sections }),
     sync: isPatch ? "patch" : "snapshot",
     type: "state",
     version: app.state.version,
-    ...(isPatch ? { patches } : {}),
+    ...(isPatch ? { patches: filteredPatches } : {}),
   };
 
   transport.post(message);
+}
+
+function filterWorkerState(state: unknown, sections?: readonly WorkerStateSection[]): unknown {
+  if (sections === undefined || !isRecord(state)) {
+    return state;
+  }
+
+  const filtered: Record<string, unknown> = {};
+
+  for (const section of sections) {
+    if (section in state) {
+      filtered[section] = state[section];
+    }
+  }
+
+  return filtered;
+}
+
+function filterWorkerPatches(
+  patches: readonly unknown[],
+  sections?: readonly WorkerStateSection[],
+): readonly unknown[] {
+  if (sections === undefined) {
+    return patches;
+  }
+
+  const sectionSet = new Set(sections);
+
+  return patches.filter((patch) => {
+    if (!isWorkerPatch(patch)) {
+      throw new CosystemError("Worker state patch is invalid.");
+    }
+
+    const section = getWorkerPatchSection(patch);
+    return section !== undefined && sectionSet.has(String(section));
+  });
+}
+
+function getWorkerPatchSection(patch: WorkerPatch): PatchPathSegment | undefined {
+  const path = normalizePatchPath(patch.path);
+  return path[0];
 }
 
 function applyWorkerPatches(state: unknown, patches: readonly unknown[]): unknown {

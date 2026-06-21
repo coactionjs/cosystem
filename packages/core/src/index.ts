@@ -90,6 +90,7 @@ export {
   type WorkerMessage,
   type WorkerStateMessage,
   type WorkerStateSelector,
+  type WorkerStateSection,
   type WorkerStateSyncMode,
   type WorkerTransport,
   type WorkerWatchOptions,
