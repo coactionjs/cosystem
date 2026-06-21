@@ -375,11 +375,23 @@ await storage.flush(); // waits for queued persistence writes in tests/tools
 ## Router
 
 ```ts
-import { RouterToken, createMemoryRouter, provideRouter } from "@cosystem/router";
+import {
+  RouterToken,
+  createMemoryRouter,
+  createRouterPlugin,
+  provideRouter,
+} from "@cosystem/router";
 
 const router = createMemoryRouter({ initialPath: "/" });
 
 const app = createApp({
+  plugins: [
+    createRouterPlugin(router, {
+      onChange(location) {
+        console.log(location.path);
+      },
+    }),
+  ],
   providers: [provideRouter(router)],
 });
 

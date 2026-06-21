@@ -1,4 +1,11 @@
-import { provide, token, type Plugin, type ProviderInput, type Token } from "@cosystem/core";
+import {
+  provide,
+  token,
+  type App,
+  type Plugin,
+  type ProviderInput,
+  type Token,
+} from "@cosystem/core";
 
 export interface RouteLocation {
   readonly path: string;
@@ -14,6 +21,12 @@ export interface Router {
 
 export interface RouterOptions {
   readonly initialPath?: string;
+}
+
+export interface RouterPluginOptions {
+  readonly immediate?: boolean;
+  readonly onChange?: (location: RouteLocation, app: App) => void | Promise<void>;
+  readonly onError?: (error: unknown) => void;
 }
 
 export const RouterToken: Token<Router> = token<Router>("CoSystem Router");
@@ -42,13 +55,35 @@ export function createMemoryRouter(options: RouterOptions = {}): Router {
   };
 }
 
-export function createRouterPlugin(router: Router): Plugin {
+export function createRouterPlugin(router: Router, options: RouterPluginOptions = {}): Plugin {
   let unsubscribe: (() => void) | undefined;
 
   return {
     name: "cosystem:router",
-    setup() {
-      unsubscribe = router.subscribe(() => undefined);
+    setup(app) {
+      const notify = (location: RouteLocation): void => {
+        if (options.onChange === undefined) {
+          return;
+        }
+
+        try {
+          const result = options.onChange(location, app);
+
+          if (isPromiseLike(result)) {
+            void result.catch((error: unknown) => {
+              options.onError?.(error);
+            });
+          }
+        } catch (error) {
+          options.onError?.(error);
+        }
+      };
+
+      unsubscribe = router.subscribe(notify);
+
+      if (options.immediate === true) {
+        notify(router.current);
+      }
     },
     dispose() {
       unsubscribe?.();
@@ -74,4 +109,13 @@ export function parseLocation(value: string): RouteLocation {
     path: path === "" ? "/" : path,
     search,
   };
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "then" in value &&
+    typeof (value as { readonly then?: unknown }).then === "function"
+  );
 }
