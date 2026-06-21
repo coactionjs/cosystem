@@ -354,7 +354,7 @@ class RuntimeContainer implements ContainerImpl {
       const record =
         dep.optional === true
           ? this.getSingleRecord(dep.token, true)
-          : this.getSingleRecord(dep.token, false);
+          : this.getRequiredRecord(dep.token, context);
 
       if (record === undefined) {
         return undefined;
@@ -363,8 +363,21 @@ class RuntimeContainer implements ContainerImpl {
       return this.resolveRecord(record, context);
     }
 
-    const record = this.getSingleRecord(dep, false);
+    const record = this.getRequiredRecord(dep, context);
     return this.resolveRecord(record, context);
+  }
+
+  private getRequiredRecord(token: InjectionToken, context: ResolutionContext): ProviderRecord {
+    const record = this.getSingleRecord(token, true);
+
+    if (record === undefined) {
+      throw new MissingProviderError(
+        tokenName(token),
+        context.stack.map((entry) => entry.tokenName),
+      );
+    }
+
+    return record;
   }
 
   private resolveAllRecords(

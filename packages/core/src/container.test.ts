@@ -131,6 +131,21 @@ describe("DI container", () => {
     expect(() => container.get(Counter)).toThrow(MissingProviderError);
   });
 
+  it("includes the requesting provider in missing dependency errors", () => {
+    const MissingLoggerToken = token<Logger>("MissingLogger");
+
+    class NeedsMissingLogger {
+      static readonly inject = [MissingLoggerToken] as const;
+    }
+
+    const container = createContainer();
+    container.provide(NeedsMissingLogger);
+
+    expect(() => container.get(NeedsMissingLogger)).toThrow(
+      /Missing provider for MissingLogger[\s\S]*NeedsMissingLogger/,
+    );
+  });
+
   it("creates scoped instances per child container", () => {
     class RequestContext {}
 
