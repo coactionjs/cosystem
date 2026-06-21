@@ -23,8 +23,8 @@
     "build": "tsdown",
     "clean": "rm -rf coverage dist .turbo",
     "dev": "tsdown --watch",
-    "test": "vitest run --config ../../vitest.config.ts --project @cosystem/core",
-    "test:coverage": "vitest run --coverage --config ../../vitest.config.ts --project @cosystem/core",
+    "test": "cd ../.. && vitest run --project @cosystem/core",
+    "test:coverage": "cd ../.. && vitest run --coverage --project @cosystem/core",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
