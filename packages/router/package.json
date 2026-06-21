@@ -1,6 +1,6 @@
 {
   "name": "@cosystem/router",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Router integration primitives for CoSystem.",
   "license": "MIT",
   "files": [
