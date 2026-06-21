@@ -10,6 +10,7 @@ catalog:
   "@angular/core": "22.0.2"
   "@angular/common": "22.0.2"
   "@angular/compiler": "22.0.2"
+  "@angular/compiler-cli": "22.0.2"
   "@angular/build": "22.0.2"
   "@angular/platform-browser": "22.0.2"
   "@changesets/cli": "2.31.0"
@@ -51,3 +52,9 @@ catalog:
 
 minimumReleaseAgeExclude:
   - coaction@2.0.0
+
+allowBuilds:
+  "@parcel/watcher": true
+  esbuild: true
+  lmdb: true
+  msgpackr-extract: true
