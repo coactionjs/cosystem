@@ -12,6 +12,7 @@ composition.
 - `@cosystem/angular`: Angular provider bridge and signals for consuming a CoSystem app
 - `@cosystem/core`: DI container, module metadata, app runtime, decorators, and
   `testApp`
+- `@cosystem/devtools`: timeline inspection plugin for development tooling
 - `@cosystem/react`: React context and hooks for consuming a CoSystem app
 - `@cosystem/solid`: Solid context and signals for consuming a CoSystem app
 - `@cosystem/svelte`: Svelte context and readable stores for consuming a CoSystem app
@@ -247,6 +248,21 @@ await host.dispose();
 The prototype covers app creation, method delegation, and state snapshot sync. It
 does not attempt full shared-runtime conflict handling or framework-specific
 worker bootstrapping.
+
+## Devtools
+
+```ts
+import { createDevtoolsPlugin } from "@cosystem/devtools";
+
+const devtools = createDevtoolsPlugin();
+
+const app = createApp({
+  plugins: [devtools],
+  providers: [Counter],
+});
+
+console.log(devtools.getTimeline());
+```
 
 ## Tooling
 
