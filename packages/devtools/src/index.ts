@@ -2,6 +2,7 @@ import type {
   ActionEvent,
   App,
   ErrorContext,
+  ModuleCreatedEvent,
   PatchEvent,
   Plugin,
   StateChangeEvent,
@@ -16,6 +17,11 @@ export type DevtoolsTimelineEvent =
   | {
       readonly type: "action:start" | "action:end";
       readonly event: ActionEvent;
+      readonly time: number;
+    }
+  | {
+      readonly type: "module";
+      readonly event: ModuleCreatedEvent;
       readonly time: number;
     }
   | {
@@ -101,6 +107,13 @@ export function createDevtoolsPlugin(options: DevtoolsOptions = {}): DevtoolsPlu
         error,
         time: now(),
         type: "error",
+      });
+    },
+    onModuleCreated(event) {
+      push({
+        event,
+        time: now(),
+        type: "module",
       });
     },
     onPatch(event) {

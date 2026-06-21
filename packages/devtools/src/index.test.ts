@@ -43,12 +43,33 @@ describe("devtools plugin", () => {
     app.getModule(Counter).increase();
 
     expect(devtools.getTimeline().map((event) => event.type)).toEqual([
+      "module",
       "setup",
       "action:start",
       "state",
       "patch",
       "action:end",
     ]);
+  });
+
+  it("records module creation details", () => {
+    const devtools = createDevtoolsPlugin({
+      now: () => 1,
+    });
+    const app = createApp({
+      plugins: [devtools],
+      providers: [Counter],
+    });
+    const moduleEvent = devtools.getTimeline().find((event) => event.type === "module");
+
+    expect(moduleEvent).toMatchObject({
+      event: {
+        instance: app.getModule(Counter),
+        name: "devtoolsCounter",
+        token: Counter,
+      },
+      type: "module",
+    });
   });
 
   it("trims old timeline events when maxEvents is reached", () => {
@@ -85,7 +106,7 @@ describe("devtools plugin", () => {
     unsubscribe();
     app.getModule(Counter).increase();
 
-    expect(events).toEqual(["setup", "action:start", "state", "patch", "action:end"]);
+    expect(events).toEqual(["module", "setup", "action:start", "state", "patch", "action:end"]);
     expect(devtools.getTimeline().map((event) => event.type)).toEqual(["patch", "action:end"]);
   });
 
@@ -101,6 +122,7 @@ describe("devtools plugin", () => {
     expect(() => app.getModule(FailingAction).fail()).toThrow("boom");
 
     expect(devtools.getTimeline().map((event) => event.type)).toEqual([
+      "module",
       "setup",
       "action:start",
       "error",

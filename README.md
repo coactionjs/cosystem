@@ -447,6 +447,7 @@ const unsubscribe = devtools.subscribe((event) => {
   console.log(event.type);
 });
 
+// Includes module creation, setup, action, state, patch, and error events.
 console.log(devtools.getTimeline());
 
 unsubscribe();
