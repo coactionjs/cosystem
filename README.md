@@ -41,6 +41,7 @@ import {
   effect,
   module as module_,
   provide,
+  runInAction,
   state,
 } from "@cosystem/core";
 
@@ -129,7 +130,24 @@ runtime and invalidate when the state they read changes.
 read changes.
 Async `@action` methods may return promises; synchronous writes before the first
 `await` are part of the action transaction, while post-await writes need another
-action boundary or non-strict writes.
+action boundary or non-strict writes. Use `runInAction(this, ...)` after an
+`await` when strict action mode should remain enabled:
+
+```ts
+class Counter {
+  @state
+  accessor count = 0;
+
+  @action
+  async refresh(): Promise<void> {
+    const next = await loadCount();
+
+    runInAction(this, () => {
+      this.count = next;
+    });
+  }
+}
+```
 
 ## Provider Lifetime
 

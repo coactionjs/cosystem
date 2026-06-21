@@ -74,6 +74,7 @@ export interface App {
     listener: (value: T, previous: T) => void,
     options?: WatchOptions<T>,
   ): () => void;
+  runInAction<T>(module: RunInActionTarget, callback: () => T, options?: RunInActionOptions): T;
   start(): Promise<void>;
   stop(): Promise<void>;
   dispose(): Promise<void>;
@@ -85,6 +86,13 @@ export interface App {
 export interface WatchOptions<T> {
   readonly equals?: (value: T, previous: T) => boolean;
   readonly immediate?: boolean;
+}
+
+export type RunInActionTarget<T extends object = object> = InjectionToken<T> | T;
+
+export interface RunInActionOptions {
+  readonly name?: string;
+  readonly args?: readonly unknown[];
 }
 
 export interface Plugin {
@@ -189,6 +197,16 @@ const appContainerMap = new WeakMap<App, Container>();
 
 export function createApp(options: CreateAppOptions = {}): App {
   return createAppInternal(options);
+}
+
+export function runInAction<T>(module: object, callback: () => T, options?: RunInActionOptions): T {
+  const metadata = getRuntimeModuleMetadata(module);
+
+  if (metadata === undefined) {
+    throw new CosystemError("runInAction() target is not a CoSystem module instance.");
+  }
+
+  return metadata.app.runInAction(module, callback, options);
 }
 
 export function createAppInternal(options: InternalCreateAppOptions = {}): App {
@@ -381,6 +399,21 @@ class RuntimeApp implements App {
       unsubscribeTracker();
       tracker.dispose();
     };
+  }
+
+  runInAction<T>(
+    module: RunInActionTarget,
+    callback: () => T,
+    options: RunInActionOptions = {},
+  ): T {
+    const moduleBinding = this.resolveModuleBinding(module);
+
+    return this.runActionCallback(
+      moduleBinding,
+      options.name ?? "runInAction",
+      options.args ?? [],
+      callback,
+    ) as T;
   }
 
   async start(): Promise<void> {
@@ -664,6 +697,17 @@ class RuntimeApp implements App {
       throw new CosystemError(`${moduleBinding.name}.${String(property)} is not an action.`);
     }
 
+    return this.runActionCallback(moduleBinding, property, args, () =>
+      action.apply(moduleBinding.instance, [...args]),
+    );
+  }
+
+  private runActionCallback(
+    moduleBinding: ModuleBinding,
+    property: PropertyKey,
+    args: readonly unknown[],
+    callback: () => unknown,
+  ): unknown {
     const event: ActionEvent = {
       args,
       method: String(property),
@@ -684,7 +728,7 @@ class RuntimeApp implements App {
           draft[moduleBinding.name] = moduleBinding.activeDraft;
 
           try {
-            result = action.apply(moduleBinding.instance, [...args]);
+            result = callback();
           } finally {
             moduleBinding.activeDraft = previousDraft;
           }
@@ -696,7 +740,7 @@ class RuntimeApp implements App {
         moduleBinding.activeDraft = slice === undefined ? {} : { ...slice };
 
         try {
-          result = action.apply(moduleBinding.instance, [...args]);
+          result = callback();
           this.store.setState({
             ...state,
             [moduleBinding.name]: moduleBinding.activeDraft,
@@ -734,6 +778,52 @@ class RuntimeApp implements App {
     this.finishAction(event);
 
     return result;
+  }
+
+  private resolveModuleBinding(target: RunInActionTarget): ModuleBinding {
+    if (typeof target === "object" && target !== null) {
+      const metadata = getRuntimeModuleMetadata(target);
+
+      if (metadata !== undefined) {
+        if (metadata.app !== this) {
+          throw new CosystemError("runInAction() target belongs to another CoSystem app.");
+        }
+
+        const moduleBinding = this.moduleByToken.get(metadata.token);
+
+        if (moduleBinding !== undefined) {
+          return moduleBinding;
+        }
+      }
+
+      if (isTokenObject(target)) {
+        const moduleBinding = this.moduleByToken.get(target);
+
+        if (moduleBinding !== undefined) {
+          return moduleBinding;
+        }
+      }
+
+      throw new CosystemError("runInAction() target is not a CoSystem module.");
+    }
+
+    if (typeof target === "string") {
+      const moduleBinding = this.moduleByName.get(target) ?? this.moduleByToken.get(target);
+
+      if (moduleBinding !== undefined) {
+        return moduleBinding;
+      }
+
+      throw new CosystemError(`${target} is not a CoSystem module.`);
+    }
+
+    const moduleBinding = this.moduleByToken.get(target);
+
+    if (moduleBinding !== undefined) {
+      return moduleBinding;
+    }
+
+    throw new CosystemError(`${tokenName(target)} is not a CoSystem module.`);
   }
 
   private finishAction(event: ActionEvent, error?: unknown): void {
@@ -1137,6 +1227,16 @@ function getGetter(instance: Record<PropertyKey, unknown>, property: PropertyKey
   }
 
   return descriptor.get;
+}
+
+function getRuntimeModuleMetadata(module: object): RuntimeModuleMetadata | undefined {
+  return (module as { readonly [runtimeModuleMetadataKey]?: RuntimeModuleMetadata })[
+    runtimeModuleMetadataKey
+  ];
+}
+
+function isTokenObject(value: object): value is Extract<InjectionToken, object> {
+  return "id" in value && typeof (value as { readonly id?: unknown }).id === "symbol";
 }
 
 function getDescriptor(

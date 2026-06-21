@@ -12,6 +12,7 @@ import {
   lazyModule,
   module as moduleDecorator,
   provide,
+  runInAction,
   state as stateDecorator,
   testApp,
   token,
@@ -439,6 +440,110 @@ describe("app runtime", () => {
         module: "postAwaitWriter",
       },
     ]);
+  });
+
+  it("allows post-await state writes through an explicit action boundary", async () => {
+    class PostAwaitCommitter {
+      count = 0;
+
+      async writeLater(): Promise<number> {
+        await Promise.resolve();
+
+        return runInAction(
+          this,
+          () => {
+            this.count = 1;
+            return this.count;
+          },
+          {
+            name: "writeLater.commit",
+          },
+        );
+      }
+    }
+
+    defineModule(PostAwaitCommitter, {
+      actions: ["writeLater"],
+      name: "postAwaitCommitter",
+      state: ["count"],
+    });
+
+    const app = testApp({
+      providers: [PostAwaitCommitter],
+      strictActions: true,
+    });
+    const writer = app.getModule(PostAwaitCommitter);
+
+    await expect(writer.writeLater()).resolves.toBe(1);
+
+    expect(writer.count).toBe(1);
+    expect(app.store.getPureState()).toEqual({
+      postAwaitCommitter: {
+        count: 1,
+      },
+    });
+    expect(app.test.getActions()).toMatchObject([
+      {
+        method: "writeLater.commit",
+        module: "postAwaitCommitter",
+      },
+      {
+        method: "writeLater",
+        module: "postAwaitCommitter",
+      },
+    ]);
+  });
+
+  it("runs explicit app action boundaries by module token, name, or instance", () => {
+    const app = testApp({
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+      strictActions: true,
+    });
+    const counter = app.getModule(Counter);
+
+    app.runInAction(
+      Counter,
+      () => {
+        counter.count = 2;
+      },
+      { name: "setByToken" },
+    );
+    app.runInAction(
+      "counter",
+      () => {
+        counter.count = 3;
+      },
+      { name: "setByName" },
+    );
+    app.runInAction(
+      counter,
+      () => {
+        counter.count = 4;
+      },
+      { name: "setByInstance" },
+    );
+
+    expect(counter.count).toBe(4);
+    expect(app.test.getActions()).toMatchObject([
+      { method: "setByToken", module: "counter" },
+      { method: "setByName", module: "counter" },
+      { method: "setByInstance", module: "counter" },
+    ]);
+  });
+
+  it("rejects explicit action boundaries for non-module instances and other apps", () => {
+    const first = createApp({
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+    const second = createApp({
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+    const counter = first.getModule(Counter);
+
+    expect(() => runInAction({}, () => undefined)).toThrow(CosystemError);
+    expect(() => second.runInAction(counter, () => undefined)).toThrow(
+      "target belongs to another CoSystem app",
+    );
   });
 
   it("records actions and state snapshots through testApp", () => {

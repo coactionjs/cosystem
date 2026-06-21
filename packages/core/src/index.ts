@@ -24,9 +24,12 @@ export {
   type ModuleCreatedEvent,
   type PatchEvent,
   type Plugin,
+  type RunInActionOptions,
+  type RunInActionTarget,
   type StateChangeEvent,
   type TestAppInspector,
   type WatchOptions,
+  runInAction,
 } from "./app.js";
 export { action, computed, effect, module, state } from "./decorators.js";
 export { inject } from "./inject.js";
