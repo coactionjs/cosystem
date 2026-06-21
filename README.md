@@ -105,6 +105,8 @@ const app = createApp({
 
 `@state` intentionally targets standard accessor decorators. Plain fields should
 use `defineModule()` metadata until a future compatibility layer is added.
+`@computed` getters are cached through Coaction's signal-backed computed
+runtime and invalidate when the state they read changes.
 
 ## Provider Lifetime
 

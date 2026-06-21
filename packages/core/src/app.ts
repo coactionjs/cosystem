@@ -1,4 +1,9 @@
-import { create as createCoactionStore, createReactiveTracker, type Store } from "coaction";
+import {
+  computed as createCoactionComputed,
+  create as createCoactionStore,
+  createReactiveTracker,
+  type Store,
+} from "coaction";
 
 import { createContainer } from "./container.js";
 import { CosystemError, DuplicateProviderError } from "./errors.js";
@@ -147,6 +152,7 @@ interface ModuleBinding {
   readonly metadata: ModuleMetadata;
   readonly originalActions: Map<PropertyKey, (...args: unknown[]) => unknown>;
   readonly originalComputed: Map<PropertyKey, () => unknown>;
+  readonly computedAccessors: Map<PropertyKey, () => unknown>;
   activeDraft: Record<PropertyKey, unknown> | undefined;
   actionDepth: number;
 }
@@ -467,12 +473,20 @@ class RuntimeApp implements App {
   private bindComputed(moduleBinding: ModuleBinding): void {
     for (const property of moduleBinding.metadata.computed) {
       const getter = getGetter(moduleBinding.instance, property);
+      const accessor = createCoactionComputed(() => getter.call(moduleBinding.instance));
       moduleBinding.originalComputed.set(property, getter);
+      moduleBinding.computedAccessors.set(property, accessor);
 
       Object.defineProperty(moduleBinding.instance, property, {
         configurable: true,
         enumerable: true,
-        get: () => getter.call(moduleBinding.instance),
+        get: () => {
+          if (moduleBinding.activeDraft !== undefined) {
+            return getter.call(moduleBinding.instance);
+          }
+
+          return accessor();
+        },
       });
     }
   }
@@ -740,6 +754,7 @@ function instantiateModules(container: Container, moduleTokens: readonly Injecti
     modules.push({
       actionDepth: 0,
       activeDraft: undefined,
+      computedAccessors: new Map(),
       instance,
       metadata,
       name,

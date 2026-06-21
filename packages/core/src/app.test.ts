@@ -170,6 +170,76 @@ describe("app runtime", () => {
     expect(counter.double).toBe(14);
   });
 
+  it("caches computed values until their state dependencies change", () => {
+    let calls = 0;
+
+    class CachedCounter {
+      count = 1;
+
+      get double(): number {
+        calls += 1;
+        return this.count * 2;
+      }
+
+      increase(): void {
+        this.count += 1;
+      }
+    }
+
+    defineModule(CachedCounter, {
+      actions: ["increase"],
+      computed: ["double"],
+      name: "cachedCounter",
+      state: ["count"],
+    });
+
+    const app = createApp({
+      providers: [CachedCounter],
+    });
+    const counter = app.getModule(CachedCounter);
+
+    expect(counter.double).toBe(2);
+    expect(counter.double).toBe(2);
+    expect(calls).toBe(1);
+
+    counter.increase();
+
+    expect(counter.double).toBe(4);
+    expect(counter.double).toBe(4);
+    expect(calls).toBe(2);
+  });
+
+  it("reads fresh computed values from the active action draft", () => {
+    class DraftComputedCounter {
+      count = 1;
+
+      get double(): number {
+        return this.count * 2;
+      }
+
+      increaseAndRead(): number {
+        this.count += 1;
+        return this.double;
+      }
+    }
+
+    defineModule(DraftComputedCounter, {
+      actions: ["increaseAndRead"],
+      computed: ["double"],
+      name: "draftComputedCounter",
+      state: ["count"],
+    });
+
+    const app = createApp({
+      providers: [DraftComputedCounter],
+    });
+    const counter = app.getModule(DraftComputedCounter);
+
+    expect(counter.double).toBe(2);
+    expect(counter.increaseAndRead()).toBe(4);
+    expect(counter.double).toBe(4);
+  });
+
   it("lets provider-level deps override defineModule metadata", () => {
     const app = createApp({
       providers: [
