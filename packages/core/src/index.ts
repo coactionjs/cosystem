@@ -10,8 +10,33 @@ export {
   MissingProviderError,
 } from "./errors.js";
 export { createContainer } from "./container.js";
+export {
+  createApp,
+  type ActionEvent,
+  type App,
+  type AppDevOptions,
+  type AppScope,
+  type AppState,
+  type CreateAppOptions,
+  type EngineOptions,
+  type ErrorContext,
+  type ModuleCreatedEvent,
+  type Plugin,
+  type StateChangeEvent,
+  type TestAppInspector,
+  type WatchOptions,
+} from "./app.js";
+export { action, computed, module, state } from "./decorators.js";
 export { inject } from "./inject.js";
+export {
+  defineModule,
+  getModuleMetadata,
+  type DefineModuleOptions,
+  type ModuleMetadata,
+  type ModuleOptions,
+} from "./metadata.js";
 export { provide, type ResolvedDeps } from "./provider.js";
+export { testApp, type TestApp, type TestAppOptions } from "./testApp.js";
 export { token, tokenName } from "./token.js";
 export type {
   BuildOptions,
