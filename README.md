@@ -531,6 +531,18 @@ const host = createWorkerApp({
 });
 ```
 
+Worker clients can observe sync conflicts such as stale messages, missing
+snapshots, patch gaps, or invalid patches:
+
+```ts
+const client = createWorkerClient({
+  onConflict(event) {
+    console.warn(event.reason, event.currentVersion, event.incomingVersion);
+  },
+  transport: clientTransport,
+});
+```
+
 For real Worker, iframe, or `MessagePort` targets, adapt a `postMessage`
 endpoint instead of using the in-memory pair:
 

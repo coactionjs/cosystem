@@ -87,6 +87,8 @@ export {
   type SerializedWorkerError,
   type WorkerAppHost,
   type WorkerClient,
+  type WorkerConflictEvent,
+  type WorkerConflictReason,
   type WorkerMessage,
   type WorkerStateMessage,
   type WorkerStateSelector,

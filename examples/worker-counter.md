@@ -78,6 +78,19 @@ const isolatedHost = createWorkerApp({
 await isolatedHost.dispose();
 ```
 
+Worker clients can observe sync conflicts:
+
+```ts
+const conflictAwareClient = createWorkerClient({
+  onConflict(event) {
+    console.warn(event.reason, event.currentVersion, event.incomingVersion);
+  },
+  transport: clientTransport,
+});
+
+conflictAwareClient.dispose();
+```
+
 For a real Web Worker or `MessagePort`, use the `postMessage` adapter on the
 endpoint that owns `postMessage`, `addEventListener`, and `removeEventListener`:
 

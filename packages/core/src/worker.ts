@@ -132,6 +132,21 @@ export interface WorkerAppHost {
 
 export interface CreateWorkerClientOptions {
   readonly transport: WorkerTransport;
+  readonly onConflict?: (event: WorkerConflictEvent) => void;
+}
+
+export type WorkerConflictReason =
+  | "missing-snapshot"
+  | "patch-apply-failed"
+  | "stale-message"
+  | "version-gap";
+
+export interface WorkerConflictEvent {
+  readonly reason: WorkerConflictReason;
+  readonly currentVersion: number;
+  readonly incomingVersion: number;
+  readonly message: WorkerStateMessage;
+  readonly error?: unknown;
 }
 
 export type AsyncMethodProxy<T extends object> = {
@@ -192,12 +207,17 @@ interface WorkerPatch {
 
 export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost {
   const { stateSections, sync = "snapshot", transport, ...appOptions } = options;
+  let stateSyncVersion = 0;
   let publishPatches = false;
   const patchPlugin: Plugin = {
     name: "cosystem:worker-patches",
     onPatch(event) {
       if (publishPatches) {
-        publishState(app, transport, event.patches, sync, stateSections);
+        const version = stateSections === undefined ? app.state.version : stateSyncVersion + 1;
+
+        if (publishState(app, transport, event.patches, sync, stateSections, version)) {
+          stateSyncVersion = version;
+        }
       }
     },
   };
@@ -212,7 +232,11 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
   const ready = app.start().then(() => {
     publishPatches = true;
     transport.post({ type: "ready" });
-    publishState(app, transport, [], "snapshot", stateSections);
+    const version = stateSections === undefined ? app.state.version : stateSyncVersion;
+
+    if (publishState(app, transport, [], "snapshot", stateSections, version)) {
+      stateSyncVersion = version;
+    }
     return undefined;
   });
   const unsubscribeTransport = transport.subscribe((message) => {
@@ -235,7 +259,7 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
 }
 
 export function createWorkerClient(options: CreateWorkerClientOptions): WorkerClient {
-  const { transport } = options;
+  const { onConflict, transport } = options;
   const listeners = new Set<(message: WorkerStateMessage) => void>();
   const selectorWatchers = new Set<WorkerSelectorWatcher<unknown>>();
   const pending = new Map<
@@ -387,11 +411,54 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
 
   unsubscribe = transport.subscribe((message) => {
     if (message.type === "state") {
-      state.version = message.version;
-      snapshot =
-        message.state === undefined && message.sync === "patch"
+      if (readySettled && message.version <= state.version) {
+        reportWorkerConflict(onConflict, {
+          currentVersion: state.version,
+          incomingVersion: message.version,
+          message,
+          reason: "stale-message",
+        });
+        return;
+      }
+
+      const isPatchOnly = message.state === undefined && message.sync === "patch";
+
+      if (isPatchOnly && snapshot === undefined) {
+        reportWorkerConflict(onConflict, {
+          currentVersion: state.version,
+          incomingVersion: message.version,
+          message,
+          reason: "missing-snapshot",
+        });
+        return;
+      }
+
+      if (isPatchOnly && readySettled && message.version !== state.version + 1) {
+        reportWorkerConflict(onConflict, {
+          currentVersion: state.version,
+          incomingVersion: message.version,
+          message,
+          reason: "version-gap",
+        });
+        return;
+      }
+
+      try {
+        snapshot = isPatchOnly
           ? applyWorkerPatches(snapshot, message.patches ?? [])
           : message.state;
+      } catch (error) {
+        reportWorkerConflict(onConflict, {
+          currentVersion: state.version,
+          error,
+          incomingVersion: message.version,
+          message,
+          reason: "patch-apply-failed",
+        });
+        return;
+      }
+
+      state.version = message.version;
 
       if (!readySettled) {
         readySettled = true;
@@ -428,6 +495,13 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
   });
 
   return client;
+}
+
+function reportWorkerConflict(
+  onConflict: ((event: WorkerConflictEvent) => void) | undefined,
+  event: WorkerConflictEvent,
+): void {
+  onConflict?.(event);
 }
 
 export function createMemoryWorkerTransportPair(): readonly [WorkerTransport, WorkerTransport] {
@@ -688,12 +762,13 @@ function publishState(
   patches: readonly unknown[] = [],
   mode: WorkerStateSyncMode = "snapshot",
   sections?: readonly WorkerStateSection[],
-): void {
+  version: number = app.state.version,
+): boolean {
   const filteredPatches = filterWorkerPatches(patches, sections);
   const isPatch = filteredPatches.length > 0;
 
   if (patches.length > 0 && filteredPatches.length === 0) {
-    return;
+    return false;
   }
 
   const state = filterWorkerState(app.store.getPureState(), sections);
@@ -702,11 +777,12 @@ function publishState(
     ...(sections === undefined ? {} : { sections }),
     sync: isPatch ? "patch" : "snapshot",
     type: "state",
-    version: app.state.version,
+    version,
     ...(isPatch ? { patches: filteredPatches } : {}),
   };
 
   transport.post(message);
+  return true;
 }
 
 function filterWorkerState(state: unknown, sections?: readonly WorkerStateSection[]): unknown {

@@ -12,6 +12,7 @@ import {
   type DataTransportLike,
   type PostMessageEndpoint,
   type PostMessageEventLike,
+  type WorkerConflictEvent,
   type WorkerMessage,
   type WorkerStateMessage,
 } from "./index.js";
@@ -236,6 +237,91 @@ describe("worker prototype", () => {
 
     client.dispose();
     await host.dispose();
+  });
+
+  it("reports worker state conflicts and keeps the current snapshot", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const conflicts: WorkerConflictEvent[] = [];
+    const client = createWorkerClient({
+      onConflict: (event) => {
+        conflicts.push(event);
+      },
+      transport: clientTransport,
+    });
+
+    hostTransport.post({
+      patches: [
+        {
+          op: "replace",
+          path: "/workerCounter/count",
+          value: 9,
+        },
+      ],
+      sync: "patch",
+      type: "state",
+      version: 1,
+    });
+    hostTransport.post({
+      state: {
+        workerCounter: {
+          count: 1,
+        },
+      },
+      sync: "snapshot",
+      type: "state",
+      version: 1,
+    });
+
+    await client.ready;
+
+    hostTransport.post({
+      state: {
+        workerCounter: {
+          count: 0,
+        },
+      },
+      sync: "snapshot",
+      type: "state",
+      version: 1,
+    });
+    hostTransport.post({
+      patches: [
+        {
+          op: "replace",
+          path: 1,
+          value: 9,
+        },
+      ],
+      sync: "patch",
+      type: "state",
+      version: 2,
+    });
+    hostTransport.post({
+      patches: [
+        {
+          op: "replace",
+          path: "/workerCounter/count",
+          value: 9,
+        },
+      ],
+      sync: "patch",
+      type: "state",
+      version: 3,
+    });
+
+    expect(conflicts.map((event) => event.reason)).toEqual([
+      "missing-snapshot",
+      "stale-message",
+      "patch-apply-failed",
+      "version-gap",
+    ]);
+    expect(client.getState()).toEqual({
+      workerCounter: {
+        count: 1,
+      },
+    });
+
+    client.dispose();
   });
 
   it("uses selector equality for worker state watches", async () => {
