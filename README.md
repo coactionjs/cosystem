@@ -15,6 +15,7 @@ composition.
 - `@cosystem/devtools`: timeline inspection plugin for development tooling
 - `@cosystem/react`: React context and hooks for consuming a CoSystem app
 - `@cosystem/solid`: Solid context and signals for consuming a CoSystem app
+- `@cosystem/storage`: persistence plugin for app state snapshots
 - `@cosystem/svelte`: Svelte context and readable stores for consuming a CoSystem app
 - `@cosystem/vue`: Vue provide/inject composables for consuming a CoSystem app
 
@@ -262,6 +263,22 @@ const app = createApp({
 });
 
 console.log(devtools.getTimeline());
+```
+
+## Storage
+
+```ts
+import { createStoragePlugin } from "@cosystem/storage";
+
+const app = createApp({
+  plugins: [
+    createStoragePlugin({
+      key: "cosystem:app",
+      storage: window.localStorage,
+    }),
+  ],
+  providers: [Counter],
+});
 ```
 
 ## Tooling
