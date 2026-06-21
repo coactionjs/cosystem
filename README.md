@@ -280,6 +280,30 @@ const CounterView = defineComponent({
 createVueApp(CounterView).use(cosystemPlugin(app)).mount("#app");
 ```
 
+Vue can consume worker-hosted modules through the same provide/inject model:
+
+```ts
+import { createApp as createVueApp, defineComponent, h } from "vue";
+import { workerClientPlugin, useWorkerModule, useWorkerSelector } from "@cosystem/vue";
+
+type CounterState = {
+  readonly counter: {
+    readonly count: number;
+  };
+};
+
+const WorkerCounterView = defineComponent({
+  setup() {
+    const counter = useWorkerModule<Counter>("counter");
+    const count = useWorkerSelector((state) => (state as CounterState).counter.count);
+
+    return () => h("button", { onClick: () => counter.increase() }, count.value);
+  },
+});
+
+createVueApp(WorkerCounterView).use(workerClientPlugin(client)).mount("#app");
+```
+
 Svelte:
 
 ```ts

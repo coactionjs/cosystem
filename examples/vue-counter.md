@@ -41,3 +41,30 @@ const CounterView = defineComponent({
 
 createVueApp(CounterView).use(cosystemPlugin(app)).mount("#app");
 ```
+
+The Vue adapter can also render worker-hosted state through a `WorkerClient`:
+
+```ts
+import { createApp as createVueApp, defineComponent, h } from "vue";
+import type { WorkerClient } from "@cosystem/core";
+import { workerClientPlugin, useWorkerModule, useWorkerSelector } from "@cosystem/vue";
+
+type CounterState = {
+  readonly counter: {
+    readonly count: number;
+  };
+};
+
+const WorkerCounterView = defineComponent({
+  setup() {
+    const counter = useWorkerModule<Counter>("counter");
+    const count = useWorkerSelector((state) => (state as CounterState).counter.count);
+
+    return () => h("button", { onClick: () => counter.increase() }, count.value);
+  },
+});
+
+function renderWorkerCounter(client: WorkerClient) {
+  createVueApp(WorkerCounterView).use(workerClientPlugin(client)).mount("#app");
+}
+```
