@@ -470,12 +470,14 @@ await storage.flush(); // waits for queued persistence writes in tests/tools
 ```ts
 import {
   RouterToken,
+  createBrowserRouter,
   createMemoryRouter,
   createRouterPlugin,
   provideRouter,
 } from "@cosystem/router";
 
-const router = createMemoryRouter({ initialPath: "/" });
+const router =
+  typeof window === "undefined" ? createMemoryRouter({ initialPath: "/" }) : createBrowserRouter();
 
 const app = createApp({
   plugins: [

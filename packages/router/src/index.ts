@@ -23,6 +23,27 @@ export interface RouterOptions {
   readonly initialPath?: string;
 }
 
+export interface BrowserRouterOptions {
+  readonly window?: BrowserWindowLike;
+}
+
+export interface BrowserWindowLike {
+  readonly location: BrowserLocationLike;
+  readonly history: BrowserHistoryLike;
+  addEventListener(type: "popstate", listener: () => void): void;
+  removeEventListener(type: "popstate", listener: () => void): void;
+}
+
+export interface BrowserLocationLike {
+  readonly pathname: string;
+  readonly search: string;
+  readonly hash: string;
+}
+
+export interface BrowserHistoryLike {
+  pushState(data: unknown, unused: string, url?: string | URL | null): void;
+}
+
 export interface RouterPluginOptions {
   readonly immediate?: boolean;
   readonly onChange?: (location: RouteLocation, app: App) => void | Promise<void>;
@@ -50,6 +71,65 @@ export function createMemoryRouter(options: RouterOptions = {}): Router {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
+      };
+    },
+  };
+}
+
+export function createBrowserRouter(options: BrowserRouterOptions = {}): Router {
+  const targetWindow = options.window ?? resolveGlobalWindow();
+  const listeners = new Set<(location: RouteLocation) => void>();
+  let current = readBrowserLocation(targetWindow.location);
+  let listening = false;
+
+  const notify = () => {
+    current = readBrowserLocation(targetWindow.location);
+
+    for (const listener of listeners) {
+      listener(current);
+    }
+  };
+
+  const start = () => {
+    if (listening) {
+      return;
+    }
+
+    listening = true;
+    targetWindow.addEventListener("popstate", notify);
+  };
+
+  const stop = () => {
+    if (!listening) {
+      return;
+    }
+
+    listening = false;
+    targetWindow.removeEventListener("popstate", notify);
+  };
+
+  return {
+    get current() {
+      return current;
+    },
+    navigate(to) {
+      current = typeof to === "string" ? parseLocation(to) : to;
+      targetWindow.history.pushState(null, "", formatLocation(current));
+
+      for (const listener of listeners) {
+        listener(current);
+      }
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      start();
+
+      return () => {
+        listeners.delete(listener);
+
+        if (listeners.size === 0) {
+          stop();
+        }
       };
     },
   };
@@ -109,6 +189,28 @@ export function parseLocation(value: string): RouteLocation {
     path: path === "" ? "/" : path,
     search,
   };
+}
+
+export function formatLocation(location: RouteLocation): string {
+  return `${location.path === "" ? "/" : location.path}${location.search}${location.hash}`;
+}
+
+function readBrowserLocation(location: BrowserLocationLike): RouteLocation {
+  return {
+    hash: location.hash,
+    path: location.pathname === "" ? "/" : location.pathname,
+    search: location.search,
+  };
+}
+
+function resolveGlobalWindow(): BrowserWindowLike {
+  const globalWithWindow = globalThis as { readonly window?: BrowserWindowLike };
+
+  if (globalWithWindow.window !== undefined) {
+    return globalWithWindow.window;
+  }
+
+  throw new Error("createBrowserRouter() requires a browser window.");
 }
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
