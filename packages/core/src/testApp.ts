@@ -13,7 +13,17 @@ export interface TestApp extends ReturnType<typeof createAppInternal> {
   readonly test: TestAppInspector;
 }
 
-export function testApp(options: TestAppOptions = {}): TestApp {
+export interface AutoStartedTestAppOptions extends Omit<TestAppOptions, "autoStart"> {
+  readonly autoStart: true;
+}
+
+export interface ManualTestAppOptions extends Omit<TestAppOptions, "autoStart"> {
+  readonly autoStart?: false;
+}
+
+export function testApp(options: AutoStartedTestAppOptions): Promise<TestApp>;
+export function testApp(options?: ManualTestAppOptions): TestApp;
+export function testApp(options: TestAppOptions = {}): TestApp | Promise<TestApp> {
   const inspector = createTestInspector();
   const { autoStart, overrides, strictActions, ...createOptions } = options;
   const app = createAppInternal({
@@ -33,7 +43,7 @@ export function testApp(options: TestAppOptions = {}): TestApp {
   });
 
   if (autoStart === true) {
-    void app.start();
+    return app.start().then(() => app);
   }
 
   return app;

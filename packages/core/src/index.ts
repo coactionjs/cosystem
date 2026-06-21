@@ -36,7 +36,13 @@ export {
   type ModuleOptions,
 } from "./metadata.js";
 export { provide, type ResolvedDeps } from "./provider.js";
-export { testApp, type TestApp, type TestAppOptions } from "./testApp.js";
+export {
+  testApp,
+  type AutoStartedTestAppOptions,
+  type ManualTestAppOptions,
+  type TestApp,
+  type TestAppOptions,
+} from "./testApp.js";
 export { token, tokenName } from "./token.js";
 export type {
   BuildOptions,

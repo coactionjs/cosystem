@@ -157,6 +157,13 @@ expect(app.test.getActions()).toMatchObject([
     module: "counter",
   },
 ]);
+
+const startedApp = await testApp({
+  autoStart: true,
+  providers: [Counter],
+});
+
+expect(startedApp.started).toBe(true);
 ```
 
 More focused examples live in [`examples/`](./examples).

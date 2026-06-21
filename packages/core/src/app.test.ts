@@ -158,4 +158,26 @@ describe("app runtime", () => {
       "plugin:dispose",
     ]);
   });
+
+  it("returns a started app when testApp autoStart is enabled", async () => {
+    const events: string[] = [];
+
+    class AutoStartModule {
+      onStart(): void {
+        events.push("start");
+      }
+    }
+
+    defineModule(AutoStartModule, {
+      name: "autoStart",
+    });
+
+    const app = await testApp({
+      autoStart: true,
+      providers: [AutoStartModule],
+    });
+
+    expect(app.started).toBe(true);
+    expect(events).toEqual(["start"]);
+  });
 });
