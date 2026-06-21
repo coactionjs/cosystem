@@ -272,6 +272,16 @@ const counter = moduleStore(Counter);
 const count = selectedModuleStore(Counter, (module) => module.count);
 ```
 
+Svelte 5 rune-friendly helpers are available from a separate subpath so the
+main Svelte 4 store contract stays unchanged:
+
+```ts
+import { moduleRune, selectedModuleRune } from "@cosystem/svelte/runes";
+
+const counter = moduleRune(Counter, { app });
+const count = selectedModuleRune(Counter, (module) => module.count, { app });
+```
+
 Solid:
 
 ```tsx

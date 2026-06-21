@@ -6,7 +6,7 @@ export default defineConfig({
     neverBundle: ["@cosystem/core", "svelte"],
   },
   dts: true,
-  entry: ["src/index.ts"],
+  entry: ["src/index.ts", "src/runes.ts"],
   format: ["esm"],
   platform: "browser",
   sourcemap: true,

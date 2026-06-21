@@ -39,3 +39,37 @@
   {$count} / {$double}
 </button>
 ```
+
+Svelte 5 projects can use the rune-friendly subpath:
+
+```svelte
+<script lang="ts">
+  import { createApp, defineModule } from "@cosystem/core";
+  import { moduleRune, selectedModuleRune } from "@cosystem/svelte/runes";
+
+  class Counter {
+    count = 0;
+
+    increase(): void {
+      this.count += 1;
+    }
+  }
+
+  defineModule(Counter, {
+    actions: ["increase"],
+    name: "counter",
+    state: ["count"],
+  });
+
+  const app = createApp({
+    providers: [Counter],
+  });
+
+  const counter = moduleRune(Counter, { app });
+  const count = selectedModuleRune(Counter, (module) => module.count, { app });
+</script>
+
+<button onclick={() => counter.current.increase()}>
+  {count.current}
+</button>
+```
