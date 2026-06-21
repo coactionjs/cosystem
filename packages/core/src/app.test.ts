@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { CosystemError, createApp, defineModule, provide, testApp, type Plugin } from "./index.js";
+import {
+  CosystemError,
+  createApp,
+  defineModule,
+  inject,
+  provide,
+  testApp,
+  type Plugin,
+} from "./index.js";
 
 abstract class Logger {
   abstract info(message: string): void;
@@ -246,6 +254,38 @@ describe("app runtime", () => {
 
     expect(() => app.getModule(FailingAction).fail()).toThrow("boom");
     expect(errors).toEqual(["action:boom"]);
+  });
+
+  it("supports inject() inside plugin setup and module lifecycle hooks", async () => {
+    class InjectingLifecycle {
+      onInit(): void {
+        inject(Logger).info("module:init");
+      }
+
+      onStart(): void {
+        inject(Logger).info("module:start");
+      }
+    }
+
+    defineModule(InjectingLifecycle, {
+      name: "injectingLifecycle",
+    });
+
+    const logger = new MemoryLogger();
+    const app = createApp({
+      plugins: [
+        {
+          setup() {
+            inject(Logger).info("plugin:setup");
+          },
+        },
+      ],
+      providers: [InjectingLifecycle, provide(Logger, { useValue: logger })],
+    });
+
+    await app.start();
+
+    expect(logger.messages).toEqual(["plugin:setup", "module:init", "module:start"]);
   });
 
   it("returns a started app when testApp autoStart is enabled", async () => {

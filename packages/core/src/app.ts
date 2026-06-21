@@ -2,6 +2,7 @@ import { create as createCoactionStore, createReactiveTracker, type Store } from
 
 import { createContainer } from "./container.js";
 import { CosystemError, DuplicateProviderError } from "./errors.js";
+import { runWithInjectContext } from "./inject.js";
 import { getModuleMetadata, type ModuleMetadata } from "./metadata.js";
 import { provide } from "./provider.js";
 import { tokenName } from "./token.js";
@@ -12,6 +13,7 @@ import type {
   InjectionToken,
   Provider,
   ProviderInput,
+  ResolutionContext,
   ScopeOptions,
 } from "./types.js";
 
@@ -426,7 +428,9 @@ class RuntimeApp implements App {
   init(): void {
     this.initPromise = (async () => {
       try {
-        await Promise.all(this.plugins.map((plugin) => plugin.setup?.(this)));
+        await Promise.all(
+          this.plugins.map((plugin) => this.runWithAppInjectContext(() => plugin.setup?.(this))),
+        );
         await this.runLifecycle("onInit");
       } catch (error) {
         this.emitError(error, { phase: "init" });
@@ -559,7 +563,7 @@ class RuntimeApp implements App {
 
     for (const moduleBinding of modules) {
       const lifecycle = moduleBinding.instance as LifecycleModule;
-      await lifecycle[method]?.();
+      await this.runWithAppInjectContext(() => lifecycle[method]?.());
     }
   }
 
@@ -591,6 +595,18 @@ class RuntimeApp implements App {
     for (const plugin of this.plugins) {
       plugin.onError?.(error, context);
     }
+  }
+
+  private runWithAppInjectContext<T>(callback: () => T): T {
+    return runWithInjectContext(
+      {
+        mode: "sync",
+        requestContainer: this.#container as ResolutionContext["requestContainer"],
+        resolutionCache: new Map(),
+        stack: [],
+      },
+      callback,
+    );
   }
 
   private wrapStoreSetState(): void {
