@@ -136,6 +136,14 @@ class RuntimeContainer implements ContainerImpl {
     return Reflect.construct(target, values) as T;
   }
 
+  async buildAsync<T>(target: Constructor<T>, options: BuildOptions = {}): Promise<T> {
+    const deps =
+      options.deps ?? (target as { readonly inject?: readonly DependencySpec[] }).inject ?? [];
+    const context = this.createResolutionContext("async");
+    const values = await this.resolveDependencies(deps, context);
+    return Reflect.construct(target, values) as T;
+  }
+
   freeze(): void {
     this.frozen = true;
   }

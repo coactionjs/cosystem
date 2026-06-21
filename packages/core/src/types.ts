@@ -142,6 +142,7 @@ export interface Container {
   override(provider: ProviderInput): void;
   createScope(options?: ScopeOptions): Container;
   build<T>(target: Constructor<T>, options?: BuildOptions): T;
+  buildAsync<T>(target: Constructor<T>, options?: BuildOptions): Promise<T>;
   freeze(): void;
   dispose(): Promise<void>;
 }

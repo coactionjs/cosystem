@@ -152,6 +152,17 @@ const app = createApp({
 });
 ```
 
+For tests or advanced factories, the container can explicitly construct an
+unregistered class without caching it:
+
+```ts
+const instance = app.createScope().container.build(Service);
+const asyncInstance = await app.createScope().container.buildAsync(ServiceWithAsyncDeps);
+```
+
+`get()` still only resolves registered providers. Use `buildAsync()` when any
+dependency is backed by an async factory.
+
 ## UI Adapters
 
 CoSystem does not own rendering. There is no `ViewModule`, root component base

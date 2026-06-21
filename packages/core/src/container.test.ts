@@ -131,6 +131,31 @@ describe("DI container", () => {
     expect(() => container.get(Counter)).toThrow(MissingProviderError);
   });
 
+  it("supports explicit async build when dependencies resolve asynchronously", async () => {
+    const LoggerToken = token<Logger>("AsyncLogger");
+    const logger = new ConsoleLogger();
+    const container = createContainer();
+
+    class AsyncCounter {
+      static readonly inject = [LoggerToken] as const;
+
+      constructor(readonly resolvedLogger: Logger) {}
+    }
+
+    container.provide(
+      provide(LoggerToken, {
+        useFactory: async () => logger,
+      }),
+    );
+
+    expect(() => container.build(AsyncCounter)).toThrow(AsyncProviderInSyncResolutionError);
+
+    const counter = await container.buildAsync(AsyncCounter);
+
+    expect(counter.resolvedLogger).toBe(logger);
+    expect(() => container.get(AsyncCounter)).toThrow(MissingProviderError);
+  });
+
   it("includes the requesting provider in missing dependency errors", () => {
     const MissingLoggerToken = token<Logger>("MissingLogger");
 
