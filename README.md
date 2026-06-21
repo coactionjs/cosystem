@@ -358,15 +358,18 @@ console.log(devtools.getTimeline());
 ```ts
 import { createStoragePlugin } from "@cosystem/storage";
 
+const storage = createStoragePlugin({
+  key: "cosystem:app",
+  storage: window.localStorage,
+});
+
 const app = createApp({
-  plugins: [
-    createStoragePlugin({
-      key: "cosystem:app",
-      storage: window.localStorage,
-    }),
-  ],
+  plugins: [storage],
   providers: [Counter],
 });
+
+await app.start(); // waits for hydration
+await storage.flush(); // waits for queued persistence writes in tests/tools
 ```
 
 ## Router

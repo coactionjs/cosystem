@@ -53,6 +53,7 @@ describe("storage plugin", () => {
     expect(app.getModule(Counter).count).toBe(4);
 
     app.getModule(Counter).increase();
+    await plugin.flush();
 
     expect(storage.getItem("app")).toBe(JSON.stringify({ storageCounter: { count: 5 } }));
   });
@@ -70,4 +71,63 @@ describe("storage plugin", () => {
 
     expect(storage.getItem("app")).toBeNull();
   });
+
+  it("waits for async storage writes through flush", async () => {
+    const storage = new AsyncMemoryStorage();
+    const plugin = createStoragePlugin({
+      key: "app",
+      storage,
+    });
+    const app = createApp({
+      plugins: [plugin],
+      providers: [Counter],
+    });
+
+    await app.start();
+    app.getModule(Counter).increase();
+
+    expect(storage.getItem("app")).toBeNull();
+
+    await plugin.flush();
+
+    expect(storage.getItem("app")).toBe(JSON.stringify({ storageCounter: { count: 1 } }));
+  });
+
+  it("reports background persistence errors without throwing from state changes", async () => {
+    const errors: Array<{ error: unknown; phase: string }> = [];
+    const storage: StorageLike = {
+      getItem: () => null,
+      setItem: () => Promise.reject(new Error("write failed")),
+    };
+    const plugin = createStoragePlugin({
+      key: "app",
+      onError(error, phase) {
+        errors.push({ error, phase });
+      },
+      storage,
+    });
+    const app = createApp({
+      plugins: [plugin],
+      providers: [Counter],
+    });
+
+    await app.start();
+    expect(() => app.getModule(Counter).increase()).not.toThrow();
+    await plugin.flush();
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.phase).toBe("persist");
+    expect(errors[0]?.error).toBeInstanceOf(Error);
+  });
 });
+
+class AsyncMemoryStorage extends MemoryStorage {
+  override setItem(key: string, value: string): Promise<void> {
+    return new Promise((resolve) => {
+      queueMicrotask(() => {
+        super.setItem(key, value);
+        resolve();
+      });
+    });
+  }
+}
