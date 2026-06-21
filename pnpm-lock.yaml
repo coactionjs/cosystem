@@ -6,6 +6,9 @@ settings:
 
 catalogs:
   default:
+    '@angular/core':
+      specifier: 22.0.2
+      version: 22.0.2
     '@changesets/cli':
       specifier: 2.31.0
       version: 2.31.0
@@ -60,6 +63,9 @@ catalogs:
     rolldown:
       specifier: 1.1.2
       version: 1.1.2
+    rxjs:
+      specifier: 7.8.2
+      version: 7.8.2
     solid-js:
       specifier: 1.9.13
       version: 1.9.13
@@ -128,6 +134,31 @@ importers:
       turbo:
         specifier: 'catalog:'
         version: 2.9.18
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.9(@types/node@22.19.21)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@22.19.21)(jiti@2.6.1)(yaml@2.9.0))
+
+  packages/angular:
+    dependencies:
+      '@cosystem/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@angular/core':
+        specifier: 'catalog:'
+        version: 22.0.2(rxjs@7.8.2)
+      '@cosystem/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      rxjs:
+        specifier: 'catalog:'
+        version: 7.8.2
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.22.3(typescript@6.0.3)
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -257,6 +288,19 @@ importers:
         version: 3.5.38(typescript@6.0.3)
 
 packages:
+
+  '@angular/core@22.0.2':
+    resolution: {integrity: sha512-YMs6OZNeXh4tg67ePwSRN426WYvjqGdjxEwLrdOONKAruOmJAzW/Tqe328k/4SHfdbJTR87GPpRi5FzVP43DRA==}
+    engines: {node: ^22.22.3 || ^24.15.0 || >=26.0.0}
+    peerDependencies:
+      '@angular/compiler': 22.0.2
+      rxjs: ^6.5.3 || ^7.4.0
+      zone.js: ~0.15.0 || ~0.16.0
+    peerDependenciesMeta:
+      '@angular/compiler':
+        optional: true
+      zone.js:
+        optional: true
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -2629,6 +2673,11 @@ packages:
     resolution: {integrity: sha512-B58NGBEoc8Y9MWWCQGl/gq9xBCe4IiKM0a2x7GZdQKOW5Exr8S1W24J6OgM1njK8xCRGvAJIL/MxXHf6SkmQKQ==}
 
 snapshots:
+
+  '@angular/core@22.0.2(rxjs@7.8.2)':
+    dependencies:
+      rxjs: 7.8.2
+      tslib: 2.8.1
 
   '@babel/code-frame@7.29.7':
     dependencies:

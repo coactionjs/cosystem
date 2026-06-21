@@ -9,6 +9,7 @@ composition.
 
 ## Packages
 
+- `@cosystem/angular`: Angular provider bridge and signals for consuming a CoSystem app
 - `@cosystem/core`: DI container, module metadata, app runtime, decorators, and
   `testApp`
 - `@cosystem/react`: React context and hooks for consuming a CoSystem app
@@ -161,6 +162,26 @@ function CounterView() {
 <CoSystemProvider app={app}>
   <CounterView />
 </CoSystemProvider>;
+```
+
+Angular:
+
+```ts
+import { Component } from "@angular/core";
+import { injectModule, injectSignal, provideCoSystem } from "@cosystem/angular";
+
+bootstrapApplication(AppComponent, {
+  providers: [provideCoSystem(app)],
+});
+
+@Component({
+  selector: "counter-view",
+  template: `<button (click)="counter.increase()">{{ count() }}</button>`,
+})
+class CounterView {
+  readonly counter = injectModule(Counter);
+  readonly count = injectSignal(Counter, (module) => module.count);
+}
 ```
 
 ## Testing

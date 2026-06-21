@@ -1,0 +1,45 @@
+{
+  "name": "@cosystem/angular",
+  "version": "0.0.0",
+  "description": "Angular adapter for CoSystem.",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf coverage dist .turbo",
+    "dev": "tsdown --watch",
+    "test": "cd ../.. && vitest run --project @cosystem/angular",
+    "test:coverage": "cd ../.. && vitest run --coverage --project @cosystem/angular",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@cosystem/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@angular/core": "catalog:",
+    "@cosystem/tsconfig": "workspace:*",
+    "rxjs": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@angular/core": ">=17.0.0 <23",
+    "rxjs": ">=7.5.0 <8"
+  }
+}

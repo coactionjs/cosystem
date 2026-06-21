@@ -16,6 +16,14 @@ export default defineConfig({
         extends: true,
         test: {
           include: ["src/**/*.test.ts"],
+          name: "@cosystem/angular",
+          root: "./packages/angular",
+        },
+      },
+      {
+        extends: true,
+        test: {
+          include: ["src/**/*.test.ts"],
           name: "@cosystem/core",
           root: "./packages/core",
         },
