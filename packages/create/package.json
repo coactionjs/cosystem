@@ -1,0 +1,40 @@
+{
+  "name": "@cosystem/create",
+  "version": "0.0.0",
+  "description": "Project scaffolding utilities for CoSystem.",
+  "license": "MIT",
+  "bin": {
+    "create-cosystem": "./dist/cli.mjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf coverage dist .turbo",
+    "dev": "tsdown --watch",
+    "test": "cd ../.. && vitest run --project @cosystem/create",
+    "test:coverage": "cd ../.. && vitest run --coverage --project @cosystem/create",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@cosystem/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

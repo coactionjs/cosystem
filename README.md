@@ -12,6 +12,7 @@ composition.
 - `@cosystem/angular`: Angular provider bridge and signals for consuming a CoSystem app
 - `@cosystem/core`: DI container, module metadata, app runtime, decorators, and
   `testApp`
+- `@cosystem/create`: project scaffolding utility with the `create-cosystem` CLI
 - `@cosystem/devtools`: timeline inspection plugin for development tooling
 - `@cosystem/react`: React context and hooks for consuming a CoSystem app
 - `@cosystem/router`: embeddable router primitives and router token
@@ -20,6 +21,15 @@ composition.
 - `@cosystem/svelte`: Svelte context and readable stores for consuming a CoSystem app
 - `@cosystem/testing`: testing helper facade for `testApp`
 - `@cosystem/vue`: Vue provide/inject composables for consuming a CoSystem app
+
+## Create A Project
+
+```sh
+pnpm dlx @cosystem/create my-app
+cd my-app
+pnpm install
+pnpm start
+```
 
 ## Core API
 

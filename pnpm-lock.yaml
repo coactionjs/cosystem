@@ -185,6 +185,24 @@ importers:
         specifier: 'catalog:'
         version: 4.1.9(@types/node@22.19.21)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@22.19.21)(jiti@2.6.1)(yaml@2.9.0))
 
+  packages/create:
+    devDependencies:
+      '@cosystem/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.19.21
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.22.3(typescript@6.0.3)
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.9(@types/node@22.19.21)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@22.19.21)(jiti@2.6.1)(yaml@2.9.0))
+
   packages/devtools:
     dependencies:
       '@cosystem/core':
