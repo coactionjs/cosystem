@@ -30,6 +30,11 @@ export {
 export { action, computed, module, state } from "./decorators.js";
 export { inject } from "./inject.js";
 export {
+  createLoggerPlugin,
+  type LoggerPluginLogger,
+  type LoggerPluginOptions,
+} from "./loggerPlugin.js";
+export {
   defineModule,
   getModuleMetadata,
   type DefineModuleOptions,
