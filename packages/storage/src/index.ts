@@ -11,6 +11,8 @@ export interface StoragePluginOptions<TState = unknown> {
   readonly storage: StorageLike;
   readonly serialize?: (state: TState) => string;
   readonly deserialize?: (value: string) => TState;
+  readonly partialize?: (state: unknown) => TState;
+  readonly merge?: (persisted: TState, current: unknown) => unknown;
   readonly shouldPersist?: (event: StateChangeEvent) => boolean;
   readonly onError?: (error: unknown, phase: StoragePluginErrorPhase) => void;
 }
@@ -29,6 +31,8 @@ export function createStoragePlugin<TState = unknown>(
 ): StoragePlugin {
   const serialize = options.serialize ?? JSON.stringify;
   const deserialize = options.deserialize ?? JSON.parse;
+  const partialize = options.partialize ?? ((state: unknown) => state as TState);
+  const merge = options.merge ?? ((persisted: TState) => persisted);
   let readyPromise: Promise<void> = Promise.resolve();
   let writeQueue: Promise<void> = Promise.resolve();
 
@@ -62,13 +66,13 @@ export function createStoragePlugin<TState = unknown>(
       }
 
       void runQueued("persist", async () => {
-        await options.storage.setItem(options.key, serialize(event.state as TState));
+        await options.storage.setItem(options.key, serialize(partialize(event.state)));
       }).catch(() => undefined);
     },
     async persist(app) {
       await readyPromise;
       await runQueued("persist", async () => {
-        await options.storage.setItem(options.key, serialize(app.store.getPureState() as TState));
+        await options.storage.setItem(options.key, serialize(partialize(app.store.getPureState())));
       });
     },
     ready() {
@@ -83,7 +87,7 @@ export function createStoragePlugin<TState = unknown>(
             return;
           }
 
-          app.store.setState(deserialize(stored) as never);
+          app.store.setState(merge(deserialize(stored), app.store.getPureState()) as never);
         } catch (error) {
           options.onError?.(error, "hydrate");
           throw error;

@@ -460,6 +460,13 @@ import { createStoragePlugin } from "@cosystem/storage";
 
 const storage = createStoragePlugin({
   key: "cosystem:app",
+  merge: (persisted, current) => ({
+    ...current,
+    ...persisted,
+  }),
+  partialize: (state) => ({
+    counter: state.counter,
+  }),
   storage: window.localStorage,
 });
 

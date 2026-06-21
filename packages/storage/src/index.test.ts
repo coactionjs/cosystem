@@ -12,10 +12,19 @@ class Counter {
   }
 }
 
+class Preferences {
+  theme = "light";
+}
+
 defineModule(Counter, {
   actions: ["increase"],
   name: "storageCounter",
   state: ["count"],
+});
+
+defineModule(Preferences, {
+  name: "storagePreferences",
+  state: ["theme"],
 });
 
 class MemoryStorage implements StorageLike {
@@ -91,6 +100,55 @@ describe("storage plugin", () => {
     await plugin.flush();
 
     expect(storage.getItem("app")).toBe(JSON.stringify({ storageCounter: { count: 1 } }));
+  });
+
+  it("can persist a partial state slice", async () => {
+    const storage = new MemoryStorage();
+    const plugin = createStoragePlugin({
+      key: "app",
+      partialize: (state) => (state as { readonly storageCounter: unknown }).storageCounter,
+      storage,
+    });
+    const app = createApp({
+      plugins: [plugin],
+      providers: [Counter, Preferences],
+    });
+
+    await app.start();
+    app.getModule(Counter).increase();
+    await plugin.flush();
+
+    expect(storage.getItem("app")).toBe(JSON.stringify({ count: 1 }));
+  });
+
+  it("can merge hydrated partial state with current app defaults", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem("app", JSON.stringify({ storageCounter: { count: 4 } }));
+    const plugin = createStoragePlugin({
+      key: "app",
+      merge: (persisted, current) => ({
+        ...(current as object),
+        ...(persisted as object),
+      }),
+      storage,
+    });
+    const app = createApp({
+      plugins: [plugin],
+      providers: [Counter, Preferences],
+    });
+
+    await app.start();
+
+    expect(app.getModule(Counter).count).toBe(4);
+    expect(app.getModule(Preferences).theme).toBe("light");
+    expect(app.store.getPureState()).toEqual({
+      storageCounter: {
+        count: 4,
+      },
+      storagePreferences: {
+        theme: "light",
+      },
+    });
   });
 
   it("reports background persistence errors without throwing from state changes", async () => {
