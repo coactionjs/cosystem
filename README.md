@@ -14,6 +14,7 @@ composition.
   `testApp`
 - `@cosystem/devtools`: timeline inspection plugin for development tooling
 - `@cosystem/react`: React context and hooks for consuming a CoSystem app
+- `@cosystem/router`: embeddable router primitives and router token
 - `@cosystem/solid`: Solid context and signals for consuming a CoSystem app
 - `@cosystem/storage`: persistence plugin for app state snapshots
 - `@cosystem/svelte`: Svelte context and readable stores for consuming a CoSystem app
@@ -279,6 +280,20 @@ const app = createApp({
   ],
   providers: [Counter],
 });
+```
+
+## Router
+
+```ts
+import { RouterToken, createMemoryRouter, provideRouter } from "@cosystem/router";
+
+const router = createMemoryRouter({ initialPath: "/" });
+
+const app = createApp({
+  providers: [provideRouter(router)],
+});
+
+app.get(RouterToken).navigate("/settings");
 ```
 
 ## Tooling
