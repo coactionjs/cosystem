@@ -47,7 +47,6 @@ export interface AppScope {
 }
 
 export interface App {
-  readonly container: Container;
   readonly state: AppState;
   readonly started: boolean;
   readonly store: Store<RootState>;
@@ -163,13 +162,14 @@ interface LifecycleModule {
 }
 
 const runtimeModuleMetadataKey = Symbol.for("@cosystem/core/runtimeModule");
+const appContainerMap = new WeakMap<App, Container>();
 
 export function createApp(options: CreateAppOptions = {}): App {
   return createAppInternal(options);
 }
 
 export function createAppInternal(options: InternalCreateAppOptions = {}): App {
-  const parent = isApp(options.parent) ? options.parent.container : options.parent;
+  const parent = isApp(options.parent) ? getAppContainer(options.parent) : options.parent;
   const container = parent === undefined ? createContainer() : createContainer({ parent });
   const moduleTokens: InjectionToken[] = [];
 
@@ -209,15 +209,16 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
   app.attachRuntimeMetadata();
   app.runModuleCreatedHooks();
   app.init();
+  appContainerMap.set(app, container);
 
   return app;
 }
 
 class RuntimeApp implements App {
-  readonly container: Container;
   readonly state: AppState;
   readonly store: Store<RootState>;
 
+  readonly #container: Container;
   private readonly devOptions: AppDevOptions;
   private readonly modules: ModuleBinding[];
   private readonly moduleByToken = new Map<InjectionToken, ModuleBinding>();
@@ -237,7 +238,7 @@ class RuntimeApp implements App {
     readonly store: Store<RootState>;
     readonly testInspector?: MutableTestInspector;
   }) {
-    this.container = options.container;
+    this.#container = options.container;
     this.devOptions = options.devOptions;
     this.modules = options.modules;
     this.plugins = options.plugins;
@@ -265,15 +266,15 @@ class RuntimeApp implements App {
   }
 
   get<T>(token: InjectionToken<T>): T {
-    return this.container.get(token);
+    return this.#container.get(token);
   }
 
   getAsync<T>(token: InjectionToken<T>): Promise<T> {
-    return this.container.getAsync(token);
+    return this.#container.getAsync(token);
   }
 
   getAll<T>(token: InjectionToken<T>): T[] {
-    return this.container.getAll(token);
+    return this.#container.getAll(token);
   }
 
   getModule<T>(token: InjectionToken<T>): T {
@@ -358,14 +359,14 @@ class RuntimeApp implements App {
     await this.stop();
     await this.runLifecycle("onDispose", true);
     await Promise.all(this.plugins.map((plugin) => plugin.dispose?.()));
-    await this.container.dispose();
+    await this.#container.dispose();
     this.store.destroy();
     this.isDisposed = true;
   }
 
   createScope(options?: ScopeOptions): AppScope {
     return {
-      container: this.container.createScope(options),
+      container: this.#container.createScope(options),
     };
   }
 
@@ -775,4 +776,14 @@ function isApp(value: unknown): value is App {
     "start" in value &&
     "dispose" in value
   );
+}
+
+function getAppContainer(app: App): Container {
+  const container = appContainerMap.get(app);
+
+  if (container === undefined) {
+    throw new CosystemError("Parent app was not created by CoSystem.");
+  }
+
+  return container;
 }

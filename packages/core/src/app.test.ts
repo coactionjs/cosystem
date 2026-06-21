@@ -214,4 +214,21 @@ describe("app runtime", () => {
       },
     });
   });
+
+  it("keeps the root container private while allowing parent app resolution", () => {
+    const logger = new MemoryLogger();
+    const parent = createApp({
+      providers: [provide(Logger, { useValue: logger })],
+    });
+    const child = createApp({
+      parent,
+      providers: [Counter],
+    });
+
+    expect("container" in parent).toBe(false);
+
+    child.getModule(Counter).increase();
+
+    expect(logger.messages).toEqual(["count:1"]);
+  });
 });
