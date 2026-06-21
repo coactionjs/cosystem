@@ -258,9 +258,20 @@ client.dispose();
 await host.dispose();
 ```
 
-The prototype covers app creation, method delegation, and state snapshot sync. It
-does not attempt full shared-runtime conflict handling or framework-specific
-worker bootstrapping.
+The prototype covers app creation, method delegation, initial state snapshots,
+and patch sync messages. It does not attempt full shared-runtime conflict
+handling or framework-specific worker bootstrapping.
+
+## Logger Plugin
+
+```ts
+import { createLoggerPlugin } from "@cosystem/core";
+
+const app = createApp({
+  plugins: [createLoggerPlugin()],
+  providers: [Counter],
+});
+```
 
 ## Devtools
 
