@@ -373,6 +373,7 @@ const client = createWorkerClient({
 
 const host = createWorkerApp({
   providers: [Counter],
+  sync: "patch",
   transport: hostTransport,
 });
 
@@ -429,10 +430,10 @@ await client.ready;
 ```
 
 The prototype covers app creation, method delegation, initial state snapshots,
-patch sync messages, client-side readiness, selector watches for worker-hosted
-state, `postMessage` endpoints, and a `data-transport`-style `listen`/`emit`
-bridge. It does not attempt full shared-runtime conflict handling or
-framework-specific worker bootstrapping.
+patch-only sync messages after startup, client-side readiness, selector watches
+for worker-hosted state, `postMessage` endpoints, and a `data-transport`-style
+`listen`/`emit` bridge. It does not attempt full shared-runtime conflict
+handling or framework-specific worker bootstrapping.
 
 ## Logger Plugin
 

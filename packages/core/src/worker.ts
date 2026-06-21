@@ -72,7 +72,7 @@ export interface WorkerResultMessage {
 
 export interface WorkerStateMessage {
   readonly type: "state";
-  readonly state: unknown;
+  readonly state?: unknown;
   readonly patches?: readonly unknown[];
   readonly sync: "patch" | "snapshot";
   readonly version: number;
@@ -90,7 +90,10 @@ export interface SerializedWorkerError {
 
 export interface CreateWorkerAppOptions extends CreateAppOptions {
   readonly transport: WorkerTransport;
+  readonly sync?: WorkerStateSyncMode;
 }
+
+export type WorkerStateSyncMode = "snapshot" | "patch";
 
 export interface WorkerAppHost {
   readonly app: App;
@@ -144,14 +147,23 @@ interface WorkerSelectorWatcher<T> {
   previous: T | undefined;
 }
 
+type PatchPathSegment = string | number;
+type PatchContainer = Record<string, unknown> | unknown[];
+
+interface WorkerPatch {
+  readonly op: "add" | "replace" | "remove";
+  readonly path: unknown;
+  readonly value?: unknown;
+}
+
 export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost {
-  const { transport, ...appOptions } = options;
+  const { sync = "snapshot", transport, ...appOptions } = options;
   let publishPatches = false;
   const patchPlugin: Plugin = {
     name: "cosystem:worker-patches",
     onPatch(event) {
       if (publishPatches) {
-        publishState(app, transport, event.patches);
+        publishState(app, transport, event.patches, sync);
       }
     },
   };
@@ -166,7 +178,7 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
   const ready = app.start().then(() => {
     publishPatches = true;
     transport.post({ type: "ready" });
-    publishState(app, transport);
+    publishState(app, transport, [], "snapshot");
     return undefined;
   });
   const unsubscribeTransport = transport.subscribe((message) => {
@@ -342,7 +354,10 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
   unsubscribe = transport.subscribe((message) => {
     if (message.type === "state") {
       state.version = message.version;
-      snapshot = message.state;
+      snapshot =
+        message.state === undefined && message.sync === "patch"
+          ? applyWorkerPatches(snapshot, message.patches ?? [])
+          : message.state;
 
       if (!readySettled) {
         readySettled = true;
@@ -532,16 +547,164 @@ function publishState(
   app: App,
   transport: WorkerTransport,
   patches: readonly unknown[] = [],
+  mode: WorkerStateSyncMode = "snapshot",
 ): void {
+  const isPatch = patches.length > 0;
   const message: WorkerStateMessage = {
-    state: app.store.getPureState(),
-    sync: patches.length > 0 ? "patch" : "snapshot",
+    ...(isPatch && mode === "patch" ? {} : { state: app.store.getPureState() }),
+    sync: isPatch ? "patch" : "snapshot",
     type: "state",
     version: app.state.version,
-    ...(patches.length === 0 ? {} : { patches }),
+    ...(isPatch ? { patches } : {}),
   };
 
   transport.post(message);
+}
+
+function applyWorkerPatches(state: unknown, patches: readonly unknown[]): unknown {
+  let next = state;
+
+  for (const patch of patches) {
+    next = applyWorkerPatch(next, patch);
+  }
+
+  return next;
+}
+
+function applyWorkerPatch(state: unknown, patch: unknown): unknown {
+  if (!isWorkerPatch(patch)) {
+    throw new CosystemError("Worker state patch is invalid.");
+  }
+
+  const path = normalizePatchPath(patch.path);
+
+  if (path.length === 0) {
+    if (patch.op === "remove") {
+      return undefined;
+    }
+
+    return patch.value;
+  }
+
+  return applyPatchAtPath(state, path, patch);
+}
+
+function applyPatchAtPath(
+  state: unknown,
+  path: readonly PatchPathSegment[],
+  patch: WorkerPatch,
+): unknown {
+  const [segment, ...rest] = path;
+
+  if (segment === undefined) {
+    throw new CosystemError("Worker state patch path is invalid.");
+  }
+
+  const container = clonePatchContainer(state, segment);
+
+  if (rest.length === 0) {
+    if (patch.op === "remove") {
+      removePatchValue(container, segment);
+      return container;
+    }
+
+    setPatchValue(container, segment, patch.value);
+    return container;
+  }
+
+  setPatchValue(
+    container,
+    segment,
+    applyPatchAtPath(getPatchValue(container, segment), rest, patch),
+  );
+
+  return container;
+}
+
+function clonePatchContainer(state: unknown, nextSegment: PatchPathSegment): PatchContainer {
+  if (Array.isArray(state)) {
+    return [...state];
+  }
+
+  if (isRecord(state)) {
+    return { ...state };
+  }
+
+  return typeof nextSegment === "number" ? [] : {};
+}
+
+function getPatchValue(container: PatchContainer, segment: PatchPathSegment): unknown {
+  if (Array.isArray(container)) {
+    return container[toArrayIndex(segment)];
+  }
+
+  return container[String(segment)];
+}
+
+function setPatchValue(container: PatchContainer, segment: PatchPathSegment, value: unknown): void {
+  if (Array.isArray(container)) {
+    container[toArrayIndex(segment)] = value;
+    return;
+  }
+
+  container[String(segment)] = value;
+}
+
+function removePatchValue(container: PatchContainer, segment: PatchPathSegment): void {
+  if (Array.isArray(container)) {
+    container.splice(toArrayIndex(segment), 1);
+    return;
+  }
+
+  delete container[String(segment)];
+}
+
+function toArrayIndex(segment: PatchPathSegment): number {
+  if (typeof segment === "number") {
+    return segment;
+  }
+
+  return Number(segment);
+}
+
+function normalizePatchPath(path: unknown): readonly PatchPathSegment[] {
+  if (Array.isArray(path)) {
+    return path.map((segment) => normalizePatchPathSegment(segment));
+  }
+
+  if (typeof path === "string") {
+    if (path === "" || path === "/") {
+      return [];
+    }
+
+    return path
+      .split("/")
+      .slice(1)
+      .map((segment) =>
+        normalizePatchPathSegment(segment.replaceAll("~1", "/").replaceAll("~0", "~")),
+      );
+  }
+
+  throw new CosystemError("Worker state patch path is invalid.");
+}
+
+function normalizePatchPathSegment(segment: unknown): PatchPathSegment {
+  if (typeof segment === "number" || typeof segment === "string") {
+    return segment;
+  }
+
+  throw new CosystemError("Worker state patch path segment is invalid.");
+}
+
+function isWorkerPatch(value: unknown): value is WorkerPatch {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    (value.op === "add" || value.op === "replace" || value.op === "remove") &&
+    (Array.isArray(value.path) || typeof value.path === "string")
+  );
 }
 
 function createMemoryWorkerTransport(
@@ -573,6 +736,10 @@ function isWorkerMessage(message: unknown): message is WorkerMessage {
   return workerMessageTypes.includes(
     (message as { readonly type?: unknown }).type as WorkerMessage["type"],
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function serializeError(error: unknown): SerializedWorkerError {

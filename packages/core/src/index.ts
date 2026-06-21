@@ -84,6 +84,7 @@ export {
   type WorkerMessage,
   type WorkerStateMessage,
   type WorkerStateSelector,
+  type WorkerStateSyncMode,
   type WorkerTransport,
   type WorkerWatchOptions,
 } from "./worker.js";

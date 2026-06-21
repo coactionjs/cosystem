@@ -130,6 +130,44 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("applies patch-only worker state messages on the client", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({
+      transport: clientTransport,
+    });
+    const host = createWorkerApp({
+      providers: [WorkerCounter],
+      sync: "patch",
+      transport: hostTransport,
+    });
+    const messages: WorkerStateMessage[] = [];
+
+    client.subscribe((message) => {
+      messages.push(message);
+    });
+
+    await client.ready;
+
+    await client.module<WorkerCounter>("workerCounter").increase(2);
+
+    const patchMessage = messages.find((message) => message.sync === "patch");
+
+    expect(patchMessage).toMatchObject({
+      patches: expect.any(Array),
+      sync: "patch",
+    });
+    expect(patchMessage).not.toHaveProperty("state");
+    expect(client.getState()).toEqual({
+      workerCounter: {
+        count: 2,
+      },
+    });
+    expect(client.select(selectWorkerCount)).toBe(2);
+
+    client.dispose();
+    await host.dispose();
+  });
+
   it("uses selector equality for worker state watches", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const client = createWorkerClient({

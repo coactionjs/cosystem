@@ -36,6 +36,7 @@ const client = createWorkerClient({
 
 const host = createWorkerApp({
   providers: [Counter],
+  sync: "patch",
   transport: hostTransport,
 });
 
