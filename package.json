@@ -4,6 +4,10 @@
   "private": true,
   "description": "CoSystem - The meta-framework for coexisting UI frameworks.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coactionjs/cosystem.git"
+  },
   "type": "module",
   "scripts": {
     "build": "turbo run build",
@@ -17,7 +21,8 @@
     "lint": "oxlint .",
     "lint:fix": "oxlint . --fix",
     "prepare": "husky",
-    "release": "pnpm run build && changeset publish",
+    "publish:packages": "node scripts/publish-packages.mjs",
+    "release": "pnpm run build && pnpm run publish:packages",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:turbo": "turbo run test",

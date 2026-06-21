@@ -1,0 +1,68 @@
+name: Publish Packages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'coactionjs/cosystem'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Detect pending changesets
+        id: changesets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find .changeset -maxdepth 1 -type f -name '*.md' ! -name 'README.md' | grep -q .; then
+            echo "pending=true" >> "$GITHUB_OUTPUT"
+            echo "Pending changesets found; publish waits for the version PR to merge."
+          else
+            echo "pending=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup pnpm
+        if: steps.changesets.outputs.pending != 'true'
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.8.0
+
+      - name: Setup Node
+        if: steps.changesets.outputs.pending != 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+
+      - name: Install latest npm CLI
+        if: steps.changesets.outputs.pending != 'true'
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        if: steps.changesets.outputs.pending != 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify
+        if: steps.changesets.outputs.pending != 'true'
+        run: pnpm run ci
+
+      - name: Publish to npm
+        if: steps.changesets.outputs.pending != 'true'
+        run: pnpm run publish:packages
+        env:
+          NPM_CONFIG_PROVENANCE: true
