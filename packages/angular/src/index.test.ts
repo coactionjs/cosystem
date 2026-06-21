@@ -73,4 +73,37 @@ describe("Angular adapter", () => {
 
     injector.destroy();
   });
+
+  it("applies equality before updating Angular signals", () => {
+    const app = createApp({
+      providers: [Counter],
+    });
+    const injector = createEnvironmentInjector(
+      [provideCoSystem(app)],
+      null as unknown as EnvironmentInjector,
+    );
+
+    runInInjectionContext(injector, () => {
+      const counter = injectModule(Counter);
+      const parity = injectSignal(
+        (currentApp) => ({
+          value: currentApp.getModule(Counter).count % 2,
+        }),
+        {
+          equals: (value, previous) => value.value === previous.value,
+        },
+      );
+      const initial = parity();
+
+      counter.increase(2);
+
+      expect(parity()).toBe(initial);
+
+      counter.increase(1);
+
+      expect(parity()).toEqual({ value: 1 });
+    });
+
+    injector.destroy();
+  });
 });
