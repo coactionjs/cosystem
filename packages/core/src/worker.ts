@@ -1,5 +1,5 @@
 import { CosystemError } from "./errors.js";
-import { createApp, type App, type CreateAppOptions } from "./app.js";
+import { createApp, type App, type CreateAppOptions, type Plugin } from "./app.js";
 
 export interface WorkerTransport {
   post(message: WorkerMessage): void;
@@ -30,6 +30,8 @@ export interface WorkerResultMessage {
 export interface WorkerStateMessage {
   readonly type: "state";
   readonly state: unknown;
+  readonly patches?: readonly unknown[];
+  readonly sync: "patch" | "snapshot";
   readonly version: number;
 }
 
@@ -77,16 +79,26 @@ export interface WorkerClient {
 
 export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost {
   const { transport, ...appOptions } = options;
-  const app = createApp(appOptions);
+  const patchPlugin: Plugin = {
+    name: "cosystem:worker-patches",
+    onPatch(event) {
+      publishState(app, transport, event.patches);
+    },
+  };
+  const app = createApp({
+    ...appOptions,
+    engine: {
+      ...appOptions.engine,
+      patches: true,
+    },
+    plugins: [...(appOptions.plugins ?? []), patchPlugin],
+  });
   const unsubscribeTransport = transport.subscribe((message) => {
     if (message.type !== "call") {
       return;
     }
 
     void handleCall(app, transport, message);
-  });
-  const unsubscribeStore = app.store.subscribe(() => {
-    publishState(app, transport);
   });
 
   transport.post({ type: "ready" });
@@ -96,7 +108,6 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
     app,
     async dispose() {
       unsubscribeTransport();
-      unsubscribeStore();
       await app.dispose();
     },
   };
@@ -241,12 +252,20 @@ async function handleCall(
   }
 }
 
-function publishState(app: App, transport: WorkerTransport): void {
-  transport.post({
+function publishState(
+  app: App,
+  transport: WorkerTransport,
+  patches: readonly unknown[] = [],
+): void {
+  const message: WorkerStateMessage = {
     state: app.store.getPureState(),
+    sync: patches.length > 0 ? "patch" : "snapshot",
     type: "state",
     version: app.state.version,
-  });
+    ...(patches.length === 0 ? {} : { patches }),
+  };
+
+  transport.post(message);
 }
 
 function createMemoryWorkerTransport(

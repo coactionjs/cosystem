@@ -35,6 +35,7 @@ describe("devtools plugin", () => {
       "setup",
       "action:start",
       "state",
+      "patch",
       "action:end",
     ]);
   });
@@ -52,6 +53,6 @@ describe("devtools plugin", () => {
     app.getModule(Counter).increase();
 
     expect(devtools.getTimeline()).toHaveLength(2);
-    expect(devtools.getTimeline().map((event) => event.type)).toEqual(["state", "action:end"]);
+    expect(devtools.getTimeline().map((event) => event.type)).toEqual(["patch", "action:end"]);
   });
 });

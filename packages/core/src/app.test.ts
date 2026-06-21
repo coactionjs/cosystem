@@ -103,6 +103,21 @@ describe("app runtime", () => {
     expect(app.test.getState()).toEqual({ counter: { count: 5 } });
   });
 
+  it("records Coaction patches through testApp when patches are enabled", () => {
+    const app = testApp({
+      engine: {
+        patches: true,
+      },
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+    const counter = app.getModule(Counter);
+
+    counter.increase(3);
+
+    expect(app.test.getPatches()).toHaveLength(1);
+    expect(app.test.getState()).toEqual({ counter: { count: 3 } });
+  });
+
   it("runs plugin and module lifecycle hooks", async () => {
     const events: string[] = [];
 

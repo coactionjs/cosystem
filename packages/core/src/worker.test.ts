@@ -5,6 +5,7 @@ import {
   createWorkerApp,
   createWorkerClient,
   defineModule,
+  type WorkerStateMessage,
 } from "./index.js";
 
 class WorkerCounter {
@@ -32,10 +33,10 @@ describe("worker prototype", () => {
       providers: [WorkerCounter],
       transport: hostTransport,
     });
-    const states: unknown[] = [];
+    const messages: WorkerStateMessage[] = [];
 
     client.subscribe((message) => {
-      states.push(message.state);
+      messages.push(message);
     });
 
     expect(client.getState()).toEqual({
@@ -61,7 +62,7 @@ describe("worker prototype", () => {
         count: 5,
       },
     });
-    expect(states).toEqual([
+    expect(messages.map((message) => message.state)).toEqual([
       {
         workerCounter: {
           count: 2,
@@ -73,6 +74,8 @@ describe("worker prototype", () => {
         },
       },
     ]);
+    expect(messages.map((message) => message.sync)).toEqual(["patch", "patch"]);
+    expect(messages.every((message) => (message.patches?.length ?? 0) > 0)).toBe(true);
 
     client.dispose();
     await host.dispose();

@@ -79,6 +79,7 @@ export interface Plugin {
   onModuleCreated?(event: ModuleCreatedEvent): void;
   onActionStart?(event: ActionEvent): void;
   onActionEnd?(event: ActionEvent): void;
+  onPatch?(event: PatchEvent): void;
   onStateChange?(event: StateChangeEvent): void;
   onError?(error: unknown, context: ErrorContext): void;
   dispose?(): void | Promise<void>;
@@ -103,6 +104,11 @@ export interface StateChangeEvent {
   readonly state: unknown;
 }
 
+export interface PatchEvent {
+  readonly patches: readonly unknown[];
+  readonly inversePatches: readonly unknown[];
+}
+
 export interface ErrorContext {
   readonly phase: string;
 }
@@ -119,9 +125,11 @@ export interface TestAppInspector {
 export interface MutableTestInspector extends TestAppInspector {
   recordAction(event: ActionEvent): void;
   recordPatch(patch: unknown): void;
+  recordState(state: unknown): void;
 }
 
 type RootState = Record<string, Record<PropertyKey, unknown>>;
+type StoreSetState = Store<RootState>["setState"];
 
 interface CoactionStoreOptions {
   readonly name: string;
@@ -182,7 +190,10 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
 
   const modules = instantiateModules(container, moduleTokens);
   const rootState = createRootState(modules);
-  const store = createCoactionStore(rootState, createStoreOptions(options.engine) as never);
+  const store = createCoactionStore(
+    rootState,
+    createStoreOptions(options.engine, shouldEnablePatches(options)) as never,
+  );
   const state: { version: number } = { version: 0 };
   const app = new RuntimeApp({
     container,
@@ -239,10 +250,12 @@ class RuntimeApp implements App {
       this.moduleByName.set(moduleBinding.name, moduleBinding);
     }
 
+    this.wrapStoreSetState();
+
     this.store.subscribe(() => {
       (this.state as { version: number }).version += 1;
       const state = this.store.getPureState();
-      this.testInspector?.recordPatch(state);
+      this.testInspector?.recordState(state);
       this.emitStateChange({ state });
     });
   }
@@ -543,6 +556,42 @@ class RuntimeApp implements App {
       plugin.onStateChange?.(event);
     }
   }
+
+  private emitPatch(event: PatchEvent): void {
+    for (const plugin of this.plugins) {
+      plugin.onPatch?.(event);
+    }
+  }
+
+  private wrapStoreSetState(): void {
+    const originalSetState = this.store.setState.bind(this.store) as (
+      ...args: Parameters<StoreSetState>
+    ) => unknown;
+
+    this.store.setState = ((...args: Parameters<StoreSetState>) => {
+      const result = originalSetState(...args);
+      this.recordMutationResult(result);
+      return result as never;
+    }) as StoreSetState;
+  }
+
+  private recordMutationResult(result: unknown): void {
+    if (!Array.isArray(result) || result.length < 3) {
+      return;
+    }
+
+    const patches = result[1] as readonly unknown[];
+
+    if (patches.length === 0) {
+      return;
+    }
+
+    this.testInspector?.recordPatch(patches);
+    this.emitPatch({
+      inversePatches: result[2] as readonly unknown[],
+      patches,
+    });
+  }
 }
 
 function normalizeAppProvider(provider: ProviderInput): {
@@ -579,13 +628,27 @@ function normalizeAppProvider(provider: ProviderInput): {
   return { provider };
 }
 
-function createStoreOptions(engine: EngineOptions | undefined): CoactionStoreOptions {
+function createStoreOptions(
+  engine: EngineOptions | undefined,
+  enablePatches: boolean,
+): CoactionStoreOptions {
   return {
     name: "cosystem",
     sliceMode: "single",
-    ...(engine?.patches === undefined ? {} : { enablePatches: engine.patches }),
+    enablePatches,
     ...(engine?.transport === undefined ? {} : { transport: engine.transport }),
   } as CoactionStoreOptions;
+}
+
+function shouldEnablePatches(options: InternalCreateAppOptions): boolean {
+  if (options.engine?.patches !== undefined) {
+    return options.engine.patches;
+  }
+
+  return (
+    options.testInspector !== undefined ||
+    (options.plugins ?? []).some((plugin) => plugin.onPatch !== undefined)
+  );
 }
 
 function createModuleClassProviderOptions<T>(

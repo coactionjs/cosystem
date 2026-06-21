@@ -21,6 +21,7 @@ export {
   type EngineOptions,
   type ErrorContext,
   type ModuleCreatedEvent,
+  type PatchEvent,
   type Plugin,
   type StateChangeEvent,
   type TestAppInspector,

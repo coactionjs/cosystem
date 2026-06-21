@@ -77,8 +77,10 @@ function createTestInspector(): MutableTestInspector {
       actions.push(event);
     },
     recordPatch(patch) {
-      lastState = patch;
       patches.push(patch);
+    },
+    recordState(state) {
+      lastState = state;
     },
   };
 }

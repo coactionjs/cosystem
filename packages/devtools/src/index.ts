@@ -1,4 +1,11 @@
-import type { ActionEvent, App, ErrorContext, Plugin, StateChangeEvent } from "@cosystem/core";
+import type {
+  ActionEvent,
+  App,
+  ErrorContext,
+  PatchEvent,
+  Plugin,
+  StateChangeEvent,
+} from "@cosystem/core";
 
 export type DevtoolsTimelineEvent =
   | {
@@ -9,6 +16,11 @@ export type DevtoolsTimelineEvent =
   | {
       readonly type: "action:start" | "action:end";
       readonly event: ActionEvent;
+      readonly time: number;
+    }
+  | {
+      readonly type: "patch";
+      readonly event: PatchEvent;
       readonly time: number;
     }
   | {
@@ -74,6 +86,13 @@ export function createDevtoolsPlugin(options: DevtoolsOptions = {}): DevtoolsPlu
         error,
         time: now(),
         type: "error",
+      });
+    },
+    onPatch(event) {
+      push({
+        event,
+        time: now(),
+        type: "patch",
       });
     },
     onStateChange(event) {
