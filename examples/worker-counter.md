@@ -45,8 +45,20 @@ const counter = client.module<Counter>("counter");
 
 await counter.increase(2);
 
-console.log(client.getState());
+type CounterState = {
+  readonly counter: {
+    readonly count: number;
+  };
+};
 
+const selectCount = (state: unknown) => (state as CounterState).counter.count;
+const unsubscribeCount = client.watch(selectCount, (value) => {
+  console.log(value);
+});
+
+console.log(client.select(selectCount));
+
+unsubscribeCount();
 client.dispose();
 await host.dispose();
 ```

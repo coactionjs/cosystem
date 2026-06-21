@@ -83,7 +83,9 @@ export {
   type WorkerClient,
   type WorkerMessage,
   type WorkerStateMessage,
+  type WorkerStateSelector,
   type WorkerTransport,
+  type WorkerWatchOptions,
 } from "./worker.js";
 export type {
   BuildOptions,

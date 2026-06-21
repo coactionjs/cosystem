@@ -110,16 +110,38 @@ export type AsyncMethodProxy<T extends object> = {
     : never;
 };
 
+export type WorkerStateSelector<T> = (state: unknown, client: WorkerClient) => T;
+
+export interface WorkerWatchOptions<T> {
+  readonly equals?: (value: T, previous: T) => boolean;
+  readonly immediate?: boolean;
+}
+
 export interface WorkerClient {
   readonly ready: Promise<void>;
   readonly state: {
     readonly version: number;
   };
   getState(): unknown;
+  select<T>(selector: WorkerStateSelector<T>): T;
+  watch<T>(
+    selector: WorkerStateSelector<T>,
+    listener: (value: T, previous: T) => void,
+    options?: WorkerWatchOptions<T>,
+  ): () => void;
   call(module: string, method: string, ...args: readonly unknown[]): Promise<unknown>;
   module<T extends object>(name: string): AsyncMethodProxy<T>;
   subscribe(listener: (message: WorkerStateMessage) => void): () => void;
   dispose(): void;
+}
+
+interface WorkerSelectorWatcher<T> {
+  readonly selector: WorkerStateSelector<T>;
+  readonly listener: (value: T, previous: T) => void;
+  readonly equals: (value: T, previous: T) => boolean;
+  readonly immediate: boolean;
+  initialized: boolean;
+  previous: T | undefined;
 }
 
 export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost {
@@ -169,6 +191,7 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
 export function createWorkerClient(options: CreateWorkerClientOptions): WorkerClient {
   const { transport } = options;
   const listeners = new Set<(message: WorkerStateMessage) => void>();
+  const selectorWatchers = new Set<WorkerSelectorWatcher<unknown>>();
   const pending = new Map<
     number,
     {
@@ -189,43 +212,7 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
 
   ready.catch(() => undefined);
 
-  const unsubscribe = transport.subscribe((message) => {
-    if (message.type === "state") {
-      state.version = message.version;
-      snapshot = message.state;
-
-      if (!readySettled) {
-        readySettled = true;
-        resolveReady();
-      }
-
-      for (const listener of listeners) {
-        listener(message);
-      }
-
-      return;
-    }
-
-    if (message.type !== "result") {
-      return;
-    }
-
-    const entry = pending.get(message.id);
-
-    if (entry === undefined) {
-      return;
-    }
-
-    pending.delete(message.id);
-
-    if (message.error !== undefined) {
-      entry.reject(createRemoteError(message.error));
-      return;
-    }
-
-    entry.resolve(message.value);
-  });
-
+  let unsubscribe = noop;
   const client: WorkerClient = {
     ready,
     state,
@@ -258,6 +245,7 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
 
       pending.clear();
       listeners.clear();
+      selectorWatchers.clear();
     },
     getState() {
       return snapshot;
@@ -276,13 +264,119 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
         },
       ) as AsyncMethodProxy<T>;
     },
+    select<T>(selector: WorkerStateSelector<T>): T {
+      if (snapshot === undefined) {
+        throw new CosystemError("Worker client state is not ready.");
+      }
+
+      return selector(snapshot, client);
+    },
     subscribe(listener) {
       listeners.add(listener);
       return () => {
         listeners.delete(listener);
       };
     },
+    watch<T>(
+      selector: WorkerStateSelector<T>,
+      listener: (value: T, previous: T) => void,
+      watchOptions: WorkerWatchOptions<T> = {},
+    ): () => void {
+      const watcher: WorkerSelectorWatcher<T> = {
+        equals: watchOptions.equals ?? Object.is,
+        immediate: watchOptions.immediate ?? false,
+        initialized: false,
+        listener,
+        previous: undefined,
+        selector,
+      };
+
+      if (snapshot !== undefined) {
+        const value = selector(snapshot, client);
+        watcher.initialized = true;
+        watcher.previous = value;
+
+        if (watcher.immediate) {
+          listener(value, value);
+        }
+      }
+
+      selectorWatchers.add(watcher as WorkerSelectorWatcher<unknown>);
+
+      return () => {
+        selectorWatchers.delete(watcher as WorkerSelectorWatcher<unknown>);
+      };
+    },
   };
+
+  const publishSelectorWatchers = () => {
+    if (snapshot === undefined) {
+      return;
+    }
+
+    for (const watcher of selectorWatchers) {
+      const value = watcher.selector(snapshot, client);
+
+      if (!watcher.initialized) {
+        watcher.initialized = true;
+        watcher.previous = value;
+
+        if (watcher.immediate) {
+          watcher.listener(value, value);
+        }
+
+        continue;
+      }
+
+      const previous = watcher.previous as never;
+
+      if (watcher.equals(value, previous)) {
+        continue;
+      }
+
+      watcher.previous = value;
+      watcher.listener(value, previous as never);
+    }
+  };
+
+  unsubscribe = transport.subscribe((message) => {
+    if (message.type === "state") {
+      state.version = message.version;
+      snapshot = message.state;
+
+      if (!readySettled) {
+        readySettled = true;
+        resolveReady();
+      }
+
+      for (const listener of listeners) {
+        listener(message);
+      }
+
+      publishSelectorWatchers();
+
+      return;
+    }
+
+    if (message.type !== "result") {
+      return;
+    }
+
+    const entry = pending.get(message.id);
+
+    if (entry === undefined) {
+      return;
+    }
+
+    pending.delete(message.id);
+
+    if (message.error !== undefined) {
+      entry.reject(createRemoteError(message.error));
+      return;
+    }
+
+    entry.resolve(message.value);
+  });
 
   return client;
 }
@@ -506,3 +600,5 @@ function createRemoteError(error: SerializedWorkerError): CosystemError {
 
   return remoteError;
 }
+
+function noop(): void {}

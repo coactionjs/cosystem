@@ -90,6 +90,81 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("selects and watches worker state through a reactive client contract", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({
+      transport: clientTransport,
+    });
+    const values: number[] = [];
+    const unsubscribe = client.watch(
+      selectWorkerCount,
+      (value) => {
+        values.push(value);
+      },
+      {
+        immediate: true,
+      },
+    );
+    const host = createWorkerApp({
+      providers: [WorkerCounter],
+      transport: hostTransport,
+    });
+
+    expect(() => client.select(selectWorkerCount)).toThrow("Worker client state is not ready");
+
+    await client.ready;
+
+    expect(client.select(selectWorkerCount)).toBe(0);
+
+    await client.module<WorkerCounter>("workerCounter").increase(2);
+
+    expect(client.select(selectWorkerCount)).toBe(2);
+    expect(values).toEqual([0, 2]);
+
+    unsubscribe();
+    await client.module<WorkerCounter>("workerCounter").increase(3);
+
+    expect(values).toEqual([0, 2]);
+
+    client.dispose();
+    await host.dispose();
+  });
+
+  it("uses selector equality for worker state watches", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({
+      transport: clientTransport,
+    });
+    const host = createWorkerApp({
+      providers: [WorkerCounter],
+      transport: hostTransport,
+    });
+    const values: Array<{ readonly parity: number }> = [];
+
+    await client.ready;
+
+    const unsubscribe = client.watch(
+      (state) => ({
+        parity: selectWorkerCount(state) % 2,
+      }),
+      (value) => {
+        values.push(value);
+      },
+      {
+        equals: (value, previous) => value.parity === previous.parity,
+      },
+    );
+
+    await client.module<WorkerCounter>("workerCounter").increase(2);
+    await client.module<WorkerCounter>("workerCounter").increase(1);
+
+    expect(values).toEqual([{ parity: 1 }]);
+
+    unsubscribe();
+    client.dispose();
+    await host.dispose();
+  });
+
   it("rejects delegated calls when the remote method is missing", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const client = createWorkerClient({
@@ -273,6 +348,16 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 });
+
+interface WorkerCounterState {
+  readonly workerCounter: {
+    readonly count: number;
+  };
+}
+
+function selectWorkerCount(state: unknown): number {
+  return (state as WorkerCounterState).workerCounter.count;
+}
 
 function createDataTransportPair(): readonly [DataTransportLike, DataTransportLike] {
   const leftListeners = new Map<WorkerMessage["type"], Set<(message: WorkerMessage) => unknown>>();

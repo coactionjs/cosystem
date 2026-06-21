@@ -379,8 +379,21 @@ const host = createWorkerApp({
 await client.ready;
 await client.module<Counter>("counter").increase(1);
 
-console.log(client.getState());
+type CounterState = {
+  readonly counter: {
+    readonly count: number;
+  };
+};
 
+const selectCount = (state: unknown) => (state as CounterState).counter.count;
+const count = client.select(selectCount);
+const unsubscribeCount = client.watch(selectCount, (value) => {
+  console.log(value);
+});
+
+console.log(count);
+
+unsubscribeCount();
 client.dispose();
 await host.dispose();
 ```
@@ -416,9 +429,10 @@ await client.ready;
 ```
 
 The prototype covers app creation, method delegation, initial state snapshots,
-patch sync messages, client-side readiness, `postMessage` endpoints, and a
-`data-transport`-style `listen`/`emit` bridge. It does not attempt full
-shared-runtime conflict handling or framework-specific worker bootstrapping.
+patch sync messages, client-side readiness, selector watches for worker-hosted
+state, `postMessage` endpoints, and a `data-transport`-style `listen`/`emit`
+bridge. It does not attempt full shared-runtime conflict handling or
+framework-specific worker bootstrapping.
 
 ## Logger Plugin
 
