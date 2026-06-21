@@ -48,6 +48,19 @@ defineModule(FailingAction, {
   name: "failingAction",
 });
 
+class MetadataLogger extends MemoryLogger {}
+
+class ProviderLogger extends MemoryLogger {}
+
+class ProviderOverrideCounter {
+  constructor(readonly logger: MemoryLogger) {}
+}
+
+defineModule(ProviderOverrideCounter, {
+  deps: [MetadataLogger],
+  name: "providerOverrideCounter",
+});
+
 describe("app runtime", () => {
   it("binds no-decorator modules to the Coaction-backed app store", () => {
     const logger = new MemoryLogger();
@@ -145,6 +158,21 @@ describe("app runtime", () => {
 
     expect(counter.count).toBe(7);
     expect(counter.double).toBe(14);
+  });
+
+  it("lets provider-level deps override defineModule metadata", () => {
+    const app = createApp({
+      providers: [
+        MetadataLogger,
+        ProviderLogger,
+        provide(ProviderOverrideCounter, {
+          deps: [ProviderLogger],
+          useClass: ProviderOverrideCounter,
+        }),
+      ],
+    });
+
+    expect(app.getModule(ProviderOverrideCounter).logger).toBeInstanceOf(ProviderLogger);
   });
 
   it("runs plugin and module lifecycle hooks", async () => {
