@@ -38,6 +38,8 @@ const host = createWorkerApp({
   transport: hostTransport,
 });
 
+await host.ready;
+
 const counter = client.module<Counter>("counter");
 
 await counter.increase(2);

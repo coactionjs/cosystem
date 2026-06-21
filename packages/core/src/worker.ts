@@ -73,6 +73,7 @@ export interface CreateWorkerAppOptions extends CreateAppOptions {
 
 export interface WorkerAppHost {
   readonly app: App;
+  readonly ready: Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -101,10 +102,13 @@ export interface WorkerClient {
 
 export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost {
   const { transport, ...appOptions } = options;
+  let publishPatches = false;
   const patchPlugin: Plugin = {
     name: "cosystem:worker-patches",
     onPatch(event) {
-      publishState(app, transport, event.patches);
+      if (publishPatches) {
+        publishState(app, transport, event.patches);
+      }
     },
   };
   const app = createApp({
@@ -120,16 +124,20 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
       return;
     }
 
-    void handleCall(app, transport, message);
+    void handleCall(app, transport, message, ready);
   });
-
-  transport.post({ type: "ready" });
-  publishState(app, transport);
+  const ready = app.start().then(() => {
+    publishPatches = true;
+    transport.post({ type: "ready" });
+    publishState(app, transport);
+  });
 
   return {
     app,
+    ready,
     async dispose() {
       unsubscribeTransport();
+      await ready.catch(() => undefined);
       await app.dispose();
     },
   };
@@ -323,8 +331,10 @@ async function handleCall(
   app: App,
   transport: WorkerTransport,
   message: WorkerCallMessage,
+  ready: Promise<void>,
 ): Promise<void> {
   try {
+    await ready;
     const module = app.getModuleByName<Record<string, unknown>>(message.module);
     const method = module[message.method];
 

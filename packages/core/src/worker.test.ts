@@ -42,6 +42,8 @@ describe("worker prototype", () => {
       messages.push(message);
     });
 
+    await host.ready;
+
     expect(client.getState()).toEqual({
       workerCounter: {
         count: 0,
@@ -65,7 +67,9 @@ describe("worker prototype", () => {
         count: 5,
       },
     });
-    expect(messages.map((message) => message.state)).toEqual([
+    const patchMessages = messages.filter((message) => message.sync === "patch");
+
+    expect(patchMessages.map((message) => message.state)).toEqual([
       {
         workerCounter: {
           count: 2,
@@ -77,8 +81,7 @@ describe("worker prototype", () => {
         },
       },
     ]);
-    expect(messages.map((message) => message.sync)).toEqual(["patch", "patch"]);
-    expect(messages.every((message) => (message.patches?.length ?? 0) > 0)).toBe(true);
+    expect(patchMessages.every((message) => (message.patches?.length ?? 0) > 0)).toBe(true);
 
     client.dispose();
     await host.dispose();
@@ -93,6 +96,8 @@ describe("worker prototype", () => {
       providers: [WorkerCounter],
       transport: hostTransport,
     });
+
+    await host.ready;
 
     await expect(client.call("workerCounter", "missing")).rejects.toThrow("Remote worker error");
 
@@ -109,6 +114,8 @@ describe("worker prototype", () => {
       providers: [WorkerCounter],
       transport: createDataTransportWorkerTransport(hostDataTransport),
     });
+
+    await host.ready;
 
     await expect(client.module<WorkerCounter>("workerCounter").increase(4)).resolves.toBe(4);
 
@@ -132,6 +139,41 @@ describe("worker prototype", () => {
     client.dispose();
 
     await expect(pending).rejects.toThrow("Worker client disposed before response.");
+  });
+
+  it("publishes the initial worker snapshot after app startup lifecycle", async () => {
+    class StartedCounter {
+      count = 0;
+
+      onStart(): void {
+        this.count = 7;
+      }
+    }
+
+    defineModule(StartedCounter, {
+      name: "startedCounter",
+      state: ["count"],
+    });
+
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({
+      transport: clientTransport,
+    });
+    const host = createWorkerApp({
+      providers: [StartedCounter],
+      transport: hostTransport,
+    });
+
+    await host.ready;
+
+    expect(client.getState()).toEqual({
+      startedCounter: {
+        count: 7,
+      },
+    });
+
+    client.dispose();
+    await host.dispose();
   });
 });
 

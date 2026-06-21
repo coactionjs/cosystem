@@ -347,6 +347,7 @@ const host = createWorkerApp({
   transport: hostTransport,
 });
 
+await host.ready;
 await client.module<Counter>("counter").increase(1);
 
 console.log(client.getState());
@@ -367,6 +368,8 @@ const host = createWorkerApp({
   providers: [Counter],
   transport: createDataTransportWorkerTransport(hostDataTransport),
 });
+
+await host.ready;
 ```
 
 The prototype covers app creation, method delegation, initial state snapshots,
