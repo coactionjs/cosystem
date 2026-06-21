@@ -119,17 +119,18 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
     },
     plugins: [...(appOptions.plugins ?? []), patchPlugin],
   });
+  const ready = app.start().then(() => {
+    publishPatches = true;
+    transport.post({ type: "ready" });
+    publishState(app, transport);
+    return undefined;
+  });
   const unsubscribeTransport = transport.subscribe((message) => {
     if (message.type !== "call") {
       return;
     }
 
     void handleCall(app, transport, message, ready);
-  });
-  const ready = app.start().then(() => {
-    publishPatches = true;
-    transport.post({ type: "ready" });
-    publishState(app, transport);
   });
 
   return {
