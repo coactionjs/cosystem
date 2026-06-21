@@ -1,15 +1,15 @@
-export interface Token<_T = unknown> {
+export interface Token<_T = any> {
   readonly id: symbol;
   readonly description?: string;
-  readonly __type?: _T;
+  readonly __type?: (value: _T) => _T;
 }
 
 export type Constructor<T = unknown> = new (...args: any[]) => T;
-export type ClassToken<T = unknown> = abstract new (...args: any[]) => T;
-export type InjectionToken<T = unknown> = Token<T> | ClassToken<T> | string | symbol;
+export type ClassToken<T = any> = abstract new (...args: any[]) => T;
+export type InjectionToken<T = any> = Token<T> | ClassToken<T> | string | symbol;
 export type TokenValue<TToken> = TToken extends InjectionToken<infer TValue> ? TValue : unknown;
 
-export type DependencySpec<T = unknown> =
+export type DependencySpec<T = any> =
   | InjectionToken<T>
   | {
       readonly token: InjectionToken<T>;
