@@ -9,6 +9,7 @@ import {
   defineModule,
   effect as effectDecorator,
   inject,
+  lazyModule,
   module as moduleDecorator,
   provide,
   state as stateDecorator,
@@ -74,6 +75,25 @@ class ProviderOverrideCounter {
 defineModule(ProviderOverrideCounter, {
   deps: [MetadataLogger],
   name: "providerOverrideCounter",
+});
+
+class LazyCounter {
+  count = 1;
+
+  get double(): number {
+    return this.count * 2;
+  }
+
+  increase(): void {
+    this.count += 1;
+  }
+}
+
+defineModule(LazyCounter, {
+  actions: ["increase"],
+  computed: ["double"],
+  name: "lazyCounter",
+  state: ["count"],
 });
 
 describe("app runtime", () => {
@@ -199,6 +219,102 @@ describe("app runtime", () => {
     expect(values).toEqual([4]);
 
     unwatch();
+  });
+
+  it("loads lazy modules into the app runtime through an explicit child scope", async () => {
+    const created: string[] = [];
+    const app = createApp({
+      plugins: [
+        {
+          onModuleCreated(event) {
+            created.push(event.name);
+          },
+        },
+      ],
+    });
+    const feature = lazyModule(() => ({
+      providers: [LazyCounter],
+    }));
+
+    expect(() => app.getModule(LazyCounter)).toThrow(CosystemError);
+
+    const result = await app.load(feature);
+    const counter = app.getModule(LazyCounter);
+    const values: number[] = [];
+    const unwatch = app.watch(
+      () => counter.double,
+      (value) => values.push(value),
+    );
+
+    expect(result.modules.map((module) => module.name)).toEqual(["lazyCounter"]);
+    expect(result.scope.container.get(LazyCounter)).toBe(counter);
+    expect(created).toEqual(["lazyCounter"]);
+    expect(app.store.getPureState()).toEqual({ lazyCounter: { count: 1 } });
+    expect(counter.double).toBe(2);
+
+    counter.increase();
+
+    expect(counter.count).toBe(2);
+    expect(counter.double).toBe(4);
+    expect(app.store.getPureState()).toEqual({ lazyCounter: { count: 2 } });
+    expect(values).toEqual([4]);
+
+    unwatch();
+  });
+
+  it("loads lazy modules registered in initial providers when load is called without args", async () => {
+    const app = createApp({
+      providers: [
+        lazyModule(async () => ({
+          default: [LazyCounter],
+        })),
+      ],
+    });
+
+    const results = await app.load();
+
+    expect(results).toHaveLength(1);
+    expect(app.getModule(LazyCounter).count).toBe(1);
+  });
+
+  it("runs lazy module lifecycle hooks when loaded after app start", async () => {
+    const events: string[] = [];
+
+    class LazyLifecycle {
+      count = 0;
+
+      onInit(): void {
+        events.push("init");
+      }
+
+      onStart(): void {
+        events.push("start");
+      }
+
+      onStop(): void {
+        events.push("stop");
+      }
+
+      onDispose(): void {
+        events.push("dispose");
+      }
+    }
+
+    defineModule(LazyLifecycle, {
+      name: "lazyLifecycle",
+      state: ["count"],
+    });
+
+    const app = createApp();
+    await app.start();
+
+    await app.load(lazyModule(() => LazyLifecycle));
+
+    expect(events).toEqual(["init", "start"]);
+
+    await app.dispose();
+
+    expect(events).toEqual(["init", "start", "stop", "dispose"]);
   });
 
   it("enforces strict action writes when enabled", () => {

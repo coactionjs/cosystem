@@ -8,6 +8,12 @@ import {
 import { createContainer } from "./container.js";
 import { CosystemError, DuplicateProviderError } from "./errors.js";
 import { runWithInjectContext } from "./inject.js";
+import {
+  isLazyModule,
+  normalizeLazyModuleProviders,
+  type AppProviderInput,
+  type LazyModule,
+} from "./lazyModule.js";
 import { getModuleMetadata, type ModuleMetadata } from "./metadata.js";
 import { provide } from "./provider.js";
 import { tokenName } from "./token.js";
@@ -33,7 +39,7 @@ export interface AppDevOptions {
 }
 
 export interface CreateAppOptions {
-  readonly providers?: readonly ProviderInput[];
+  readonly providers?: readonly AppProviderInput[];
   readonly plugins?: readonly Plugin[];
   readonly parent?: App | Container;
   readonly devOptions?: AppDevOptions;
@@ -72,6 +78,8 @@ export interface App {
   stop(): Promise<void>;
   dispose(): Promise<void>;
   createScope(options?: ScopeOptions): AppScope;
+  load(module: LazyModule): Promise<LazyModuleLoadResult>;
+  load(): Promise<readonly LazyModuleLoadResult[]>;
 }
 
 export interface WatchOptions<T> {
@@ -95,6 +103,11 @@ export interface ModuleCreatedEvent {
   readonly name: string;
   readonly token: InjectionToken;
   readonly instance: unknown;
+}
+
+export interface LazyModuleLoadResult {
+  readonly scope: AppScope;
+  readonly modules: readonly ModuleCreatedEvent[];
 }
 
 export interface ActionEvent {
@@ -153,6 +166,7 @@ interface ModuleBinding {
   readonly originalActions: Map<PropertyKey, (...args: unknown[]) => unknown>;
   readonly originalComputed: Map<PropertyKey, () => unknown>;
   readonly computedAccessors: Map<PropertyKey, () => unknown>;
+  readonly reactiveSlice: boolean;
   activeDraft: Record<PropertyKey, unknown> | undefined;
   actionDepth: number;
 }
@@ -181,8 +195,14 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
   const parent = isApp(options.parent) ? getAppContainer(options.parent) : options.parent;
   const container = parent === undefined ? createContainer() : createContainer({ parent });
   const moduleTokens: InjectionToken[] = [];
+  const lazyModules: LazyModule[] = [];
 
   for (const provider of options.providers ?? []) {
+    if (isLazyModule(provider)) {
+      lazyModules.push(provider);
+      continue;
+    }
+
     const normalized = normalizeAppProvider(provider);
     container.provide(normalized.provider);
 
@@ -218,6 +238,7 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
   const app = new RuntimeApp({
     container,
     devOptions: options.devOptions ?? {},
+    lazyModules,
     modules,
     plugins: options.plugins ?? [],
     state,
@@ -242,12 +263,15 @@ class RuntimeApp implements App {
   readonly #container: Container;
   private readonly devOptions: AppDevOptions;
   private readonly modules: ModuleBinding[];
+  private readonly pendingLazyModules: LazyModule[];
   private readonly moduleByToken = new Map<InjectionToken, ModuleBinding>();
   private readonly moduleByName = new Map<string, ModuleBinding>();
   private readonly plugins: readonly Plugin[];
   private readonly testInspector: MutableTestInspector | undefined;
   private readonly effectDisposers: (() => void)[] = [];
   private readonly pendingEffects = new Set<Promise<void>>();
+  private readonly loadedLazyModules = new WeakMap<LazyModule, LazyModuleLoadResult>();
+  private readonly dynamicScopes: Container[] = [];
   private initPromise: Promise<void> = Promise.resolve();
   private isStarted = false;
   private isDisposed = false;
@@ -255,6 +279,7 @@ class RuntimeApp implements App {
   constructor(options: {
     readonly container: Container;
     readonly devOptions: AppDevOptions;
+    readonly lazyModules: readonly LazyModule[];
     readonly modules: ModuleBinding[];
     readonly plugins: readonly Plugin[];
     readonly state: AppState;
@@ -263,6 +288,7 @@ class RuntimeApp implements App {
   }) {
     this.#container = options.container;
     this.devOptions = options.devOptions;
+    this.pendingLazyModules = [...options.lazyModules];
     this.modules = options.modules;
     this.plugins = options.plugins;
     this.state = options.state;
@@ -303,13 +329,13 @@ class RuntimeApp implements App {
   }
 
   getModule<T>(token: InjectionToken<T>): T {
-    const value = this.get(token);
+    const moduleBinding = this.moduleByToken.get(token);
 
-    if (!this.moduleByToken.has(token)) {
+    if (moduleBinding === undefined) {
       throw new CosystemError(`${tokenName(token)} is not a CoSystem module.`);
     }
 
-    return value;
+    return moduleBinding.instance as T;
   }
 
   getModuleByName<T = unknown>(name: string): T {
@@ -398,6 +424,9 @@ class RuntimeApp implements App {
       this.stopEffects();
       await this.waitForPendingEffects();
       await this.runLifecycle("onDispose", true);
+      for (const scope of this.dynamicScopes.toReversed()) {
+        await scope.dispose();
+      }
       await Promise.all(this.plugins.map((plugin) => plugin.dispose?.()));
       await this.#container.dispose();
       this.store.destroy();
@@ -414,16 +443,89 @@ class RuntimeApp implements App {
     };
   }
 
-  bindModules(): void {
-    for (const moduleBinding of this.modules) {
+  async load(module: LazyModule): Promise<LazyModuleLoadResult>;
+  async load(): Promise<readonly LazyModuleLoadResult[]>;
+  async load(module?: LazyModule): Promise<LazyModuleLoadResult | readonly LazyModuleLoadResult[]> {
+    if (module === undefined) {
+      const modules = this.pendingLazyModules.splice(0);
+      const results: LazyModuleLoadResult[] = [];
+
+      for (const pendingModule of modules) {
+        results.push(await this.load(pendingModule));
+      }
+
+      return results;
+    }
+
+    const existing = this.loadedLazyModules.get(module);
+
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    if (this.isDisposed) {
+      throw new CosystemError("Cannot load a lazy module after app disposal.");
+    }
+
+    await this.initPromise;
+
+    try {
+      const providers = normalizeLazyModuleProviders(await module.load());
+      const scopeContainer = this.#container.createScope();
+      const moduleTokens: InjectionToken[] = [];
+
+      for (const provider of providers) {
+        const normalized = normalizeAppProvider(provider);
+        scopeContainer.provide(normalized.provider);
+
+        if (normalized.moduleToken !== undefined) {
+          moduleTokens.push(normalized.moduleToken);
+        }
+      }
+
+      scopeContainer.freeze();
+
+      const loadedModules = instantiateModules(scopeContainer, moduleTokens, false);
+      this.assertNewModules(loadedModules);
+      this.installModuleState(loadedModules);
+      this.registerModules(loadedModules);
+      this.bindModules(loadedModules);
+      this.attachRuntimeMetadata(loadedModules);
+      instantiateEagerProviders(scopeContainer);
+      this.dynamicScopes.push(scopeContainer);
+      this.runModuleCreatedHooks(loadedModules);
+      await this.runLifecycle("onInit", false, loadedModules);
+      this.startEffects(loadedModules);
+
+      if (this.isStarted) {
+        await this.runLifecycle("onStart", false, loadedModules);
+      }
+
+      const result: LazyModuleLoadResult = {
+        modules: loadedModules.map(toModuleCreatedEvent),
+        scope: {
+          container: scopeContainer,
+        },
+      };
+
+      this.loadedLazyModules.set(module, result);
+      return result;
+    } catch (error) {
+      this.emitError(error, { phase: "load" });
+      throw error;
+    }
+  }
+
+  bindModules(modules: readonly ModuleBinding[] = this.modules): void {
+    for (const moduleBinding of modules) {
       this.bindState(moduleBinding);
       this.bindComputed(moduleBinding);
       this.bindActions(moduleBinding);
     }
   }
 
-  attachRuntimeMetadata(): void {
-    for (const moduleBinding of this.modules) {
+  attachRuntimeMetadata(modules: readonly ModuleBinding[] = this.modules): void {
+    for (const moduleBinding of modules) {
       Object.defineProperty(moduleBinding.instance, runtimeModuleMetadataKey, {
         configurable: false,
         enumerable: false,
@@ -436,13 +538,9 @@ class RuntimeApp implements App {
     }
   }
 
-  runModuleCreatedHooks(): void {
-    for (const moduleBinding of this.modules) {
-      const event: ModuleCreatedEvent = {
-        name: moduleBinding.name,
-        token: moduleBinding.token,
-        instance: moduleBinding.instance,
-      };
+  runModuleCreatedHooks(modules: readonly ModuleBinding[] = this.modules): void {
+    for (const moduleBinding of modules) {
+      const event = toModuleCreatedEvent(moduleBinding);
 
       for (const plugin of this.plugins) {
         plugin.onModuleCreated?.(event);
@@ -499,7 +597,7 @@ class RuntimeApp implements App {
         configurable: true,
         enumerable: true,
         get: () => {
-          if (moduleBinding.activeDraft !== undefined) {
+          if (moduleBinding.activeDraft !== undefined || !moduleBinding.reactiveSlice) {
             return getter.call(moduleBinding.instance);
           }
 
@@ -510,6 +608,10 @@ class RuntimeApp implements App {
   }
 
   private readModuleState(moduleBinding: ModuleBinding, property: PropertyKey): unknown {
+    if (!moduleBinding.reactiveSlice) {
+      return this.store.getPureState()[moduleBinding.name]?.[property];
+    }
+
     return this.store.getState()[moduleBinding.name]?.[property];
   }
 
@@ -527,6 +629,20 @@ class RuntimeApp implements App {
       throw new CosystemError(
         `Cannot write ${moduleBinding.name}.${String(property)} outside an action.`,
       );
+    }
+
+    if (!moduleBinding.reactiveSlice) {
+      const state = this.store.getPureState();
+      const slice = state[moduleBinding.name] ?? {};
+
+      this.store.setState({
+        ...state,
+        [moduleBinding.name]: {
+          ...slice,
+          [property]: value,
+        },
+      });
+      return;
     }
 
     this.store.setState((draft) => {
@@ -559,17 +675,34 @@ class RuntimeApp implements App {
 
     try {
       moduleBinding.actionDepth += 1;
-      this.store.setState((draft) => {
+      if (moduleBinding.reactiveSlice) {
+        this.store.setState((draft) => {
+          const previousDraft = moduleBinding.activeDraft;
+          moduleBinding.activeDraft = draft[moduleBinding.name] ?? {};
+          draft[moduleBinding.name] = moduleBinding.activeDraft;
+
+          try {
+            result = action.apply(moduleBinding.instance, [...args]);
+          } finally {
+            moduleBinding.activeDraft = previousDraft;
+          }
+        });
+      } else {
+        const state = this.store.getPureState();
+        const slice = state[moduleBinding.name];
         const previousDraft = moduleBinding.activeDraft;
-        moduleBinding.activeDraft = draft[moduleBinding.name] ?? {};
-        draft[moduleBinding.name] = moduleBinding.activeDraft;
+        moduleBinding.activeDraft = slice === undefined ? {} : { ...slice };
 
         try {
           result = action.apply(moduleBinding.instance, [...args]);
+          this.store.setState({
+            ...state,
+            [moduleBinding.name]: moduleBinding.activeDraft,
+          });
         } finally {
           moduleBinding.activeDraft = previousDraft;
         }
-      });
+      }
     } catch (caught) {
       error = caught;
       this.emitError(caught, { phase: "action" });
@@ -611,21 +744,21 @@ class RuntimeApp implements App {
     this.emitActionEnd(endedEvent);
   }
 
-  private async runLifecycle(method: keyof LifecycleModule, reverse = false): Promise<void> {
-    const modules = reverse ? this.modules.toReversed() : this.modules;
+  private async runLifecycle(
+    method: keyof LifecycleModule,
+    reverse = false,
+    modules: readonly ModuleBinding[] = this.modules,
+  ): Promise<void> {
+    const orderedModules = reverse ? modules.toReversed() : modules;
 
-    for (const moduleBinding of modules) {
+    for (const moduleBinding of orderedModules) {
       const lifecycle = moduleBinding.instance as LifecycleModule;
       await this.runWithAppInjectContext(() => lifecycle[method]?.());
     }
   }
 
-  private startEffects(): void {
-    if (this.effectDisposers.length > 0) {
-      return;
-    }
-
-    for (const moduleBinding of this.modules) {
+  private startEffects(modules: readonly ModuleBinding[] = this.modules): void {
+    for (const moduleBinding of modules) {
       for (const property of moduleBinding.metadata.effects) {
         this.startEffect(moduleBinding, property);
       }
@@ -782,6 +915,39 @@ class RuntimeApp implements App {
       patches,
     });
   }
+
+  private assertNewModules(modules: readonly ModuleBinding[]): void {
+    for (const moduleBinding of modules) {
+      if (this.moduleByToken.has(moduleBinding.token)) {
+        throw new DuplicateProviderError(tokenName(moduleBinding.token));
+      }
+
+      if (this.moduleByName.has(moduleBinding.name)) {
+        throw new DuplicateProviderError(moduleBinding.name);
+      }
+    }
+  }
+
+  private installModuleState(modules: readonly ModuleBinding[]): void {
+    if (modules.length === 0) {
+      return;
+    }
+
+    const rootState = createRootState(modules);
+
+    this.store.setState({
+      ...this.store.getPureState(),
+      ...rootState,
+    });
+  }
+
+  private registerModules(modules: readonly ModuleBinding[]): void {
+    for (const moduleBinding of modules) {
+      this.modules.push(moduleBinding);
+      this.moduleByToken.set(moduleBinding.token, moduleBinding);
+      this.moduleByName.set(moduleBinding.name, moduleBinding);
+    }
+  }
 }
 
 function normalizeAppProvider(provider: ProviderInput): {
@@ -862,7 +1028,11 @@ function mergeModuleClassProviderOptions<T>(
   };
 }
 
-function instantiateModules(container: Container, moduleTokens: readonly InjectionToken[]) {
+function instantiateModules(
+  container: Container,
+  moduleTokens: readonly InjectionToken[],
+  reactiveSlice = true,
+) {
   const modules: ModuleBinding[] = [];
 
   for (const moduleToken of moduleTokens) {
@@ -888,11 +1058,20 @@ function instantiateModules(container: Container, moduleTokens: readonly Injecti
       name,
       originalActions: new Map(),
       originalComputed: new Map(),
+      reactiveSlice,
       token: moduleToken,
     });
   }
 
   return modules;
+}
+
+function toModuleCreatedEvent(moduleBinding: ModuleBinding): ModuleCreatedEvent {
+  return {
+    instance: moduleBinding.instance,
+    name: moduleBinding.name,
+    token: moduleBinding.token,
+  };
 }
 
 function instantiateEagerProviders(container: Container): void {

@@ -20,6 +20,7 @@ export {
   type CreateAppOptions,
   type EngineOptions,
   type ErrorContext,
+  type LazyModuleLoadResult,
   type ModuleCreatedEvent,
   type PatchEvent,
   type Plugin,
@@ -34,6 +35,13 @@ export {
   type LoggerPluginLogger,
   type LoggerPluginOptions,
 } from "./loggerPlugin.js";
+export {
+  lazyModule,
+  type AppProviderInput,
+  type LazyModule,
+  type LazyModuleExports,
+  type LazyModuleLoadInput,
+} from "./lazyModule.js";
 export {
   defineModule,
   getModuleMetadata,

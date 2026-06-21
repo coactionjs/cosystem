@@ -163,6 +163,42 @@ const asyncInstance = await app.createScope().container.buildAsync(ServiceWithAs
 `get()` still only resolves registered providers. Use `buildAsync()` when any
 dependency is backed by an async factory.
 
+## Lazy Modules
+
+Lazy modules are explicit. They do not mutate the root provider graph or expose
+`app.provide()`:
+
+```ts
+import { createApp, defineModule, lazyModule } from "@cosystem/core";
+
+class AdminCounter {
+  count = 0;
+
+  increase(): void {
+    this.count += 1;
+  }
+}
+
+defineModule(AdminCounter, {
+  actions: ["increase"],
+  name: "adminCounter",
+  state: ["count"],
+});
+
+const app = createApp();
+
+await app.load(
+  lazyModule(() => ({
+    providers: [AdminCounter],
+  })),
+);
+
+app.getModule(AdminCounter).increase();
+```
+
+`createApp({ providers: [lazyModule(...)] })` records lazy entries without
+loading them. Call `await app.load()` to load all pending lazy modules.
+
 ## UI Adapters
 
 CoSystem does not own rendering. There is no `ViewModule`, root component base
