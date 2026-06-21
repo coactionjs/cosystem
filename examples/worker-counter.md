@@ -7,6 +7,7 @@ same `WorkerTransport` contract.
 ```ts
 import {
   createMemoryWorkerTransportPair,
+  createPostMessageWorkerTransport,
   createWorkerApp,
   createWorkerClient,
   defineModule,
@@ -48,4 +49,19 @@ console.log(client.getState());
 
 client.dispose();
 await host.dispose();
+```
+
+For a real Web Worker or `MessagePort`, use the `postMessage` adapter on the
+endpoint that owns `postMessage`, `addEventListener`, and `removeEventListener`:
+
+```ts
+const worker = new Worker(new URL("./counter.worker.ts", import.meta.url), {
+  type: "module",
+});
+
+const client = createWorkerClient({
+  transport: createPostMessageWorkerTransport(worker),
+});
+
+await client.ready;
 ```

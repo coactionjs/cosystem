@@ -3,10 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   createDataTransportWorkerTransport,
   createMemoryWorkerTransportPair,
+  createPostMessageWorkerTransport,
   createWorkerApp,
   createWorkerClient,
   defineModule,
   type DataTransportLike,
+  type PostMessageEndpoint,
+  type PostMessageEventLike,
   type WorkerMessage,
   type WorkerStateMessage,
 } from "./index.js";
@@ -129,6 +132,67 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("adapts postMessage endpoints for worker clients and hosts", async () => {
+    const [hostEndpoint, clientEndpoint] = createPostMessageEndpointPair();
+    const ignoredMessages: unknown[] = [];
+    const client = createWorkerClient({
+      transport: createPostMessageWorkerTransport(clientEndpoint),
+    });
+    const host = createWorkerApp({
+      providers: [WorkerCounter],
+      transport: createPostMessageWorkerTransport(hostEndpoint),
+    });
+
+    client.subscribe((message) => {
+      ignoredMessages.push(message);
+    });
+    hostEndpoint.dispatch({ data: { type: "unknown" } });
+    hostEndpoint.dispatch({ data: "not a worker message" });
+
+    await client.ready;
+
+    await expect(client.module<WorkerCounter>("workerCounter").increase(6)).resolves.toBe(6);
+
+    expect(client.getState()).toEqual({
+      workerCounter: {
+        count: 6,
+      },
+    });
+    expect(ignoredMessages).toHaveLength(2);
+
+    client.dispose();
+    await host.dispose();
+  });
+
+  it("removes postMessage listeners when unsubscribed", () => {
+    const [endpoint] = createPostMessageEndpointPair();
+    const messages: WorkerMessage[] = [];
+    const unsubscribe = createPostMessageWorkerTransport(endpoint).subscribe((message) => {
+      messages.push(message);
+    });
+
+    endpoint.dispatch({
+      data: {
+        state: {},
+        sync: "snapshot",
+        type: "state",
+        version: 1,
+      },
+    });
+    unsubscribe();
+    endpoint.dispatch({
+      data: {
+        state: {},
+        sync: "snapshot",
+        type: "state",
+        version: 2,
+      },
+    });
+
+    expect(messages).toHaveLength(1);
+    expect((messages[0] as WorkerStateMessage).version).toBe(1);
+  });
+
   it("rejects pending calls when the client is disposed", async () => {
     const [, clientTransport] = createMemoryWorkerTransportPair();
     const client = createWorkerClient({
@@ -218,6 +282,42 @@ function createDataTransportPair(): readonly [DataTransportLike, DataTransportLi
     createDataTransportEndpoint(leftListeners, rightListeners),
     createDataTransportEndpoint(rightListeners, leftListeners),
   ];
+}
+
+function createPostMessageEndpointPair(): readonly [
+  MockPostMessageEndpoint,
+  MockPostMessageEndpoint,
+] {
+  const left = new MockPostMessageEndpoint();
+  const right = new MockPostMessageEndpoint();
+
+  left.peer = right;
+  right.peer = left;
+
+  return [left, right];
+}
+
+class MockPostMessageEndpoint implements PostMessageEndpoint {
+  peer: MockPostMessageEndpoint | undefined;
+  readonly listeners = new Set<(event: PostMessageEventLike) => void>();
+
+  postMessage(message: WorkerMessage): void {
+    this.peer?.dispatch({ data: message });
+  }
+
+  addEventListener(_type: "message", listener: (event: PostMessageEventLike) => void): void {
+    this.listeners.add(listener);
+  }
+
+  removeEventListener(_type: "message", listener: (event: PostMessageEventLike) => void): void {
+    this.listeners.delete(listener);
+  }
+
+  dispatch(event: PostMessageEventLike): void {
+    for (const listener of this.listeners) {
+      listener(event);
+    }
+  }
 }
 
 function createDataTransportEndpoint(

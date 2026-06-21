@@ -28,6 +28,27 @@ export interface DataTransportWorkerTransportOptions {
   readonly onError?: (error: unknown, message: WorkerMessage) => void;
 }
 
+export interface PostMessageTarget {
+  postMessage(message: WorkerMessage): void;
+}
+
+export interface PostMessageEventLike {
+  readonly data?: unknown;
+}
+
+export interface PostMessageSource {
+  addEventListener(type: "message", listener: (event: PostMessageEventLike) => void): void;
+  removeEventListener(type: "message", listener: (event: PostMessageEventLike) => void): void;
+}
+
+export interface PostMessageEndpoint extends PostMessageTarget, PostMessageSource {}
+
+export interface PostMessageWorkerTransportOptions {
+  readonly source?: PostMessageSource;
+  readonly target?: PostMessageTarget;
+  readonly onError?: (error: unknown, message: WorkerMessage) => void;
+}
+
 export type WorkerMessage =
   | WorkerCallMessage
   | WorkerResultMessage
@@ -274,6 +295,40 @@ export function createMemoryWorkerTransportPair(): readonly [WorkerTransport, Wo
     createMemoryWorkerTransport(leftListeners, rightListeners),
     createMemoryWorkerTransport(rightListeners, leftListeners),
   ];
+}
+
+export function createPostMessageWorkerTransport(
+  endpoint: PostMessageEndpoint,
+  options: PostMessageWorkerTransportOptions = {},
+): WorkerTransport {
+  const source = options.source ?? endpoint;
+  const target = options.target ?? endpoint;
+
+  return {
+    post(message) {
+      try {
+        // eslint-disable-next-line unicorn/require-post-message-target-origin -- Worker and MessagePort endpoints do not consistently accept targetOrigin.
+        target.postMessage(message);
+      } catch (error) {
+        options.onError?.(error, message);
+      }
+    },
+    subscribe(listener) {
+      const handleMessage = (event: PostMessageEventLike) => {
+        if (!isWorkerMessage(event.data)) {
+          return;
+        }
+
+        listener(event.data);
+      };
+
+      source.addEventListener("message", handleMessage);
+
+      return () => {
+        source.removeEventListener("message", handleMessage);
+      };
+    },
+  };
 }
 
 export function createDataTransportWorkerTransport(

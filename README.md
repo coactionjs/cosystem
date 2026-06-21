@@ -350,6 +350,7 @@ More focused examples live in [`examples/`](./examples).
 import {
   createDataTransportWorkerTransport,
   createMemoryWorkerTransportPair,
+  createPostMessageWorkerTransport,
   createWorkerApp,
   createWorkerClient,
 } from "@cosystem/core";
@@ -374,8 +375,22 @@ client.dispose();
 await host.dispose();
 ```
 
-For real worker, iframe, process, or broadcast channels, adapt a
-`data-transport` endpoint instead of using the in-memory pair:
+For real Worker, iframe, or `MessagePort` targets, adapt a `postMessage`
+endpoint instead of using the in-memory pair:
+
+```ts
+const worker = new Worker(new URL("./worker.ts", import.meta.url), {
+  type: "module",
+});
+
+const client = createWorkerClient({
+  transport: createPostMessageWorkerTransport(worker),
+});
+
+await client.ready;
+```
+
+For process, socket, or custom RPC channels, adapt a `data-transport` endpoint:
 
 ```ts
 const client = createWorkerClient({
@@ -391,9 +406,9 @@ await client.ready;
 ```
 
 The prototype covers app creation, method delegation, initial state snapshots,
-patch sync messages, client-side readiness, and a `data-transport`-style
-`listen`/`emit` bridge. It does not attempt full shared-runtime conflict
-handling or framework-specific worker bootstrapping.
+patch sync messages, client-side readiness, `postMessage` endpoints, and a
+`data-transport`-style `listen`/`emit` bridge. It does not attempt full
+shared-runtime conflict handling or framework-specific worker bootstrapping.
 
 ## Logger Plugin
 
