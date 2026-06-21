@@ -365,7 +365,7 @@ const host = createWorkerApp({
   transport: hostTransport,
 });
 
-await host.ready;
+await client.ready;
 await client.module<Counter>("counter").increase(1);
 
 console.log(client.getState());
@@ -387,13 +387,13 @@ const host = createWorkerApp({
   transport: createDataTransportWorkerTransport(hostDataTransport),
 });
 
-await host.ready;
+await client.ready;
 ```
 
 The prototype covers app creation, method delegation, initial state snapshots,
-patch sync messages, and a `data-transport`-style `listen`/`emit` bridge. It
-does not attempt full shared-runtime conflict handling or framework-specific
-worker bootstrapping.
+patch sync messages, client-side readiness, and a `data-transport`-style
+`listen`/`emit` bridge. It does not attempt full shared-runtime conflict
+handling or framework-specific worker bootstrapping.
 
 ## Logger Plugin
 

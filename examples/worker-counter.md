@@ -38,7 +38,7 @@ const host = createWorkerApp({
   transport: hostTransport,
 });
 
-await host.ready;
+await client.ready;
 
 const counter = client.module<Counter>("counter");
 

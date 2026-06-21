@@ -42,7 +42,7 @@ describe("worker prototype", () => {
       messages.push(message);
     });
 
-    await host.ready;
+    await client.ready;
 
     expect(client.getState()).toEqual({
       workerCounter: {
@@ -97,7 +97,7 @@ describe("worker prototype", () => {
       transport: hostTransport,
     });
 
-    await host.ready;
+    await client.ready;
 
     await expect(client.call("workerCounter", "missing")).rejects.toThrow("Remote worker error");
 
@@ -115,7 +115,7 @@ describe("worker prototype", () => {
       transport: createDataTransportWorkerTransport(hostDataTransport),
     });
 
-    await host.ready;
+    await client.ready;
 
     await expect(client.module<WorkerCounter>("workerCounter").increase(4)).resolves.toBe(4);
 
@@ -141,6 +141,39 @@ describe("worker prototype", () => {
     await expect(pending).rejects.toThrow("Worker client disposed before response.");
   });
 
+  it("resolves client readiness after the initial state snapshot arrives", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({
+      transport: clientTransport,
+    });
+    const host = createWorkerApp({
+      providers: [WorkerCounter],
+      transport: hostTransport,
+    });
+
+    await client.ready;
+
+    expect(client.getState()).toEqual({
+      workerCounter: {
+        count: 0,
+      },
+    });
+
+    client.dispose();
+    await host.dispose();
+  });
+
+  it("rejects client readiness when disposed before the initial state", async () => {
+    const [, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({
+      transport: clientTransport,
+    });
+
+    client.dispose();
+
+    await expect(client.ready).rejects.toThrow("Worker client disposed before initial state.");
+  });
+
   it("publishes the initial worker snapshot after app startup lifecycle", async () => {
     class StartedCounter {
       count = 0;
@@ -164,7 +197,7 @@ describe("worker prototype", () => {
       transport: hostTransport,
     });
 
-    await host.ready;
+    await client.ready;
 
     expect(client.getState()).toEqual({
       startedCounter: {

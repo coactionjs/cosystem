@@ -90,6 +90,7 @@ export type AsyncMethodProxy<T extends object> = {
 };
 
 export interface WorkerClient {
+  readonly ready: Promise<void>;
   readonly state: {
     readonly version: number;
   };
@@ -157,11 +158,25 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
   const state = { version: 0 };
   let nextId = 1;
   let snapshot: unknown;
+  let readySettled = false;
+  let resolveReady!: () => void;
+  let rejectReady!: (error: unknown) => void;
+  const ready = new Promise<void>((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+
+  ready.catch(() => undefined);
 
   const unsubscribe = transport.subscribe((message) => {
     if (message.type === "state") {
       state.version = message.version;
       snapshot = message.state;
+
+      if (!readySettled) {
+        readySettled = true;
+        resolveReady();
+      }
 
       for (const listener of listeners) {
         listener(message);
@@ -191,6 +206,7 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
   });
 
   const client: WorkerClient = {
+    ready,
     state,
     call(module, method, ...args) {
       const id = nextId;
@@ -209,6 +225,11 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
     },
     dispose() {
       unsubscribe();
+
+      if (!readySettled) {
+        readySettled = true;
+        rejectReady(new CosystemError("Worker client disposed before initial state."));
+      }
 
       for (const entry of pending.values()) {
         entry.reject(new CosystemError("Worker client disposed before response."));
