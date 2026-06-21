@@ -32,6 +32,14 @@ export default defineConfig({
         extends: true,
         test: {
           include: ["src/**/*.test.ts"],
+          name: "@cosystem/solid",
+          root: "./packages/solid",
+        },
+      },
+      {
+        extends: true,
+        test: {
+          include: ["src/**/*.test.ts"],
           name: "@cosystem/svelte",
           root: "./packages/svelte",
         },

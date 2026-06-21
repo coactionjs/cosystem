@@ -23,6 +23,7 @@ catalog:
   "react": "19.2.7"
   "react-test-renderer": "19.2.7"
   "rolldown": "1.1.2"
+  "solid-js": "1.9.13"
   "svelte": "5.56.3"
   "tsdown": "0.22.3"
   "turbo": "2.9.18"
