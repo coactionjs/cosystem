@@ -243,6 +243,25 @@ createRoot(document.getElementById("root")!).render(
 );
 ```
 
+React can also consume worker-hosted state through `WorkerClientProvider`:
+
+```tsx
+import { WorkerClientProvider, useWorkerModule, useWorkerSelector } from "@cosystem/react";
+
+type CounterState = {
+  readonly counter: {
+    readonly count: number;
+  };
+};
+
+function WorkerCounterView() {
+  const counter = useWorkerModule<Counter>("counter");
+  const count = useWorkerSelector((state) => (state as CounterState).counter.count);
+
+  return <button onClick={() => counter.increase()}>{count}</button>;
+}
+```
+
 Vue:
 
 ```ts

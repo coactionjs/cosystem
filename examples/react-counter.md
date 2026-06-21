@@ -46,3 +46,32 @@ createRoot(document.getElementById("root")!).render(
   </CoSystemProvider>,
 );
 ```
+
+The React adapter can also render worker-hosted state through a
+`WorkerClient`:
+
+```tsx
+import { WorkerClientProvider, useWorkerModule, useWorkerSelector } from "@cosystem/react";
+import type { WorkerClient } from "@cosystem/core";
+
+type CounterState = {
+  readonly counter: {
+    readonly count: number;
+  };
+};
+
+function WorkerCounterView() {
+  const counter = useWorkerModule<Counter>("counter");
+  const count = useWorkerSelector((state) => (state as CounterState).counter.count);
+
+  return <button onClick={() => counter.increase()}>{count}</button>;
+}
+
+function renderWorkerCounter(client: WorkerClient) {
+  createRoot(document.getElementById("root")!).render(
+    <WorkerClientProvider client={client}>
+      <WorkerCounterView />
+    </WorkerClientProvider>,
+  );
+}
+```

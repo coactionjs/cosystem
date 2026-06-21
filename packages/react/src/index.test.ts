@@ -2,9 +2,24 @@ import { createElement } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { createApp, defineModule } from "@cosystem/core";
+import {
+  createApp,
+  createMemoryWorkerTransportPair,
+  createWorkerApp,
+  createWorkerClient,
+  defineModule,
+  type AsyncMethodProxy,
+} from "@cosystem/core";
 
-import { CoSystemProvider, useApp, useModule, useSelector } from "./index.js";
+import {
+  CoSystemProvider,
+  WorkerClientProvider,
+  useApp,
+  useModule,
+  useSelector,
+  useWorkerModule,
+  useWorkerSelector,
+} from "./index.js";
 
 class Counter {
   count = 0;
@@ -104,4 +119,55 @@ describe("React adapter", () => {
 
     expect(renders).toBe(2);
   });
+
+  it("renders worker-hosted state through worker client hooks", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({
+      transport: clientTransport,
+    });
+    const host = createWorkerApp({
+      providers: [Counter],
+      sync: "patch",
+      transport: hostTransport,
+    });
+    let counter: AsyncMethodProxy<Counter> | undefined;
+    let selected = 0;
+    let renderer: ReactTestRenderer | undefined;
+
+    await client.ready;
+
+    function View() {
+      counter = useWorkerModule<Counter>("reactCounter");
+      selected = useWorkerSelector((state) => (state as WorkerCounterState).reactCounter.count);
+      return createElement("span", null, selected);
+    }
+
+    act(() => {
+      renderer = create(createElement(WorkerClientProvider, { client }, createElement(View)));
+    });
+
+    expect(renderer?.toJSON()).toMatchObject({
+      children: ["0"],
+      type: "span",
+    });
+
+    await act(async () => {
+      await counter?.increase(3);
+    });
+
+    expect(selected).toBe(3);
+    expect(renderer?.toJSON()).toMatchObject({
+      children: ["3"],
+      type: "span",
+    });
+
+    client.dispose();
+    await host.dispose();
+  });
 });
+
+interface WorkerCounterState {
+  readonly reactCounter: {
+    readonly count: number;
+  };
+}
