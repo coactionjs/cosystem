@@ -1,17 +1,17 @@
 # @cosystem/core
 
-## 1.0.0
+## 0.1.0
 
 ### Major Changes
 
-- Release CoSystem 1.0 with the app runtime, lightweight DI, module decorators and no-decorator metadata, framework-native UI adapters, worker/shared runtime transports, persistence, router, devtools, testing helpers, examples, and CI/CD publishing support.
+- Release CoSystem 0.1 with the app runtime, lightweight DI, module decorators and no-decorator metadata, framework-native UI adapters, worker/shared runtime transports, persistence, router, devtools, testing helpers, examples, and CI/CD publishing support.
 
 ### Minor Changes
 
 - 11db34e: Add BroadcastChannel-style worker transport for shared tab coordination, including routed call results and an in-memory broadcast channel for tests.
 - 2e01e3a: Add explicit action boundaries with `app.runInAction()` and `runInAction(module, callback)` so strict action mode can be preserved across awaited work.
 - 5385bd5: Add `createPostMessageWorkerTransport()` for Web Worker, iframe, and MessagePort-style endpoints.
-- 2f51753: Advance the CoSystem runtime toward the v1 application model:
+- 2f51753: Advance the CoSystem runtime toward the v0.1 application model:
 
   - add explicit lazy modules with `lazyModule()` and `app.load()`
   - add async container construction through `buildAsync()`

@@ -1,6 +1,6 @@
 {
   "name": "@cosystem/devtools",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Dev inspection plugin for CoSystem.",
   "license": "MIT",
   "repository": {

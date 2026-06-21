@@ -1,6 +1,6 @@
 {
   "name": "@cosystem/svelte",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Svelte adapter for CoSystem.",
   "license": "MIT",
   "repository": {
