@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { action, computed, getModuleMetadata, module, state } from "./index.js";
+import { action, computed, effect, getModuleMetadata, module, state } from "./index.js";
 
 describe("module metadata storage", () => {
   it("merges standard decorator context metadata into module metadata", () => {
@@ -38,6 +38,14 @@ describe("module metadata storage", () => {
         static: false,
       } as unknown as ClassGetterDecoratorContext<object, number>,
     );
+    effect(function record() {}, {
+      addInitializer() {},
+      kind: "method",
+      metadata,
+      name: "record",
+      private: false,
+      static: false,
+    } as unknown as ClassMethodDecoratorContext<object, () => void>);
 
     class Counter {}
 
@@ -54,5 +62,6 @@ describe("module metadata storage", () => {
     expect(moduleMetadata?.state.has("count")).toBe(true);
     expect(moduleMetadata?.actions.has("increase")).toBe(true);
     expect(moduleMetadata?.computed.has("double")).toBe(true);
+    expect(moduleMetadata?.effects.has("record")).toBe(true);
   });
 });

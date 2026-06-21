@@ -133,6 +133,7 @@ export interface MutableTestInspector extends TestAppInspector {
   recordAction(event: ActionEvent): void;
   recordPatch(patch: unknown): void;
   recordState(state: unknown): void;
+  setFlushEffects(callback: () => Promise<void>): void;
 }
 
 type RootState = Record<string, Record<PropertyKey, unknown>>;
@@ -246,6 +247,8 @@ class RuntimeApp implements App {
   private readonly moduleByName = new Map<string, ModuleBinding>();
   private readonly plugins: readonly Plugin[];
   private readonly testInspector: MutableTestInspector | undefined;
+  private readonly effectDisposers: (() => void)[] = [];
+  private readonly pendingEffects = new Set<Promise<void>>();
   private initPromise: Promise<void> = Promise.resolve();
   private isStarted = false;
   private isDisposed = false;
@@ -280,6 +283,8 @@ class RuntimeApp implements App {
       this.testInspector?.recordState(state);
       this.emitStateChange({ state });
     });
+
+    this.testInspector?.setFlushEffects(() => this.flushEffects());
   }
 
   get started(): boolean {
@@ -391,6 +396,8 @@ class RuntimeApp implements App {
     await this.stop();
 
     try {
+      this.stopEffects();
+      await this.waitForPendingEffects();
       await this.runLifecycle("onDispose", true);
       await Promise.all(this.plugins.map((plugin) => plugin.dispose?.()));
       await this.#container.dispose();
@@ -451,6 +458,7 @@ class RuntimeApp implements App {
           this.plugins.map((plugin) => this.runWithAppInjectContext(() => plugin.setup?.(this))),
         );
         await this.runLifecycle("onInit");
+        this.startEffects();
       } catch (error) {
         this.emitError(error, { phase: "init" });
         throw error;
@@ -591,6 +599,97 @@ class RuntimeApp implements App {
     for (const moduleBinding of modules) {
       const lifecycle = moduleBinding.instance as LifecycleModule;
       await this.runWithAppInjectContext(() => lifecycle[method]?.());
+    }
+  }
+
+  private startEffects(): void {
+    if (this.effectDisposers.length > 0) {
+      return;
+    }
+
+    for (const moduleBinding of this.modules) {
+      for (const property of moduleBinding.metadata.effects) {
+        this.startEffect(moduleBinding, property);
+      }
+    }
+  }
+
+  private startEffect(moduleBinding: ModuleBinding, property: PropertyKey): void {
+    const method = getMethod(moduleBinding.instance, property);
+    const tracker = createReactiveTracker();
+    let disposed = false;
+
+    const run = () => {
+      if (disposed) {
+        return;
+      }
+
+      try {
+        tracker.track(() => this.runEffect(moduleBinding, property, method));
+      } catch (error) {
+        this.emitError(error, { phase: "effect" });
+        throw error;
+      }
+    };
+
+    const unsubscribe = tracker.subscribe(() => {
+      try {
+        run();
+      } catch {
+        // The error has already been emitted through plugin hooks.
+      }
+    });
+
+    run();
+
+    this.effectDisposers.push(() => {
+      disposed = true;
+      unsubscribe();
+      tracker.dispose();
+    });
+  }
+
+  private runEffect(
+    moduleBinding: ModuleBinding,
+    property: PropertyKey,
+    method: (...args: unknown[]) => unknown,
+  ): void {
+    const result = this.runWithAppInjectContext(() => method.call(moduleBinding.instance));
+
+    if (!isPromiseLike(result)) {
+      return;
+    }
+
+    const pending = Promise.resolve(result)
+      .then(() => undefined)
+      .catch((error) => {
+        this.emitError(error, {
+          phase: `effect:${moduleBinding.name}.${String(property)}`,
+        });
+        throw error;
+      })
+      .finally(() => {
+        this.pendingEffects.delete(pending);
+      });
+
+    this.pendingEffects.add(pending);
+    pending.catch(() => undefined);
+  }
+
+  private stopEffects(): void {
+    for (const dispose of this.effectDisposers.splice(0).toReversed()) {
+      dispose();
+    }
+  }
+
+  private async flushEffects(): Promise<void> {
+    await this.initPromise;
+    await this.waitForPendingEffects();
+  }
+
+  private async waitForPendingEffects(): Promise<void> {
+    while (this.pendingEffects.size > 0) {
+      await Promise.all(this.pendingEffects);
     }
   }
 
@@ -865,6 +964,15 @@ function isApp(value: unknown): value is App {
     "get" in value &&
     "start" in value &&
     "dispose" in value
+  );
+}
+
+function isPromiseLike<T = unknown>(value: unknown): value is PromiseLike<T> {
+  return (
+    (typeof value === "object" || typeof value === "function") &&
+    value !== null &&
+    "then" in value &&
+    typeof value.then === "function"
   );
 }
 

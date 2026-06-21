@@ -34,7 +34,15 @@ pnpm start
 ## Core API
 
 ```ts
-import { action, computed, createApp, module as module_, provide, state } from "@cosystem/core";
+import {
+  action,
+  computed,
+  createApp,
+  effect,
+  module as module_,
+  provide,
+  state,
+} from "@cosystem/core";
 
 abstract class Logger {
   abstract info(message: string): void;
@@ -59,6 +67,11 @@ class Counter {
   increase(step = 1): void {
     this.count += step;
     this.logger.info(`count:${this.count}`);
+  }
+
+  @effect
+  recordCount(): void {
+    this.logger.info(`effect:${this.count}`);
   }
 }
 
@@ -88,12 +101,17 @@ class Counter {
     this.count += step;
     this.logger.info(`count:${this.count}`);
   }
+
+  recordCount(): void {
+    this.logger.info(`effect:${this.count}`);
+  }
 }
 
 defineModule(Counter, {
   actions: ["increase"],
   computed: ["double"],
   deps: [Logger],
+  effects: ["recordCount"],
   name: "counter",
   state: ["count"],
 });
@@ -107,6 +125,8 @@ const app = createApp({
 use `defineModule()` metadata until a future compatibility layer is added.
 `@computed` getters are cached through Coaction's signal-backed computed
 runtime and invalidate when the state they read changes.
+`@effect` methods run after app initialization and rerun when the state they
+read changes.
 
 ## Provider Lifetime
 

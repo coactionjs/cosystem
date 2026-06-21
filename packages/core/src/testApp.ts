@@ -49,9 +49,14 @@ export function testApp(options: TestAppOptions = {}): TestApp | Promise<TestApp
   return app;
 }
 
+function defaultFlushEffects(): Promise<void> {
+  return Promise.resolve();
+}
+
 function createTestInspector(): MutableTestInspector {
   const actions: ActionEvent[] = [];
   const patches: unknown[] = [];
+  let flushEffects = defaultFlushEffects;
   let lastState: unknown;
 
   return {
@@ -62,7 +67,7 @@ function createTestInspector(): MutableTestInspector {
       patches.length = 0;
     },
     flushEffects() {
-      return Promise.resolve();
+      return flushEffects();
     },
     getActions() {
       return actions;
@@ -81,6 +86,9 @@ function createTestInspector(): MutableTestInspector {
     },
     recordState(state) {
       lastState = state;
+    },
+    setFlushEffects(callback) {
+      flushEffects = callback;
     },
   };
 }

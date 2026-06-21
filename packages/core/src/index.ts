@@ -27,7 +27,7 @@ export {
   type TestAppInspector,
   type WatchOptions,
 } from "./app.js";
-export { action, computed, module, state } from "./decorators.js";
+export { action, computed, effect, module, state } from "./decorators.js";
 export { inject } from "./inject.js";
 export {
   createLoggerPlugin,

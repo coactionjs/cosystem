@@ -295,6 +295,118 @@ describe("app runtime", () => {
     expect(counter.double).toBe(4);
   });
 
+  it("runs module effects and reruns them when tracked state changes", async () => {
+    const events: string[] = [];
+
+    class EffectCounter {
+      count = 0;
+
+      record(): void {
+        events.push(`count:${this.count}`);
+      }
+
+      increase(): void {
+        this.count += 1;
+      }
+    }
+
+    defineModule(EffectCounter, {
+      actions: ["increase"],
+      effects: ["record"],
+      name: "effectCounter",
+      state: ["count"],
+    });
+
+    const app = testApp({
+      providers: [EffectCounter],
+    });
+    const counter = app.getModule(EffectCounter);
+
+    await app.test.flushEffects();
+
+    expect(events).toEqual(["count:0"]);
+
+    counter.increase();
+    await app.test.flushEffects();
+
+    expect(events).toEqual(["count:0", "count:1"]);
+  });
+
+  it("waits for async module effects through testApp flushEffects", async () => {
+    const events: string[] = [];
+
+    class AsyncEffectCounter {
+      count = 0;
+
+      async record(): Promise<void> {
+        const count = this.count;
+        await Promise.resolve();
+        events.push(`async:${count}`);
+      }
+
+      increase(): void {
+        this.count += 1;
+      }
+    }
+
+    defineModule(AsyncEffectCounter, {
+      actions: ["increase"],
+      effects: ["record"],
+      name: "asyncEffectCounter",
+      state: ["count"],
+    });
+
+    const app = testApp({
+      providers: [AsyncEffectCounter],
+    });
+    const counter = app.getModule(AsyncEffectCounter);
+
+    await app.test.flushEffects();
+
+    expect(events).toEqual(["async:0"]);
+
+    counter.increase();
+    await app.test.flushEffects();
+
+    expect(events).toEqual(["async:0", "async:1"]);
+  });
+
+  it("disposes module effect subscriptions with the app", async () => {
+    const events: string[] = [];
+
+    class DisposableEffectCounter {
+      count = 0;
+
+      record(): void {
+        events.push(`count:${this.count}`);
+      }
+
+      increase(): void {
+        this.count += 1;
+      }
+    }
+
+    defineModule(DisposableEffectCounter, {
+      actions: ["increase"],
+      effects: ["record"],
+      name: "disposableEffectCounter",
+      state: ["count"],
+    });
+
+    const app = testApp({
+      providers: [DisposableEffectCounter],
+    });
+    const counter = app.getModule(DisposableEffectCounter);
+
+    await app.test.flushEffects();
+    await app.dispose();
+
+    counter.increase();
+    await app.test.flushEffects();
+
+    expect(events).toEqual(["count:0"]);
+  });
+
   it("lets provider-level deps override defineModule metadata", () => {
     const app = createApp({
       providers: [

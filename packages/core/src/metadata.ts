@@ -10,6 +10,7 @@ export interface DefineModuleOptions extends ModuleOptions {
   readonly state?: readonly PropertyKey[];
   readonly actions?: readonly PropertyKey[];
   readonly computed?: readonly PropertyKey[];
+  readonly effects?: readonly PropertyKey[];
 }
 
 export interface ModuleMetadata {
@@ -20,6 +21,7 @@ export interface ModuleMetadata {
   readonly state: Set<PropertyKey>;
   readonly actions: Set<PropertyKey>;
   readonly computed: Set<PropertyKey>;
+  readonly effects: Set<PropertyKey>;
 }
 
 const moduleMetadata = new WeakMap<Function, ModuleMetadata>();
@@ -42,8 +44,9 @@ export function defineModule<T extends Constructor>(
   applyModuleOptions(metadata, options);
   addProperties(metadata.state, options.state);
   addProperties(metadata.actions, options.actions);
-  writeContextMetadata(context, metadata);
   addProperties(metadata.computed, options.computed);
+  addProperties(metadata.effects, options.effects);
+  writeContextMetadata(context, metadata);
   return target;
 }
 
@@ -76,6 +79,10 @@ export function addModuleComputed(target: Function, property: PropertyKey): void
   ensureModuleMetadata(target).computed.add(property);
 }
 
+export function addModuleEffect(target: Function, property: PropertyKey): void {
+  ensureModuleMetadata(target).effects.add(property);
+}
+
 export function applyModuleOptions(metadata: ModuleMetadata, options: ModuleOptions): void {
   if (options.name !== undefined) {
     metadata.name = options.name;
@@ -102,6 +109,7 @@ export function ensureModuleMetadata(target: Function): ModuleMetadata {
     state: new Set(),
     actions: new Set(),
     computed: new Set(),
+    effects: new Set(),
   };
   moduleMetadata.set(target, metadata);
   return metadata;
@@ -137,6 +145,7 @@ function createModuleMetadata(): ModuleMetadata {
     state: new Set(),
     actions: new Set(),
     computed: new Set(),
+    effects: new Set(),
   };
 }
 
@@ -180,6 +189,7 @@ function mergeModuleMetadata(target: ModuleMetadata, source: ModuleMetadata | un
   addProperties(target.state, [...source.state]);
   addProperties(target.actions, [...source.actions]);
   addProperties(target.computed, [...source.computed]);
+  addProperties(target.effects, [...source.effects]);
 }
 
 function isModuleMetadata(value: unknown): value is ModuleMetadata {
@@ -190,6 +200,7 @@ function isModuleMetadata(value: unknown): value is ModuleMetadata {
     value instanceof Object &&
     (value as ModuleMetadata).state instanceof Set &&
     (value as ModuleMetadata).actions instanceof Set &&
-    (value as ModuleMetadata).computed instanceof Set
+    (value as ModuleMetadata).computed instanceof Set &&
+    (value as ModuleMetadata).effects instanceof Set
   );
 }

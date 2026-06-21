@@ -1,6 +1,7 @@
 import {
   addModuleAction,
   addModuleComputed,
+  addModuleEffect,
   addModuleState,
   applyModuleOptions,
   defineModule,
@@ -67,10 +68,17 @@ export function computed<This extends object, Value>(
 
 export function effect<This extends object, Args extends unknown[], Return>(
   _value: (this: This, ...args: Args) => Return,
-  _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
+  context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
 ): void {
-  // Effect scheduling is intentionally deferred until the app runtime has real
-  // lifecycle semantics for reactive side effects.
+  if (context.kind !== "method") {
+    throw new TypeError("@effect only supports method decorators.");
+  }
+
+  ensureContextModuleMetadata(context)?.effects.add(context.name);
+
+  context.addInitializer(function initializeEffect(this: This) {
+    addModuleEffect(this.constructor, context.name);
+  });
 }
 
 export function moduleOptions(target: Constructor, options: ModuleOptions): void {

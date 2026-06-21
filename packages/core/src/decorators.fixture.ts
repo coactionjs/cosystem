@@ -1,4 +1,4 @@
-import { action, computed, module, state } from "./decorators.js";
+import { action, computed, effect, module, state } from "./decorators.js";
 
 abstract class FixtureLogger {
   abstract info(message: string): void;
@@ -23,6 +23,11 @@ class DecoratorFixture {
   increase(step = 1): void {
     this.count += step;
     this.logger.info(String(this.count));
+  }
+
+  @effect
+  recordCount(): void {
+    this.logger.info(`effect:${this.count}`);
   }
 }
 
