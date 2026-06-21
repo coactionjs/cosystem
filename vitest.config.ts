@@ -80,6 +80,14 @@ export default defineConfig({
         extends: true,
         test: {
           include: ["src/**/*.test.ts"],
+          name: "@cosystem/testing",
+          root: "./packages/testing",
+        },
+      },
+      {
+        extends: true,
+        test: {
+          include: ["src/**/*.test.ts"],
           name: "@cosystem/vue",
           root: "./packages/vue",
         },

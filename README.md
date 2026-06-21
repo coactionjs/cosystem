@@ -18,6 +18,7 @@ composition.
 - `@cosystem/solid`: Solid context and signals for consuming a CoSystem app
 - `@cosystem/storage`: persistence plugin for app state snapshots
 - `@cosystem/svelte`: Svelte context and readable stores for consuming a CoSystem app
+- `@cosystem/testing`: testing helper facade for `testApp`
 - `@cosystem/vue`: Vue provide/inject composables for consuming a CoSystem app
 
 ## Core API
