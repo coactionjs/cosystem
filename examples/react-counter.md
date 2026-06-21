@@ -30,8 +30,8 @@ const app = createApp({
 
 function CounterView() {
   const counter = useModule(Counter);
-  const count = useSelector(() => counter.count);
-  const double = useSelector(() => counter.double);
+  const count = useSelector(Counter, (module) => module.count);
+  const double = useSelector(Counter, (module) => module.double);
 
   return (
     <button onClick={() => counter.increase()}>

@@ -4,7 +4,9 @@ import {
   provide,
   readonly,
   shallowRef,
+  type App as VueApplication,
   type InjectionKey,
+  type Plugin as VuePlugin,
   type Ref,
 } from "vue";
 
@@ -23,6 +25,14 @@ export function provideCoSystem(app: App): App {
   return app;
 }
 
+export function cosystemPlugin(app: App): VuePlugin {
+  return {
+    install(vueApp: VueApplication) {
+      vueApp.provide(CoSystemKey, app);
+    },
+  };
+}
+
 export function useCoSystem(): App {
   const app = inject(CoSystemKey, null);
 
@@ -31,6 +41,10 @@ export function useCoSystem(): App {
   }
 
   return app;
+}
+
+export function useApp(): App {
+  return useCoSystem();
 }
 
 export function useModule<T>(token: InjectionToken<T>): T {
@@ -60,4 +74,11 @@ export function useSelector<T>(
   onScopeDispose(unsubscribe);
 
   return readonly(value) as Readonly<Ref<T>>;
+}
+
+export function useComputed<T>(
+  selector: AppSelector<T>,
+  options: UseSelectorOptions<T> = {},
+): Readonly<Ref<T>> {
+  return useSelector(selector, options);
 }

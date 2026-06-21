@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { createApp, defineModule } from "@cosystem/core";
 
-import { CoSystemProvider, useModule, useSelector } from "./index.js";
+import { CoSystemProvider, useApp, useModule, useSelector } from "./index.js";
 
 class Counter {
   count = 0;
@@ -39,8 +39,9 @@ describe("React adapter", () => {
     let renderer: ReactTestRenderer | undefined;
 
     function View() {
+      expect(useApp()).toBe(app);
       counter = useModule(Counter);
-      selected = useSelector((currentApp) => currentApp.getModule(Counter).double);
+      selected = useSelector(Counter, (currentCounter) => currentCounter.double);
       return createElement("span", null, selected);
     }
 

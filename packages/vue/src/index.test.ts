@@ -4,7 +4,14 @@ import { describe, expect, it } from "vitest";
 
 import { createApp, defineModule } from "@cosystem/core";
 
-import { provideCoSystem, useModule, useSelector } from "./index.js";
+import {
+  cosystemPlugin,
+  provideCoSystem,
+  useApp,
+  useComputed,
+  useModule,
+  useSelector,
+} from "./index.js";
 
 class Counter {
   count = 0;
@@ -35,8 +42,9 @@ describe("Vue adapter", () => {
 
     const Consumer = defineComponent({
       setup() {
+        expect(useApp()).toBe(app);
         counter = useModule(Counter);
-        selected = useSelector((currentApp) => currentApp.getModule(Counter).double);
+        selected = useComputed((currentApp) => currentApp.getModule(Counter).double);
         return () => h("span", selected?.value);
       },
     });
@@ -96,5 +104,22 @@ describe("Vue adapter", () => {
     counter.increase(1);
 
     expect(selected?.value).toEqual({ parity: 1 });
+  });
+
+  it("can install the app through the Vue plugin API", async () => {
+    const app = createApp({
+      providers: [Counter],
+    });
+
+    const Consumer = defineComponent({
+      setup() {
+        return () => h("span", useModule(Counter).count);
+      },
+    });
+
+    const vueApp = createSSRApp(Consumer);
+    vueApp.use(cosystemPlugin(app));
+
+    await expect(renderToString(vueApp)).resolves.toBe("<span>0</span>");
   });
 });

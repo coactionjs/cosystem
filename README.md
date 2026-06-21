@@ -103,7 +103,7 @@ import { CoSystemProvider, useModule, useSelector } from "@cosystem/react";
 
 function CounterView() {
   const counter = useModule(Counter);
-  const count = useSelector(() => counter.count);
+  const count = useSelector(Counter, (module) => module.count);
 
   return <button onClick={() => counter.increase()}>{count}</button>;
 }
@@ -119,23 +119,18 @@ Vue:
 
 ```ts
 import { createApp as createVueApp, defineComponent, h } from "vue";
-import { provideCoSystem, useModule, useSelector } from "@cosystem/vue";
+import { cosystemPlugin, useComputed, useModule } from "@cosystem/vue";
 
 const CounterView = defineComponent({
   setup() {
     const counter = useModule(Counter);
-    const count = useSelector(() => counter.count);
+    const count = useComputed(() => counter.count);
 
     return () => h("button", { onClick: () => counter.increase() }, count.value);
   },
 });
 
-createVueApp({
-  setup() {
-    provideCoSystem(app);
-    return () => h(CounterView);
-  },
-}).mount("#app");
+createVueApp(CounterView).use(cosystemPlugin(app)).mount("#app");
 ```
 
 ## Testing

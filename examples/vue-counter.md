@@ -3,7 +3,7 @@
 ```ts
 import { createApp as createVueApp, defineComponent, h } from "vue";
 import { createApp, defineModule } from "@cosystem/core";
-import { provideCoSystem, useModule, useSelector } from "@cosystem/vue";
+import { cosystemPlugin, useComputed, useModule } from "@cosystem/vue";
 
 class Counter {
   count = 0;
@@ -31,18 +31,13 @@ const app = createApp({
 const CounterView = defineComponent({
   setup() {
     const counter = useModule(Counter);
-    const count = useSelector(() => counter.count);
-    const double = useSelector(() => counter.double);
+    const count = useComputed(() => counter.count);
+    const double = useComputed(() => counter.double);
 
     return () =>
       h("button", { onClick: () => counter.increase() }, `${count.value} / ${double.value}`);
   },
 });
 
-createVueApp({
-  setup() {
-    provideCoSystem(app);
-    return () => h(CounterView);
-  },
-}).mount("#app");
+createVueApp(CounterView).use(cosystemPlugin(app)).mount("#app");
 ```
