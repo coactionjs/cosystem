@@ -4,6 +4,7 @@ import {
   addModuleState,
   applyModuleOptions,
   defineModule,
+  ensureContextModuleMetadata,
   ensureModuleMetadata,
   type ModuleOptions,
 } from "./metadata.js";
@@ -12,9 +13,9 @@ import type { Constructor } from "./types.js";
 export function module(options: ModuleOptions = {}) {
   return function moduleDecorator<T extends Constructor>(
     target: T,
-    _context?: ClassDecoratorContext<T>,
+    context?: ClassDecoratorContext<T>,
   ): T {
-    defineModule(target, options);
+    defineModule(target, options, context);
     return target;
   };
 }
@@ -26,6 +27,8 @@ export function state<This extends object, Value>(
   if (context.kind !== "accessor") {
     throw new TypeError("@state only supports standard accessor decorators.");
   }
+
+  ensureContextModuleMetadata(context)?.state.add(context.name);
 
   context.addInitializer(function initializeState(this: This) {
     addModuleState(this.constructor, context.name);
@@ -40,6 +43,8 @@ export function action<This extends object, Args extends unknown[], Return>(
     throw new TypeError("@action only supports method decorators.");
   }
 
+  ensureContextModuleMetadata(context)?.actions.add(context.name);
+
   context.addInitializer(function initializeAction(this: This) {
     addModuleAction(this.constructor, context.name);
   });
@@ -52,6 +57,8 @@ export function computed<This extends object, Value>(
   if (context.kind !== "getter") {
     throw new TypeError("@computed only supports getter decorators.");
   }
+
+  ensureContextModuleMetadata(context)?.computed.add(context.name);
 
   context.addInitializer(function initializeComputed(this: This) {
     addModuleComputed(this.constructor, context.name);

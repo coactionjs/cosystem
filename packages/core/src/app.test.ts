@@ -180,4 +180,23 @@ describe("app runtime", () => {
     expect(app.started).toBe(true);
     expect(events).toEqual(["start"]);
   });
+
+  it("accepts engine options while preserving app runtime behavior", () => {
+    const app = createApp({
+      engine: {
+        patches: true,
+      },
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+    const counter = app.getModule(Counter);
+
+    counter.increase(1);
+
+    expect(counter.count).toBe(1);
+    expect(app.store.getPureState()).toEqual({
+      counter: {
+        count: 1,
+      },
+    });
+  });
 });

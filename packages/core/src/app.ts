@@ -123,6 +123,13 @@ export interface MutableTestInspector extends TestAppInspector {
 
 type RootState = Record<string, Record<PropertyKey, unknown>>;
 
+interface CoactionStoreOptions {
+  readonly name: string;
+  readonly sliceMode: "single";
+  readonly enablePatches?: boolean;
+  readonly transport?: unknown;
+}
+
 interface ModuleBinding {
   readonly name: string;
   readonly token: InjectionToken;
@@ -134,12 +141,20 @@ interface ModuleBinding {
   actionDepth: number;
 }
 
+interface RuntimeModuleMetadata {
+  readonly app: App;
+  readonly name: string;
+  readonly token: InjectionToken;
+}
+
 interface LifecycleModule {
   onInit?(): void | Promise<void>;
   onStart?(): void | Promise<void>;
   onStop?(): void | Promise<void>;
   onDispose?(): void | Promise<void>;
 }
+
+const runtimeModuleMetadataKey = Symbol.for("@cosystem/core/runtimeModule");
 
 export function createApp(options: CreateAppOptions = {}): App {
   return createAppInternal(options);
@@ -167,10 +182,7 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
 
   const modules = instantiateModules(container, moduleTokens);
   const rootState = createRootState(modules);
-  const store = createCoactionStore(rootState, {
-    name: "cosystem",
-    sliceMode: "single",
-  });
+  const store = createCoactionStore(rootState, createStoreOptions(options.engine) as never);
   const state: { version: number } = { version: 0 };
   const app = new RuntimeApp({
     container,
@@ -183,6 +195,7 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
   });
 
   app.bindModules();
+  app.attachRuntimeMetadata();
   app.runModuleCreatedHooks();
   app.init();
 
@@ -348,6 +361,20 @@ class RuntimeApp implements App {
       this.bindState(moduleBinding);
       this.bindComputed(moduleBinding);
       this.bindActions(moduleBinding);
+    }
+  }
+
+  attachRuntimeMetadata(): void {
+    for (const moduleBinding of this.modules) {
+      Object.defineProperty(moduleBinding.instance, runtimeModuleMetadataKey, {
+        configurable: false,
+        enumerable: false,
+        value: {
+          app: this,
+          name: moduleBinding.name,
+          token: moduleBinding.token,
+        } satisfies RuntimeModuleMetadata,
+      });
     }
   }
 
@@ -550,6 +577,15 @@ function normalizeAppProvider(provider: ProviderInput): {
   }
 
   return { provider };
+}
+
+function createStoreOptions(engine: EngineOptions | undefined): CoactionStoreOptions {
+  return {
+    name: "cosystem",
+    sliceMode: "single",
+    ...(engine?.patches === undefined ? {} : { enablePatches: engine.patches }),
+    ...(engine?.transport === undefined ? {} : { transport: engine.transport }),
+  } as CoactionStoreOptions;
 }
 
 function createModuleClassProviderOptions<T>(
