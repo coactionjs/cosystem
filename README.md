@@ -443,7 +443,13 @@ const app = createApp({
   providers: [Counter],
 });
 
+const unsubscribe = devtools.subscribe((event) => {
+  console.log(event.type);
+});
+
 console.log(devtools.getTimeline());
+
+unsubscribe();
 ```
 
 ## Storage

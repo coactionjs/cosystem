@@ -37,8 +37,11 @@ export type DevtoolsTimelineEvent =
 
 export interface DevtoolsPlugin extends Plugin {
   getTimeline(): readonly DevtoolsTimelineEvent[];
+  subscribe(listener: DevtoolsTimelineListener): () => void;
   clearTimeline(): void;
 }
+
+export type DevtoolsTimelineListener = (event: DevtoolsTimelineEvent) => void;
 
 export interface DevtoolsOptions {
   readonly maxEvents?: number;
@@ -47,6 +50,7 @@ export interface DevtoolsOptions {
 
 export function createDevtoolsPlugin(options: DevtoolsOptions = {}): DevtoolsPlugin {
   const timeline: DevtoolsTimelineEvent[] = [];
+  const listeners = new Set<DevtoolsTimelineListener>();
   const maxEvents = options.maxEvents ?? 1_000;
   const now = options.now ?? Date.now;
 
@@ -55,6 +59,10 @@ export function createDevtoolsPlugin(options: DevtoolsOptions = {}): DevtoolsPlu
 
     if (timeline.length > maxEvents) {
       timeline.splice(0, timeline.length - maxEvents);
+    }
+
+    for (const listener of listeners) {
+      listener(event);
     }
   };
 
@@ -65,6 +73,13 @@ export function createDevtoolsPlugin(options: DevtoolsOptions = {}): DevtoolsPlu
     },
     getTimeline() {
       return timeline;
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+
+      return () => {
+        listeners.delete(listener);
+      };
     },
     onActionEnd(event) {
       push({

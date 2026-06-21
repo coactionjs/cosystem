@@ -67,6 +67,28 @@ describe("devtools plugin", () => {
     expect(devtools.getTimeline().map((event) => event.type)).toEqual(["patch", "action:end"]);
   });
 
+  it("publishes timeline events to subscribers", () => {
+    const devtools = createDevtoolsPlugin({
+      maxEvents: 2,
+      now: () => 1,
+    });
+    const events: string[] = [];
+    const unsubscribe = devtools.subscribe((event) => {
+      events.push(event.type);
+    });
+    const app = createApp({
+      plugins: [devtools],
+      providers: [Counter],
+    });
+
+    app.getModule(Counter).increase();
+    unsubscribe();
+    app.getModule(Counter).increase();
+
+    expect(events).toEqual(["setup", "action:start", "state", "patch", "action:end"]);
+    expect(devtools.getTimeline().map((event) => event.type)).toEqual(["patch", "action:end"]);
+  });
+
   it("records runtime errors", () => {
     const devtools = createDevtoolsPlugin({
       now: () => 1,
