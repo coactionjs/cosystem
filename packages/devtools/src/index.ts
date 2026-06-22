@@ -78,7 +78,7 @@ export function createDevtoolsPlugin(options: DevtoolsOptions = {}): DevtoolsPlu
       timeline.length = 0;
     },
     getTimeline() {
-      return timeline;
+      return [...timeline];
     },
     subscribe(listener) {
       listeners.add(listener);

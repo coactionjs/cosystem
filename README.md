@@ -1,26 +1,103 @@
 # CoSystem
 
-CoSystem - The meta-framework for coexisting UI frameworks.
+**The meta-framework for coexisting UI frameworks.**
 
-CoSystem creates a typed application core powered by Coaction, then lets each UI
-framework render with its own native API. Business modules are plain classes
-with lightweight DI, OO state, actions, computed getters, and test-friendly app
-composition.
+CoSystem creates a typed application core powered by [Coaction](https://www.npmjs.com/package/coaction),
+then lets each UI framework render with its own native API. Business modules are
+plain classes with lightweight DI, object-oriented state, actions, computed
+getters, effects, and test-friendly app composition.
+
+```ts
+@module_({ name: "counter" })
+class Counter {
+  @state accessor count = 0;
+  @computed get double() {
+    return this.count * 2;
+  }
+  @action increase(step = 1) {
+    this.count += step;
+  }
+}
+
+const app = createApp({ providers: [Counter] });
+app.getModule(Counter).increase();
+```
+
+The same `Counter` module powers a React, Vue, Svelte, Solid, or Angular view —
+or runs inside a Web Worker — without rewriting a line of business logic.
+
+## Why CoSystem
+
+- **Framework-agnostic core.** Your domain logic is plain classes. The UI layer
+  is an adapter, not a dependency — swap React for Vue without touching modules.
+- **One observable state tree.** Module state is merged into a single
+  Coaction-backed store, so devtools, persistence, and selectors all see the
+  whole app.
+- **Lightweight DI.** Constructor injection with tokens, scopes, lazy modules,
+  and lifecycle hooks — no reflection metadata required.
+- **Decorators optional.** Use TC39 decorators _or_ `defineModule()` metadata;
+  the runtime treats them identically.
+- **Runs anywhere.** The same modules can be hosted in a Worker, iframe, shared
+  tab, or custom RPC channel and consumed reactively from the UI thread.
+- **Test-first.** `testApp()` provides provider overrides, action/state/patch
+  inspection, and deterministic effect flushing.
+
+## Concepts
+
+A CoSystem app is a graph of **modules** wired by a **DI container**:
+
+| Term         | What it is                                                                  |
+| ------------ | --------------------------------------------------------------------------- |
+| **Module**   | A plain class with state, actions, computed getters, and effects.           |
+| **State**    | Reactive fields merged into the app store under the module's `name`.        |
+| **Action**   | A method whose state writes run inside a transaction.                       |
+| **Computed** | A cached getter that recomputes only when its tracked state changes.        |
+| **Effect**   | A method that runs after init and re-runs when its tracked state changes.   |
+| **Provider** | A DI registration (`useClass` / `useValue` / `useFactory` / `useExisting`). |
+| **Plugin**   | A lifecycle/store observer (logger, storage, router, devtools).             |
+| **Adapter**  | A framework binding that reads the store with native reactivity.            |
+
+CoSystem does **not** own rendering — there is no `ViewModule`, root component
+base class, or `render()` abstraction. UI packages only provide context and
+subscription helpers.
 
 ## Packages
 
-- `@cosystem/angular`: Angular provider bridge and signals for consuming a CoSystem app
-- `@cosystem/core`: DI container, module metadata, app runtime, decorators, and
-  `testApp`
-- `@cosystem/create`: project scaffolding utility with the `create-cosystem` CLI
-- `@cosystem/devtools`: timeline inspection plugin for development tooling
-- `@cosystem/react`: React context and hooks for consuming a CoSystem app
-- `@cosystem/router`: embeddable router primitives and router token
-- `@cosystem/solid`: Solid context and signals for consuming a CoSystem app
-- `@cosystem/storage`: persistence plugin for app state snapshots
-- `@cosystem/svelte`: Svelte context and readable stores for consuming a CoSystem app
-- `@cosystem/testing`: testing helper facade for `testApp`
-- `@cosystem/vue`: Vue provide/inject composables for consuming a CoSystem app
+Every app depends on [`@cosystem/core`](./packages/core). Pick a UI adapter for
+your framework and add plugins as needed. Each package has its own README with a
+full API reference.
+
+### Core
+
+| Package                             | Description                                                                            |
+| ----------------------------------- | -------------------------------------------------------------------------------------- |
+| [`@cosystem/core`](./packages/core) | DI container, module metadata, app runtime, decorators, worker runtime, and `testApp`. |
+
+### UI adapters
+
+| Package                                   | Description                                           |
+| ----------------------------------------- | ----------------------------------------------------- |
+| [`@cosystem/react`](./packages/react)     | React context and hooks (`useModule`, `useSelector`). |
+| [`@cosystem/vue`](./packages/vue)         | Vue provide/inject composables and a plugin.          |
+| [`@cosystem/svelte`](./packages/svelte)   | Svelte readable stores (4+) and rune helpers (5).     |
+| [`@cosystem/solid`](./packages/solid)     | Solid context and signal helpers.                     |
+| [`@cosystem/angular`](./packages/angular) | Angular environment provider and `inject*` signals.   |
+
+### Plugins
+
+| Package                                     | Description                                                          |
+| ------------------------------------------- | -------------------------------------------------------------------- |
+| [`@cosystem/router`](./packages/router)     | Embeddable router primitives, `RouterToken`, and a lifecycle plugin. |
+| [`@cosystem/storage`](./packages/storage)   | Persistence plugin for hydrating and saving app state.               |
+| [`@cosystem/devtools`](./packages/devtools) | Timeline inspection plugin for development tooling.                  |
+
+### Tooling
+
+| Package                                     | Description                                         |
+| ------------------------------------------- | --------------------------------------------------- |
+| [`@cosystem/create`](./packages/create)     | Project scaffolding with the `create-cosystem` CLI. |
+| [`@cosystem/testing`](./packages/testing)   | Testing helper facade for `testApp`.                |
+| [`@cosystem/tsconfig`](./packages/tsconfig) | Shared TypeScript configuration (internal).         |
 
 ## Create A Project
 
@@ -395,11 +472,8 @@ Angular:
 
 ```ts
 import { Component } from "@angular/core";
+import { bootstrapApplication } from "@angular/platform-browser";
 import { injectModule, injectSignal, provideCoSystem } from "@cosystem/angular";
-
-bootstrapApplication(AppComponent, {
-  providers: [provideCoSystem(app)],
-});
 
 @Component({
   selector: "counter-view",
@@ -409,11 +483,17 @@ class CounterView {
   readonly counter = injectModule(Counter);
   readonly count = injectSignal(Counter, (module) => module.count);
 }
+
+bootstrapApplication(CounterView, {
+  providers: [provideCoSystem(app)],
+});
 ```
 
 Angular can inject worker-hosted modules and expose state as Angular signals:
 
 ```ts
+import { Component } from "@angular/core";
+import { bootstrapApplication } from "@angular/platform-browser";
 import { injectWorkerModule, injectWorkerSignal, provideWorkerClient } from "@cosystem/angular";
 
 type CounterState = {
@@ -421,10 +501,6 @@ type CounterState = {
     readonly count: number;
   };
 };
-
-bootstrapApplication(AppComponent, {
-  providers: [provideWorkerClient(client)],
-});
 
 @Component({
   selector: "counter-view",
@@ -434,6 +510,10 @@ class WorkerCounterView {
   readonly counter = injectWorkerModule<Counter>("counter");
   readonly count = injectWorkerSignal((state) => (state as CounterState).counter.count);
 }
+
+bootstrapApplication(WorkerCounterView, {
+  providers: [provideWorkerClient(client)],
+});
 ```
 
 ## Testing
@@ -647,14 +727,20 @@ unsubscribe();
 ```ts
 import { createStoragePlugin } from "@cosystem/storage";
 
+type CounterAppState = {
+  readonly counter: {
+    readonly count: number;
+  };
+};
+
 const storage = createStoragePlugin({
   key: "cosystem:app",
   merge: (persisted, current) => ({
-    ...current,
+    ...(current as object),
     ...persisted,
   }),
   partialize: (state) => ({
-    counter: state.counter,
+    counter: (state as CounterAppState).counter,
   }),
   storage: window.localStorage,
 });
@@ -735,10 +821,56 @@ pnpm run commit
 ## Workspace Layout
 
 ```text
-apps/              # applications and services
-examples/          # API usage examples
-packages/core/     # CoSystem core runtime
-packages/react/    # React adapter
-packages/tsconfig/ # shared TypeScript configuration package
-packages/vue/      # Vue adapter
+packages/
+  angular/    # Angular adapter
+  core/       # CoSystem core runtime (DI, app, decorators, worker)
+  create/     # create-cosystem scaffolding CLI
+  devtools/   # timeline inspection plugin
+  react/      # React adapter
+  router/     # router primitives and plugin
+  solid/      # Solid adapter
+  storage/    # persistence plugin
+  svelte/     # Svelte adapter (stores + runes)
+  testing/    # testApp facade
+  tsconfig/   # shared TypeScript configuration (internal)
+  vue/        # Vue adapter
+examples/     # runnable usage examples (one workspace package each)
+scripts/      # release/publish tooling
 ```
+
+## Documentation
+
+- **Guides** — conceptual documentation lives in [`docs/`](./docs). Start with
+  the [Introduction](./docs/introduction.md) and
+  [Getting Started](./docs/getting-started.md), then dig into
+  [Core Concepts](./docs/core-concepts.md),
+  [Dependency Injection](./docs/dependency-injection.md),
+  [State & Reactivity](./docs/state-and-reactivity.md),
+  [UI Adapters](./docs/ui-adapters.md), [Plugins](./docs/plugins.md),
+  [Worker & Shared Runtime](./docs/worker-runtime.md),
+  [Testing](./docs/testing.md), and [Architecture](./docs/architecture.md).
+- **API reference** — each package's README documents its exports; see the
+  [Packages](#packages) table above.
+- **Examples** — runnable, framework-specific demos live in
+  [`examples/`](./examples).
+- **Contributing** — workflow and conventions in
+  [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+
+## Contributing
+
+Contributions are welcome. The short version:
+
+```sh
+corepack enable pnpm
+pnpm install
+pnpm run check        # format:check + lint + typecheck + test + build
+pnpm run commit       # commitizen-guided conventional commit
+pnpm changeset        # describe a release-worthy change
+```
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full guide, including commit
+conventions, the changeset/release flow, and how to work with examples.
+
+## License
+
+[MIT](./LICENSE) © Coaction

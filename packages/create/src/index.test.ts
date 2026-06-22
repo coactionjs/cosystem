@@ -24,7 +24,13 @@ describe("create package", () => {
 
     expect(result.files).toEqual(["package.json", "tsconfig.json", "src/main.ts"]);
     await expect(readFile(join(root, "package.json"), "utf8")).resolves.toContain(
+      '"type": "module"',
+    );
+    await expect(readFile(join(root, "package.json"), "utf8")).resolves.toContain(
       '"packageManager": "pnpm@11.8.0"',
+    );
+    await expect(readFile(join(root, "tsconfig.json"), "utf8")).resolves.toContain(
+      '"skipLibCheck": true',
     );
     await expect(readFile(join(root, "src/main.ts"), "utf8")).resolves.toContain("createApp");
   });

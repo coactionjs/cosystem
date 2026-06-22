@@ -88,6 +88,24 @@ describe("devtools plugin", () => {
     expect(devtools.getTimeline().map((event) => event.type)).toEqual(["patch", "action:end"]);
   });
 
+  it("returns timeline snapshots", () => {
+    const devtools = createDevtoolsPlugin({
+      now: () => 1,
+    });
+    const app = createApp({
+      plugins: [devtools],
+      providers: [Counter],
+    });
+
+    const snapshot = devtools.getTimeline();
+
+    app.getModule(Counter).increase();
+    devtools.clearTimeline();
+
+    expect(snapshot.map((event) => event.type)).toEqual(["module", "setup"]);
+    expect(devtools.getTimeline()).toEqual([]);
+  });
+
   it("publishes timeline events to subscribers", () => {
     const devtools = createDevtoolsPlugin({
       maxEvents: 2,

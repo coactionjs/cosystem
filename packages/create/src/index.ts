@@ -39,6 +39,7 @@ function createPackageJson(name: string, packageManager: string): object {
   return {
     name,
     private: true,
+    type: "module",
     scripts: {
       build: "tsc -p tsconfig.json",
       start: "tsx src/main.ts",
@@ -59,6 +60,7 @@ function createTsConfig(): object {
     compilerOptions: {
       module: "NodeNext",
       moduleResolution: "NodeNext",
+      skipLibCheck: true,
       strict: true,
       target: "ES2022",
     },

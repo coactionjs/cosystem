@@ -1,0 +1,573 @@
+# @cosystem/core
+
+> The CoSystem core runtime: a typed application core with lightweight dependency
+> injection, object-oriented state, actions, computed getters, effects, and a
+> framework-agnostic store powered by [Coaction](https://www.npmjs.com/package/coaction).
+
+`@cosystem/core` is the only package every CoSystem app depends on. It owns the
+DI container, module metadata, the app runtime and lifecycle, the reactive
+store, and a worker-hosting prototype. UI adapters (`@cosystem/react`,
+`@cosystem/vue`, …) and plugins (`@cosystem/storage`, `@cosystem/router`, …) are
+thin layers on top of the primitives exported here.
+
+## Installation
+
+```sh
+pnpm add @cosystem/core
+# npm install @cosystem/core
+# yarn add @cosystem/core
+```
+
+CoSystem ships as ESM only and targets Node.js `>=22.12.0` and modern browsers.
+
+## Table of contents
+
+- [Concepts](#concepts)
+- [Defining a module](#defining-a-module)
+  - [With decorators](#with-decorators)
+  - [Without decorators](#without-decorators)
+- [Creating an app](#creating-an-app)
+- [Dependency injection](#dependency-injection)
+- [State, actions, computed, and effects](#state-actions-computed-and-effects)
+- [Async actions and `runInAction`](#async-actions-and-runinaction)
+- [Provider lifetime and scopes](#provider-lifetime-and-scopes)
+- [Module lifecycle hooks](#module-lifecycle-hooks)
+- [Lazy modules](#lazy-modules)
+- [Plugins](#plugins)
+- [Reading state outside of components](#reading-state-outside-of-components)
+- [Testing](#testing)
+- [Worker / shared runtime](#worker--shared-runtime)
+- [Errors](#errors)
+- [API reference](#api-reference)
+
+## Concepts
+
+A CoSystem app is a graph of **modules**. A module is a plain class that:
+
+- holds **state** (reactive fields),
+- exposes **actions** (methods that mutate state inside a transaction),
+- derives **computed** values (cached getters), and
+- can run **effects** (methods that re-run when their tracked state changes).
+
+Modules are wired together with a small **DI container**. Their state is merged
+into a single Coaction-backed store keyed by the module `name`, so the whole app
+has one observable state tree:
+
+```ts
+// app.store.getPureState()
+{ counter: { count: 2 }, todos: { items: [] } }
+```
+
+CoSystem does **not** own rendering. There is no view base class or `render()`
+abstraction. Framework adapters read the store and subscribe to changes using
+each framework's native reactivity.
+
+## Defining a module
+
+### With decorators
+
+`@state` targets standard accessor decorators, `@action`/`@effect` target
+methods, and `@computed` targets getters. Decorators require a TypeScript or
+build setup that supports the TC39 decorators + `accessor` keyword (the repo's
+`tsdown`/`tsc` config does).
+
+```ts
+import {
+  action,
+  computed,
+  createApp,
+  effect,
+  module as module_,
+  provide,
+  state,
+} from "@cosystem/core";
+
+abstract class Logger {
+  abstract info(message: string): void;
+}
+
+@module_({
+  deps: [Logger],
+  name: "counter",
+})
+class Counter {
+  constructor(readonly logger: Logger) {}
+
+  @state
+  accessor count = 0;
+
+  @computed
+  get double(): number {
+    return this.count * 2;
+  }
+
+  @action
+  increase(step = 1): void {
+    this.count += step;
+    this.logger.info(`count:${this.count}`);
+  }
+
+  @effect
+  recordCount(): void {
+    this.logger.info(`effect:${this.count}`);
+  }
+}
+
+const app = createApp({
+  providers: [Counter, provide(Logger, { useValue: console })],
+});
+
+app.getModule(Counter).increase();
+```
+
+> `module` is exported under that name; alias it (`module as module_`) to avoid
+> shadowing CommonJS-style `module` identifiers in your file.
+
+### Without decorators
+
+`defineModule()` declares the same metadata for a plain class — useful for plain
+fields (decorators only support `accessor` state) or environments without
+decorator support.
+
+```ts
+import { createApp, defineModule, provide } from "@cosystem/core";
+
+class Counter {
+  count = 0;
+
+  constructor(readonly logger: Logger) {}
+
+  get double(): number {
+    return this.count * 2;
+  }
+
+  increase(step = 1): void {
+    this.count += step;
+    this.logger.info(`count:${this.count}`);
+  }
+
+  recordCount(): void {
+    this.logger.info(`effect:${this.count}`);
+  }
+}
+
+defineModule(Counter, {
+  actions: ["increase"],
+  computed: ["double"],
+  deps: [Logger],
+  effects: ["recordCount"],
+  name: "counter",
+  state: ["count"],
+});
+```
+
+`@computed` getters are cached through Coaction's signal-backed computed runtime
+and invalidate when the state they read changes. `@effect` methods run after app
+initialization and re-run when the state they read changes.
+
+## Creating an app
+
+```ts
+const app = createApp({
+  providers: [Counter, provide(Logger, { useValue: console })],
+  plugins: [],
+  devOptions: { strictActions: true },
+});
+```
+
+`createApp(options)` returns an [`App`](#app). Key options:
+
+| Option       | Type                              | Description                                                            |
+| ------------ | --------------------------------- | ---------------------------------------------------------------------- |
+| `providers`  | `(ProviderInput \| LazyModule)[]` | Modules, plain providers, and lazy-module entries to register.         |
+| `plugins`    | `Plugin[]`                        | Lifecycle/observability plugins (logger, storage, router, devtools …). |
+| `parent`     | `App \| Container`                | Parent container for hierarchical DI.                                  |
+| `devOptions` | `{ strictActions?: boolean }`     | Enforce action boundaries for all state writes when `true`.            |
+| `engine`     | `{ patches?: boolean }`           | Enable patch generation on the underlying store.                       |
+
+`@module` providers are instantiated during `createApp()` so their state can be
+bound to the store. Plugin `setup`, module `onInit` hooks, and effects are kicked
+off during creation (tracked by an internal init promise that `start()` also
+awaits). `app.start()` then runs `onStart` hooks and marks the app started; many
+apps can skip `start()` entirely if they have no startup work.
+
+## Dependency injection
+
+CoSystem includes a small but complete DI container. You register **providers**
+keyed by **injection tokens** (a class, a `Token`, a string, or a symbol).
+
+```ts
+import { createApp, provide, token } from "@cosystem/core";
+
+const Config = token<{ apiUrl: string }>("Config");
+
+createApp({
+  providers: [
+    Counter, // class shorthand → useClass: Counter
+    provide(Logger, { useValue: console }),
+    provide(Config, { useValue: { apiUrl: "/api" } }),
+    provide(Analytics, { useClass: Analytics, deps: [Config] }),
+    provide(Clock, { useFactory: () => new Clock(), deps: [] }),
+    ConcreteService,
+    provide(AbstractService, { useExisting: ConcreteService }),
+  ],
+});
+```
+
+Provider shapes (`provide(token, options)`):
+
+- `useClass` — construct a class, resolving `deps` as constructor arguments.
+- `useValue` — use an existing value (always eager, singleton).
+- `useFactory` — call a factory with resolved `deps`; may be async.
+- `useExisting` — alias one token to another.
+
+Inside a factory or provider construction you may also call `inject(token)` to
+resolve dependencies imperatively:
+
+```ts
+import { inject, provide } from "@cosystem/core";
+
+provide(Service, {
+  useFactory: () => new Service(inject(Logger)),
+});
+```
+
+`inject()` throws `InjectContextError` outside of an active resolution.
+
+### Container access
+
+`app.createScope().container` exposes the [`Container`](#container) directly for
+advanced use. `build()` / `buildAsync()` construct an unregistered class without
+caching it:
+
+```ts
+const instance = app.createScope().container.build(Service);
+const asyncInstance = await app.createScope().container.buildAsync(ServiceWithAsyncDeps);
+```
+
+Use `buildAsync()` when any dependency is backed by an async factory; the sync
+path throws `AsyncProviderInSyncResolutionError`.
+
+## State, actions, computed, and effects
+
+- **State** fields become the module's slice in the store. Reads are tracked.
+- **Actions** wrap writes in a transaction. In `strictActions` mode, writes
+  outside an action throw.
+- **Computed** getters are memoized and recomputed only when tracked state
+  changes.
+- **Effects** run once after init and re-run when their tracked state changes.
+  Effects are torn down on `dispose()`.
+
+## Async actions and `runInAction`
+
+Async `@action` methods may return promises. Synchronous writes before the first
+`await` are part of the action transaction; writes after an `await` need a fresh
+action boundary when strict mode is enabled. Use `runInAction(this, …)`:
+
+```ts
+import { runInAction } from "@cosystem/core";
+
+class Counter {
+  @state
+  accessor count = 0;
+
+  @action
+  async refresh(): Promise<void> {
+    const next = await loadCount();
+
+    runInAction(this, () => {
+      this.count = next;
+    });
+  }
+}
+```
+
+You can also call `app.runInAction(moduleOrToken, callback, { name, args })` from
+outside the module.
+
+## Provider lifetime and scopes
+
+Providers default to the `"singleton"` scope. Available scopes:
+
+| Scope          | Lifetime                                                        |
+| -------------- | --------------------------------------------------------------- |
+| `"singleton"`  | One instance per root container (default).                      |
+| `"scoped"`     | One instance per child scope created with `createScope()`.      |
+| `"resolution"` | One instance per resolution graph (shared within a single get). |
+| `"transient"`  | A fresh instance on every resolution.                           |
+
+`@module` providers and `useValue` providers are eager. Plain class/factory
+providers stay lazy unless a module or another eager provider depends on them.
+Mark startup services eager explicitly:
+
+```ts
+createApp({
+  providers: [Counter, provide(Analytics, { eager: true, useClass: Analytics })],
+});
+```
+
+A longer-lived provider that depends on a shorter-lived one throws
+`LifetimeLeakError` unless the dependency is marked `leakSafe: true`. Use `multi:
+true` to register several providers under one token and read them with
+`getAll()`. Provide a `dispose(value)` callback to clean up on `app.dispose()`.
+
+## Module lifecycle hooks
+
+Modules may implement any of these optional methods, called by the runtime:
+
+```ts
+class Service {
+  onInit(): void | Promise<void> {} // after the module graph is created
+  onStart(): void | Promise<void> {} // during app.start()
+  onStop(): void | Promise<void> {} // during app.stop()
+  onDispose(): void | Promise<void> {} // during app.dispose()
+}
+```
+
+`onStop`/`onDispose` run in reverse order and fail fast on the first thrown error.
+
+## Lazy modules
+
+Lazy modules are explicit and isolated — they do not mutate the root provider
+graph:
+
+```ts
+import { createApp, defineModule, lazyModule } from "@cosystem/core";
+
+class AdminCounter {
+  count = 0;
+  increase(): void {
+    this.count += 1;
+  }
+}
+
+defineModule(AdminCounter, {
+  actions: ["increase"],
+  name: "adminCounter",
+  state: ["count"],
+});
+
+const app = createApp();
+
+await app.load(lazyModule(() => ({ providers: [AdminCounter] })));
+
+app.getModule(AdminCounter).increase();
+```
+
+Passing `lazyModule(...)` to `createApp({ providers })` records the entry without
+loading it. Call `await app.load()` to load all pending lazy modules, or
+`await app.load(module)` to load one. Loaders may return a provider, a provider
+array, or a module-namespace object (`{ default }` / `{ providers }`), which
+makes dynamic `import()` ergonomic.
+
+## Plugins
+
+A plugin observes the app lifecycle and store. Implement any subset of the hooks:
+
+```ts
+import type { Plugin } from "@cosystem/core";
+
+const plugin: Plugin = {
+  name: "my-plugin",
+  setup(app) {},
+  onModuleCreated(event) {},
+  onActionStart(event) {},
+  onActionEnd(event) {},
+  onPatch(event) {},
+  onStateChange(event) {},
+  onError(error, context) {},
+  dispose() {},
+};
+```
+
+Built-in: [`createLoggerPlugin()`](#logger-plugin). The
+[`@cosystem/storage`](../storage), [`@cosystem/router`](../router), and
+[`@cosystem/devtools`](../devtools) packages are plugins too.
+
+### Logger plugin
+
+```ts
+import { createApp, createLoggerPlugin } from "@cosystem/core";
+
+const app = createApp({
+  plugins: [createLoggerPlugin()],
+  providers: [Counter],
+});
+```
+
+Pass `{ logger }` to route messages somewhere other than `console`.
+
+## Reading state outside of components
+
+```ts
+app.getModule(Counter); // the bound module facade
+app.getModuleByName("counter"); // look up by registered name
+app.get(Token); // resolve any provider (sync)
+await app.getAsync(Token); // resolve, allowing async factories
+app.getAll(MultiToken); // all providers registered as multi
+app.store.getPureState(); // the full plain state tree
+
+const stop = app.watch(
+  () => app.getModule(Counter).count,
+  (value, previous) => console.log(value, previous),
+  { equals: Object.is, immediate: false },
+);
+stop();
+```
+
+## Testing
+
+`testApp()` wraps `createApp()` with an inspector and override support. See
+[`@cosystem/testing`](../testing) for the dedicated facade.
+
+```ts
+import { provide, testApp } from "@cosystem/core";
+
+const app = testApp({
+  providers: [Counter, provide(Logger, { useValue: console })],
+  strictActions: true,
+});
+
+app.getModule(Counter).increase(2);
+
+expect(app.test.getActions()).toMatchObject([{ method: "increase", module: "counter" }]);
+
+// autoStart returns a Promise that resolves once start() completes.
+const started = await testApp({ autoStart: true, providers: [Counter] });
+expect(started.started).toBe(true);
+```
+
+`testApp({ overrides })` replaces providers discovered from `providers`, but it
+cannot introduce a brand new `@module` after module discovery. The inspector
+(`app.test`) exposes `getActions`, `getState`, `getPatches`, `clearActions`,
+`clearPatches`, and `flushEffects`.
+
+## Worker / shared runtime
+
+`@cosystem/core` includes a worker-hosting prototype: run the app (and its
+modules) in a Worker, iframe, `MessagePort`, `BroadcastChannel`, or custom RPC
+channel, and consume its state from another context.
+
+```ts
+import {
+  createMemoryWorkerTransportPair,
+  createWorkerApp,
+  createWorkerClient,
+} from "@cosystem/core";
+
+const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+
+const client = createWorkerClient({ transport: clientTransport });
+const host = createWorkerApp({
+  providers: [Counter],
+  sync: "patch",
+  transport: hostTransport,
+});
+
+await client.ready;
+await client.module<Counter>("counter").increase(1);
+
+const selectCount = (state: unknown) => (state as { counter: { count: number } }).counter.count;
+const count = client.select(selectCount);
+const unsubscribe = client.watch(selectCount, (value) => console.log(value));
+
+unsubscribe();
+client.dispose();
+await host.dispose();
+```
+
+Transports (all interchangeable):
+
+- `createMemoryWorkerTransportPair()` — in-process host/client pair (tests).
+- `createPostMessageWorkerTransport(endpoint)` — `Worker`, iframe, `MessagePort`.
+- `createBroadcastWorkerTransport(channel, { peerId, targetPeerId })` — shared
+  tabs via `BroadcastChannel`; `createMemoryBroadcastChannel()` mirrors it in
+  tests.
+- `createDataTransportWorkerTransport(dataTransport)` — process/socket/custom RPC.
+
+Hosts can isolate published state to selected top-level sections with
+`stateSections: ["counter"]` (method delegation still covers all modules). Sync
+defaults to `"snapshot"`; `sync: "patch"` sends patch-only updates after startup.
+Clients can observe conflicts via `onConflict` (`stale-message`,
+`missing-snapshot`, `version-gap`, `patch-apply-failed`).
+
+The prototype intentionally does not implement full shared-runtime conflict
+resolution or framework-specific worker bootstrapping. Adapters
+(`@cosystem/react`, `@cosystem/vue`, `@cosystem/svelte`, `@cosystem/solid`,
+`@cosystem/angular`) ship `WorkerClient`-based hooks for consuming worker state.
+
+## Errors
+
+All errors extend `CosystemError`:
+
+| Error                                | Thrown when                                                           |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| `MissingProviderError`               | A token has no registered provider.                                   |
+| `DuplicateProviderError`             | A non-`multi` token is registered twice.                              |
+| `AmbiguousProviderError`             | `get()` is called for a token with multiple providers (use `getAll`). |
+| `CircularDependencyError`            | A provider depends on itself transitively.                            |
+| `AsyncProviderInSyncResolutionError` | A sync `get()` hits an async factory (use `getAsync`/`buildAsync`).   |
+| `LifetimeLeakError`                  | A longer-lived provider depends on a shorter-lived one.               |
+| `FrozenContainerError`               | The provider graph is mutated after freezing.                         |
+| `InjectContextError`                 | `inject()` is used outside provider resolution.                       |
+
+## API reference
+
+`createApp`, `createContainer`, `defineModule`, `getModuleMetadata`, the
+`module`/`state`/`action`/`computed`/`effect` decorators, `provide`, `token`,
+`tokenName`, `inject`, `lazyModule`, `runInAction`, `testApp`,
+`createLoggerPlugin`, and the worker factories are all exported from the package
+root, alongside their TypeScript types (`App`, `CreateAppOptions`, `Plugin`,
+`Container`, `Provider`, `Scope`, `WorkerClient`, `WorkerAppHost`, the event
+types, and more).
+
+### App
+
+```ts
+interface App {
+  readonly state: { readonly version: number };
+  readonly started: boolean;
+  readonly store: Store<RootState>;
+
+  get<T>(token: InjectionToken<T>): T;
+  getAsync<T>(token: InjectionToken<T>): Promise<T>;
+  getAll<T>(token: InjectionToken<T>): T[];
+  getModule<T>(token: InjectionToken<T>): T;
+  getModuleByName<T = unknown>(name: string): T;
+  watch<T>(
+    read: () => T,
+    listener: (value: T, previous: T) => void,
+    options?: WatchOptions<T>,
+  ): () => void;
+  runInAction<T>(module: RunInActionTarget, callback: () => T, options?: RunInActionOptions): T;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  dispose(): Promise<void>;
+  createScope(options?: ScopeOptions): AppScope;
+  load(module: LazyModule): Promise<LazyModuleLoadResult>;
+  load(): Promise<readonly LazyModuleLoadResult[]>;
+}
+```
+
+### Container
+
+```ts
+interface Container {
+  get<T>(token: InjectionToken<T>): T;
+  get<T>(token: InjectionToken<T>, options: { readonly optional: true }): T | undefined;
+  getAll<T>(token: InjectionToken<T>): T[];
+  getAsync<T>(token: InjectionToken<T>): Promise<T>;
+  has(token: InjectionToken): boolean;
+  provide(provider: ProviderInput): void;
+  override(provider: ProviderInput): void;
+  createScope(options?: ScopeOptions): Container;
+  build<T>(target: Constructor<T>, options?: BuildOptions): T;
+  buildAsync<T>(target: Constructor<T>, options?: BuildOptions): Promise<T>;
+  freeze(): void;
+  dispose(): Promise<void>;
+}
+```
+
+## License
+
+[MIT](../../LICENSE) © Coaction
