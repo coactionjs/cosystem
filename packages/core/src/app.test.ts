@@ -2,18 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import {
   AsyncProviderInSyncResolutionError,
+  Action,
+  Computed,
   CosystemError,
-  action as actionDecorator,
-  computed as computedDecorator,
   createApp,
   defineModule,
-  effect as effectDecorator,
+  Effect,
   inject,
   lazyModule,
-  module as moduleDecorator,
+  Module,
   provide,
   runInAction,
-  state as stateDecorator,
+  State,
   testApp,
   token,
   type Plugin,
@@ -120,7 +120,7 @@ describe("app runtime", () => {
       }
     }
 
-    stateDecorator(
+    State(
       undefined as never,
       {
         addInitializer() {},
@@ -131,7 +131,7 @@ describe("app runtime", () => {
         static: false,
       } as unknown as ClassAccessorDecoratorContext<DecoratedRuntimeCounter, number>,
     );
-    computedDecorator(
+    Computed(
       Object.getOwnPropertyDescriptor(DecoratedRuntimeCounter.prototype, "double")?.get as never,
       {
         addInitializer() {},
@@ -142,7 +142,7 @@ describe("app runtime", () => {
         static: false,
       } as unknown as ClassGetterDecoratorContext<DecoratedRuntimeCounter, number>,
     );
-    actionDecorator(DecoratedRuntimeCounter.prototype.increase, {
+    Action(DecoratedRuntimeCounter.prototype.increase, {
       addInitializer() {},
       kind: "method",
       metadata,
@@ -153,7 +153,7 @@ describe("app runtime", () => {
       DecoratedRuntimeCounter,
       DecoratedRuntimeCounter["increase"]
     >);
-    effectDecorator(DecoratedRuntimeCounter.prototype.recordCount, {
+    Effect(DecoratedRuntimeCounter.prototype.recordCount, {
       addInitializer() {},
       kind: "method",
       metadata,
@@ -164,7 +164,7 @@ describe("app runtime", () => {
       DecoratedRuntimeCounter,
       DecoratedRuntimeCounter["recordCount"]
     >);
-    moduleDecorator({
+    Module({
       deps: [Logger],
       name: "decoratedRuntimeCounter",
     })(DecoratedRuntimeCounter, {

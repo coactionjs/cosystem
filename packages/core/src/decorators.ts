@@ -11,8 +11,8 @@ import {
 } from "./metadata.js";
 import type { Constructor } from "./types.js";
 
-export function module(options: ModuleOptions = {}) {
-  return function moduleDecorator<T extends Constructor>(
+export function Module(options: ModuleOptions = {}) {
+  return function ModuleDecorator<T extends Constructor>(
     target: T,
     context?: ClassDecoratorContext<T>,
   ): T {
@@ -21,12 +21,12 @@ export function module(options: ModuleOptions = {}) {
   };
 }
 
-export function state<This extends object, Value>(
+export function State<This extends object, Value>(
   _value: ClassAccessorDecoratorTarget<This, Value>,
   context: ClassAccessorDecoratorContext<This, Value>,
 ): void {
   if (context.kind !== "accessor") {
-    throw new TypeError("@state only supports standard accessor decorators.");
+    throw new TypeError("@State only supports standard accessor decorators.");
   }
 
   ensureContextModuleMetadata(context)?.state.add(context.name);
@@ -36,12 +36,12 @@ export function state<This extends object, Value>(
   });
 }
 
-export function action<This extends object, Args extends unknown[], Return>(
+export function Action<This extends object, Args extends unknown[], Return>(
   _value: (this: This, ...args: Args) => Return,
   context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
 ): void {
   if (context.kind !== "method") {
-    throw new TypeError("@action only supports method decorators.");
+    throw new TypeError("@Action only supports method decorators.");
   }
 
   ensureContextModuleMetadata(context)?.actions.add(context.name);
@@ -51,12 +51,12 @@ export function action<This extends object, Args extends unknown[], Return>(
   });
 }
 
-export function computed<This extends object, Value>(
+export function Computed<This extends object, Value>(
   _value: (this: This) => Value,
   context: ClassGetterDecoratorContext<This, Value>,
 ): void {
   if (context.kind !== "getter") {
-    throw new TypeError("@computed only supports getter decorators.");
+    throw new TypeError("@Computed only supports getter decorators.");
   }
 
   ensureContextModuleMetadata(context)?.computed.add(context.name);
@@ -66,12 +66,12 @@ export function computed<This extends object, Value>(
   });
 }
 
-export function effect<This extends object, Args extends unknown[], Return>(
+export function Effect<This extends object, Args extends unknown[], Return>(
   _value: (this: This, ...args: Args) => Return,
   context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>,
 ): void {
   if (context.kind !== "method") {
-    throw new TypeError("@effect only supports method decorators.");
+    throw new TypeError("@Effect only supports method decorators.");
   }
 
   ensureContextModuleMetadata(context)?.effects.add(context.name);

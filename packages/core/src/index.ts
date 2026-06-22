@@ -31,7 +31,7 @@ export {
   type WatchOptions,
   runInAction,
 } from "./app.js";
-export { action, computed, effect, module, state } from "./decorators.js";
+export { Action, Computed, Effect, Module, State } from "./decorators.js";
 export { inject } from "./inject.js";
 export {
   createLoggerPlugin,

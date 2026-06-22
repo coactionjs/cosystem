@@ -1,31 +1,31 @@
-import { action, computed, effect, module, state } from "./decorators.js";
+import { Action, Computed, Effect, Module, State } from "./decorators.js";
 
 export abstract class FixtureLogger {
   abstract info(message: string): void;
 }
 
-@module({
+@Module({
   deps: [FixtureLogger],
   name: "decoratorFixture",
 })
 export class DecoratorFixture {
   constructor(readonly logger: FixtureLogger) {}
 
-  @state
+  @State
   accessor count = 0;
 
-  @computed
+  @Computed
   get double(): number {
     return this.count * 2;
   }
 
-  @action
+  @Action
   increase(step = 1): void {
     this.count += step;
     this.logger.info(String(this.count));
   }
 
-  @effect
+  @Effect
   recordCount(): void {
     this.logger.info(`effect:${this.count}`);
   }

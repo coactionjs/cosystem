@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { action, computed, effect, getModuleMetadata, module, state } from "./index.js";
+import { Action, Computed, Effect, getModuleMetadata, Module, State } from "./index.js";
 
 describe("module metadata storage", () => {
   it("merges standard decorator context metadata into module metadata", () => {
     const metadata: Record<PropertyKey, unknown> = {};
 
-    state(
+    State(
       undefined as never,
       {
         addInitializer() {},
@@ -17,7 +17,7 @@ describe("module metadata storage", () => {
         static: false,
       } as unknown as ClassAccessorDecoratorContext<object, number>,
     );
-    action(function increase() {}, {
+    Action(function increase() {}, {
       addInitializer() {},
       kind: "method",
       metadata,
@@ -25,7 +25,7 @@ describe("module metadata storage", () => {
       private: false,
       static: false,
     } as unknown as ClassMethodDecoratorContext<object, () => void>);
-    computed(
+    Computed(
       function double() {
         return 0;
       },
@@ -38,7 +38,7 @@ describe("module metadata storage", () => {
         static: false,
       } as unknown as ClassGetterDecoratorContext<object, number>,
     );
-    effect(function record() {}, {
+    Effect(function record() {}, {
       addInitializer() {},
       kind: "method",
       metadata,
@@ -51,7 +51,7 @@ describe("module metadata storage", () => {
       readonly count = 0;
     }
 
-    module({ name: "metadataCounter" })(Counter, {
+    Module({ name: "metadataCounter" })(Counter, {
       addInitializer() {},
       kind: "class",
       metadata,
