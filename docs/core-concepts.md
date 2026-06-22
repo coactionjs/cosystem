@@ -78,7 +78,7 @@ With decorators, state uses standard accessor decorators:
 
 ```ts
 class Counter {
-  @state accessor count = 0;
+  @State accessor count = 0;
 }
 ```
 
@@ -118,7 +118,7 @@ class Cart {
 }
 ```
 
-Declare it in `defineModule({ computed: ["count"] })` or with `@computed`.
+Declare it in `defineModule({ computed: ["count"] })` or with `@Computed`.
 
 ## Effects
 
@@ -169,7 +169,7 @@ const app = createApp({
 });
 ```
 
-`@module` classes are eagerly instantiated so their state can be bound. Plain
+`@Module` classes are eagerly instantiated so their state can be bound. Plain
 service classes stay lazy until something needs them. The full model — tokens,
 provider kinds, scopes, lifetime safety, and disposal — is in
 [Dependency Injection](./dependency-injection.md).

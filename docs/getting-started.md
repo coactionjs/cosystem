@@ -78,8 +78,8 @@ defineModule(Counter, {
 });
 ```
 
-> Prefer decorators? See [Modules](./modules.md) for the `@module`, `@state`,
-> `@action`, `@computed`, and `@effect` equivalents. They require a build setup
+> Prefer decorators? See [Modules](./modules.md) for the `@Module`, `@State`,
+> `@Action`, `@Computed`, and `@Effect` equivalents. They require a build setup
 > with TC39 decorators and the `accessor` keyword.
 
 ## Create the app

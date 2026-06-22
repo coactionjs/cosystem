@@ -37,7 +37,7 @@ createApp()
   2. normalize provider inputs
   3. apply test overrides (testApp only)
   4. freeze the provider graph
-  5. instantiate eager @module providers
+  5. instantiate eager @Module providers
   6. build the single Coaction store from module state
   7. bind module state/actions/computed to the store
   8. instantiate other eager providers

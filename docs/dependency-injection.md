@@ -46,7 +46,7 @@ that doubles as a type.
 `providers` is the single composition entry point of an app. Each entry is one
 of:
 
-1. A **`@module` class** — a stateful CoSystem module, eagerly instantiated.
+1. A **`@Module` class** — a stateful CoSystem module, eagerly instantiated.
 2. A **plain class** — a normal DI class provider, lazy by default.
 3. A **`provide(token, options)`** entry — binds a token to a value, class,
    factory, or existing provider.
@@ -115,11 +115,11 @@ provide(Dashboard, {
 A class can also carry its own `static inject` list, which is used when `deps`
 is omitted.
 
-`@module` classes declare `deps` in their metadata:
+`@Module` classes declare `deps` in their metadata:
 
 ```ts
 defineModule(Counter, { deps: [Logger], name: "counter" });
-// or @module({ deps: [Logger], name: "counter" })
+// or @Module({ deps: [Logger], name: "counter" })
 ```
 
 ## Scopes
@@ -138,7 +138,7 @@ provide(RequestContext, { useClass: RequestContext, scope: "scoped" });
 provide(Id, { useFactory: () => crypto.randomUUID(), scope: "transient" });
 ```
 
-`@module` app modules default to `singleton` because UI adapters expect business
+`@Module` app modules default to `singleton` because UI adapters expect business
 modules to be stable.
 
 ## Lifetime safety
@@ -182,7 +182,7 @@ Calling `get()` on a token with multiple providers throws
 
 ## Eager vs lazy
 
-- `@module` classes and `useValue` providers are **eager** (created during
+- `@Module` classes and `useValue` providers are **eager** (created during
   `createApp()`).
 - Plain class and factory providers are **lazy** — created only when something
   resolves them.
@@ -278,6 +278,6 @@ All extend `CosystemError`:
 
 ## Next
 
-- [Modules](./modules.md) — how `@module` providers bind to the store.
+- [Modules](./modules.md) — how `@Module` providers bind to the store.
 - [Application Lifecycle](./application-lifecycle.md) — scopes and lazy modules.
 - [`@cosystem/core` reference](../packages/core/README.md) — the full export list.

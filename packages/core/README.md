@@ -66,48 +66,40 @@ each framework's native reactivity.
 
 ### With decorators
 
-`@state` targets standard accessor decorators, `@action`/`@effect` target
-methods, and `@computed` targets getters. Decorators require a TypeScript or
+`@State` targets standard accessor decorators, `@Action`/`@Effect` target
+methods, and `@Computed` targets getters. Decorators require a TypeScript or
 build setup that supports the TC39 decorators + `accessor` keyword (the repo's
 `tsdown`/`tsc` config does).
 
 ```ts
-import {
-  action,
-  computed,
-  createApp,
-  effect,
-  module as module_,
-  provide,
-  state,
-} from "@cosystem/core";
+import { Action, Computed, createApp, Effect, Module, provide, State } from "@cosystem/core";
 
 abstract class Logger {
   abstract info(message: string): void;
 }
 
-@module_({
+@Module({
   deps: [Logger],
   name: "counter",
 })
 class Counter {
   constructor(readonly logger: Logger) {}
 
-  @state
+  @State
   accessor count = 0;
 
-  @computed
+  @Computed
   get double(): number {
     return this.count * 2;
   }
 
-  @action
+  @Action
   increase(step = 1): void {
     this.count += step;
     this.logger.info(`count:${this.count}`);
   }
 
-  @effect
+  @Effect
   recordCount(): void {
     this.logger.info(`effect:${this.count}`);
   }
@@ -119,9 +111,6 @@ const app = createApp({
 
 app.getModule(Counter).increase();
 ```
-
-> `module` is exported under that name; alias it (`module as module_`) to avoid
-> shadowing CommonJS-style `module` identifiers in your file.
 
 ### Without decorators
 
@@ -161,8 +150,8 @@ defineModule(Counter, {
 });
 ```
 
-`@computed` getters are cached through Coaction's signal-backed computed runtime
-and invalidate when the state they read changes. `@effect` methods run after app
+`@Computed` getters are cached through Coaction's signal-backed computed runtime
+and invalidate when the state they read changes. `@Effect` methods run after app
 initialization and re-run when the state they read changes.
 
 ## Creating an app
@@ -185,7 +174,7 @@ const app = createApp({
 | `devOptions` | `{ strictActions?: boolean }`     | Enforce action boundaries for all state writes when `true`.            |
 | `engine`     | `{ patches?: boolean }`           | Enable patch generation on the underlying store.                       |
 
-`@module` providers are instantiated during `createApp()` so their state can be
+`@Module` providers are instantiated during `createApp()` so their state can be
 bound to the store. Plugin `setup`, module `onInit` hooks, and effects are kicked
 off during creation (tracked by an internal init promise that `start()` also
 awaits). `app.start()` then runs `onStart` hooks and marks the app started; many
@@ -260,7 +249,7 @@ path throws `AsyncProviderInSyncResolutionError`.
 
 ## Async actions and `runInAction`
 
-Async `@action` methods may return promises. Synchronous writes before the first
+Async `@Action` methods may return promises. Synchronous writes before the first
 `await` are part of the action transaction; writes after an `await` need a fresh
 action boundary when strict mode is enabled. Use `runInAction(this, …)`:
 
@@ -268,10 +257,10 @@ action boundary when strict mode is enabled. Use `runInAction(this, …)`:
 import { runInAction } from "@cosystem/core";
 
 class Counter {
-  @state
+  @State
   accessor count = 0;
 
-  @action
+  @Action
   async refresh(): Promise<void> {
     const next = await loadCount();
 
@@ -296,7 +285,7 @@ Providers default to the `"singleton"` scope. Available scopes:
 | `"resolution"` | One instance per resolution graph (shared within a single get). |
 | `"transient"`  | A fresh instance on every resolution.                           |
 
-`@module` providers and `useValue` providers are eager. Plain class/factory
+`@Module` providers and `useValue` providers are eager. Plain class/factory
 providers stay lazy unless a module or another eager provider depends on them.
 Mark startup services eager explicitly:
 
@@ -438,7 +427,7 @@ expect(started.started).toBe(true);
 ```
 
 `testApp({ overrides })` replaces providers discovered from `providers`, but it
-cannot introduce a brand new `@module` after module discovery. The inspector
+cannot introduce a brand new `@Module` after module discovery. The inspector
 (`app.test`) exposes `getActions`, `getState`, `getPatches`, `clearActions`,
 `clearPatches`, and `flushEffects`.
 
@@ -514,7 +503,7 @@ All errors extend `CosystemError`:
 ## API reference
 
 `createApp`, `createContainer`, `defineModule`, `getModuleMetadata`, the
-`module`/`state`/`action`/`computed`/`effect` decorators, `provide`, `token`,
+`Module`/`State`/`Action`/`Computed`/`Effect` decorators, `provide`, `token`,
 `tokenName`, `inject`, `lazyModule`, `runInAction`, `testApp`,
 `createLoggerPlugin`, and the worker factories are all exported from the package
 root, alongside their TypeScript types (`App`, `CreateAppOptions`, `Plugin`,

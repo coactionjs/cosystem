@@ -8,13 +8,13 @@ plain classes with lightweight DI, object-oriented state, actions, computed
 getters, effects, and test-friendly app composition.
 
 ```ts
-@module_({ name: "counter" })
+@Module({ name: "counter" })
 class Counter {
-  @state accessor count = 0;
-  @computed get double() {
+  @State accessor count = 0;
+  @Computed get double() {
     return this.count * 2;
   }
-  @action increase(step = 1) {
+  @Action increase(step = 1) {
     this.count += step;
   }
 }
@@ -112,42 +112,42 @@ pnpm start
 
 ```ts
 import {
-  action,
-  computed,
+  Action,
+  Computed,
   createApp,
-  effect,
-  module as module_,
+  Effect,
+  Module,
   provide,
   runInAction,
-  state,
+  State,
 } from "@cosystem/core";
 
 abstract class Logger {
   abstract info(message: string): void;
 }
 
-@module_({
+@Module({
   deps: [Logger],
   name: "counter",
 })
 class Counter {
   constructor(readonly logger: Logger) {}
 
-  @state
+  @State
   accessor count = 0;
 
-  @computed
+  @Computed
   get double(): number {
     return this.count * 2;
   }
 
-  @action
+  @Action
   increase(step = 1): void {
     this.count += step;
     this.logger.info(`count:${this.count}`);
   }
 
-  @effect
+  @Effect
   recordCount(): void {
     this.logger.info(`effect:${this.count}`);
   }
@@ -199,23 +199,23 @@ const app = createApp({
 });
 ```
 
-`@state` intentionally targets standard accessor decorators. Plain fields should
+`@State` intentionally targets standard accessor decorators. Plain fields should
 use `defineModule()` metadata until a future compatibility layer is added.
-`@computed` getters are cached through Coaction's signal-backed computed
+`@Computed` getters are cached through Coaction's signal-backed computed
 runtime and invalidate when the state they read changes.
-`@effect` methods run after app initialization and rerun when the state they
+`@Effect` methods run after app initialization and rerun when the state they
 read changes.
-Async `@action` methods may return promises; synchronous writes before the first
+Async `@Action` methods may return promises; synchronous writes before the first
 `await` are part of the action transaction, while post-await writes need another
 action boundary or non-strict writes. Use `runInAction(this, ...)` after an
 `await` when strict action mode should remain enabled:
 
 ```ts
 class Counter {
-  @state
+  @State
   accessor count = 0;
 
-  @action
+  @Action
   async refresh(): Promise<void> {
     const next = await loadCount();
 
@@ -228,7 +228,7 @@ class Counter {
 
 ## Provider Lifetime
 
-`@module` providers are instantiated during `createApp()` so their state can be
+`@Module` providers are instantiated during `createApp()` so their state can be
 bound to the Coaction-backed app store. Plain class and factory providers stay
 lazy unless a module or another eager provider depends on them.
 
@@ -545,7 +545,7 @@ expect(startedApp.started).toBe(true);
 ```
 
 `testApp({ overrides })` can replace providers discovered from `providers`, but
-it cannot add a new `@module` after app module discovery.
+it cannot add a new `@Module` after app module discovery.
 
 More focused examples live in [`examples/`](./examples).
 

@@ -116,9 +116,9 @@ original boundary, so in strict mode they need a fresh one. Use `runInAction`:
 import { runInAction } from "@cosystem/core";
 
 class Counter {
-  @state accessor count = 0;
+  @State accessor count = 0;
 
-  @action async refresh(): Promise<void> {
+  @Action async refresh(): Promise<void> {
     this.count = -1; // in the transaction (pre-await)
     const next = await loadCount();
 

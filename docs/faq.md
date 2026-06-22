@@ -5,7 +5,7 @@ Short answers to common questions. Each links to the guide with the full story.
 ## Do I have to use decorators?
 
 No. `defineModule(Class, options)` declares the exact same metadata that
-`@module`/`@state`/`@action`/`@computed`/`@effect` write, and the runtime treats
+`@Module`/`@State`/`@Action`/`@Computed`/`@Effect` write, and the runtime treats
 them identically. The no-decorator form also supports **plain fields** as state
 (decorators only support `accessor` state) and works on any toolchain. See
 [Modules](./modules.md).

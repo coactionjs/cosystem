@@ -31,7 +31,7 @@ A `TestApp` is a normal `App` plus a non-enumerable `test` inspector.
 
 `overrides` swaps a provider's implementation — perfect for injecting a fake or
 spy. It can replace a provider discovered from `providers`, but it **cannot add a
-brand-new `@module`** after module discovery.
+brand-new `@Module`** after module discovery.
 
 ```ts
 import { defineModule, provide } from "@cosystem/core";

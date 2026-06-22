@@ -62,7 +62,7 @@ overrides, and disposal. See [Dependency Injection](./dependency-injection.md).
 
 ### Decorators are optional
 
-`@module`/`@state`/`@action`/`@computed`/`@effect` and `defineModule()` write the
+`@Module`/`@State`/`@Action`/`@Computed`/`@Effect` and `defineModule()` write the
 same metadata into the same record. The runtime treats them identically, so teams
 without a decorator-capable toolchain lose nothing. See [Modules](./modules.md).
 
@@ -75,7 +75,7 @@ once. (Per-module isolated stores are an explicitly deferred idea.) See
 
 ### Single composition entry
 
-There is one composition entry: `createApp({ providers })`. `@module` is the
+There is one composition entry: `createApp({ providers })`. `@Module` is the
 marker that promotes a provider entry into a stateful CoSystem module. There is
 deliberately no separate `modules` array.
 
@@ -95,7 +95,7 @@ small and embeddable; capabilities are added by composition. See
 ## Resolution and lifecycle, briefly
 
 `createApp()` normalizes providers, applies any test overrides, freezes the
-provider graph, instantiates eager `@module` providers, binds their state to a
+provider graph, instantiates eager `@Module` providers, binds their state to a
 freshly built store, runs eager providers and plugin `setup`, then runs `onInit`
 and starts effects. `start()` runs `onStart`; `stop()`/`dispose()` tear down in
 reverse order. Lazy modules load into isolated child scopes without mutating the

@@ -83,7 +83,7 @@ Options extend `createApp` options with:
 
 | Option          | Type              | Description                                                                      |
 | --------------- | ----------------- | -------------------------------------------------------------------------------- |
-| `overrides`     | `ProviderInput[]` | Replace providers discovered from `providers`. Cannot add a brand-new `@module`. |
+| `overrides`     | `ProviderInput[]` | Replace providers discovered from `providers`. Cannot add a brand-new `@Module`. |
 | `autoStart`     | `boolean`         | Start the app and return a promise.                                              |
 | `strictActions` | `boolean`         | Enforce action boundaries on all state writes.                                   |
 

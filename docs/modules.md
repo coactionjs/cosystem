@@ -12,23 +12,23 @@ metadata. Pick whichever fits your build setup and taste.
 ### With decorators
 
 ```ts
-import { action, computed, effect, module as module_, state } from "@cosystem/core";
+import { Action, Computed, Effect, Module, State } from "@cosystem/core";
 
-@module_({ name: "counter", deps: [Logger] })
+@Module({ name: "counter", deps: [Logger] })
 class Counter {
   constructor(readonly logger: Logger) {}
 
-  @state accessor count = 0;
+  @State accessor count = 0;
 
-  @computed get double(): number {
+  @Computed get double(): number {
     return this.count * 2;
   }
 
-  @action increase(step = 1): void {
+  @Action increase(step = 1): void {
     this.count += step;
   }
 
-  @effect announce(): void {
+  @Effect announce(): void {
     this.logger.info(`count:${this.count}`);
   }
 }
@@ -36,13 +36,11 @@ class Counter {
 
 Decorator rules:
 
-- `@state` targets **standard accessor decorators** — use the `accessor`
-  keyword. Plain fields are not picked up by `@state`; use `defineModule()` for
+- `@State` targets **standard accessor decorators** — use the `accessor`
+  keyword. Plain fields are not picked up by `@State`; use `defineModule()` for
   those.
-- `@action` and `@effect` target **methods**.
-- `@computed` targets **getters**.
-- `module` is exported under that name — alias it (`module as module_`) to avoid
-  clashing with CommonJS-style `module` identifiers.
+- `@Action` and `@Effect` target **methods**.
+- `@Computed` targets **getters**.
 
 Decorators require a toolchain that supports TC39 decorators plus the `accessor`
 keyword. The repo's `tsdown`/`tsc` configuration does; if yours does not, use the
@@ -113,7 +111,7 @@ A module's `name` is the key its state appears under in the store, so it must be
 stable. The runtime resolves the name in this priority order:
 
 ```txt
-@module({ name })  >  defineModule(..., { name })  >  provider token description  >  camelCased class name
+@Module({ name })  >  defineModule(..., { name })  >  provider token description  >  camelCased class name
 ```
 
 Duplicate names in one app are a development-time error — two modules cannot both
@@ -121,7 +119,7 @@ claim `"counter"`.
 
 ## Binding to the store
 
-When `createApp()` instantiates a `@module` provider, it binds the instance to
+When `createApp()` instantiates a `@Module` provider, it binds the instance to
 the store:
 
 - **State** fields become a slice keyed by `name`. Reading a state field tracks
@@ -178,9 +176,9 @@ them in `runInAction(this, ...)`:
 import { runInAction } from "@cosystem/core";
 
 class Counter {
-  @state accessor count = 0;
+  @State accessor count = 0;
 
-  @action async refresh(): Promise<void> {
+  @Action async refresh(): Promise<void> {
     const next = await loadCount(); // pre-await writes are in the transaction
     runInAction(this, () => {
       this.count = next; // post-await write needs its own boundary
