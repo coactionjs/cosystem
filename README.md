@@ -323,7 +323,9 @@ unregistered class without caching it:
 
 ```ts
 const instance = app.createScope().container.build(Service);
-const asyncInstance = await app.createScope().container.buildAsync(ServiceWithAsyncDeps);
+const asyncInstance = await app
+  .createScope()
+  .container.buildAsync(ServiceWithAsyncDeps);
 ```
 
 `get()` still only resolves registered providers. Use `buildAsync()` when any
@@ -394,7 +396,11 @@ createRoot(document.getElementById("root")!).render(
 React can also consume worker-hosted state through `WorkerClientProvider`:
 
 ```tsx
-import { WorkerClientProvider, useWorkerModule, useWorkerSelector } from "@cosystem/react";
+import {
+  WorkerClientProvider,
+  useWorkerModule,
+  useWorkerSelector,
+} from "@cosystem/react";
 
 type CounterState = {
   readonly counter: {
@@ -404,7 +410,9 @@ type CounterState = {
 
 function WorkerCounterView() {
   const counter = useWorkerModule<Counter>("counter");
-  const count = useWorkerSelector((state) => (state as CounterState).counter.count);
+  const count = useWorkerSelector(
+    (state) => (state as CounterState).counter.count,
+  );
 
   return <button onClick={() => counter.increase()}>{count}</button>;
 }
@@ -421,7 +429,8 @@ const CounterView = defineComponent({
     const counter = useModule(Counter);
     const count = useComputed(() => counter.count);
 
-    return () => h("button", { onClick: () => counter.increase() }, count.value);
+    return () =>
+      h("button", { onClick: () => counter.increase() }, count.value);
   },
 });
 
@@ -432,7 +441,11 @@ Vue can consume worker-hosted modules through the same provide/inject model:
 
 ```ts
 import { createApp as createVueApp, defineComponent, h } from "vue";
-import { workerClientPlugin, useWorkerModule, useWorkerSelector } from "@cosystem/vue";
+import {
+  workerClientPlugin,
+  useWorkerModule,
+  useWorkerSelector,
+} from "@cosystem/vue";
 
 type CounterState = {
   readonly counter: {
@@ -443,9 +456,12 @@ type CounterState = {
 const WorkerCounterView = defineComponent({
   setup() {
     const counter = useWorkerModule<Counter>("counter");
-    const count = useWorkerSelector((state) => (state as CounterState).counter.count);
+    const count = useWorkerSelector(
+      (state) => (state as CounterState).counter.count,
+    );
 
-    return () => h("button", { onClick: () => counter.increase() }, count.value);
+    return () =>
+      h("button", { onClick: () => counter.increase() }, count.value);
   },
 });
 
@@ -455,7 +471,11 @@ createVueApp(WorkerCounterView).use(workerClientPlugin(client)).mount("#app");
 Svelte:
 
 ```ts
-import { moduleStore, selectedModuleStore, setCoSystemApp } from "@cosystem/svelte";
+import {
+  moduleStore,
+  selectedModuleStore,
+  setCoSystemApp,
+} from "@cosystem/svelte";
 
 setCoSystemApp(app);
 
@@ -466,7 +486,11 @@ const count = selectedModuleStore(Counter, (module) => module.count);
 Svelte can also consume worker-hosted modules as readable stores:
 
 ```ts
-import { setWorkerClient, workerModuleStore, workerSelectorStore } from "@cosystem/svelte";
+import {
+  setWorkerClient,
+  workerModuleStore,
+  workerSelectorStore,
+} from "@cosystem/svelte";
 
 type CounterState = {
   readonly counter: {
@@ -477,7 +501,9 @@ type CounterState = {
 setWorkerClient(client);
 
 const counter = workerModuleStore<Counter>("counter");
-const count = workerSelectorStore((state) => (state as CounterState).counter.count);
+const count = workerSelectorStore(
+  (state) => (state as CounterState).counter.count,
+);
 ```
 
 Svelte 5 rune-friendly helpers are available from a separate subpath so the
@@ -496,7 +522,10 @@ Worker-hosted state has matching Svelte 5 rune helpers:
 import { workerModuleRune, workerSelectorRune } from "@cosystem/svelte/runes";
 
 const counter = workerModuleRune<Counter>("counter", { client });
-const count = workerSelectorRune((state) => (state as CounterState).counter.count, { client });
+const count = workerSelectorRune(
+  (state) => (state as CounterState).counter.count,
+  { client },
+);
 ```
 
 Solid:
@@ -519,7 +548,11 @@ function CounterView() {
 Solid can render worker-hosted state through a worker client provider:
 
 ```tsx
-import { WorkerClientProvider, useWorkerModule, useWorkerSelector } from "@cosystem/solid";
+import {
+  WorkerClientProvider,
+  useWorkerModule,
+  useWorkerSelector,
+} from "@cosystem/solid";
 
 type CounterState = {
   readonly counter: {
@@ -529,7 +562,9 @@ type CounterState = {
 
 function WorkerCounterView() {
   const counter = useWorkerModule<Counter>("counter");
-  const count = useWorkerSelector((state) => (state as CounterState).counter.count);
+  const count = useWorkerSelector(
+    (state) => (state as CounterState).counter.count,
+  );
 
   return <button onClick={() => counter.increase()}>{count()}</button>;
 }
@@ -565,7 +600,11 @@ Angular can inject worker-hosted modules and expose state as Angular signals:
 ```ts
 import { Component } from "@angular/core";
 import { bootstrapApplication } from "@angular/platform-browser";
-import { injectWorkerModule, injectWorkerSignal, provideWorkerClient } from "@cosystem/angular";
+import {
+  injectWorkerModule,
+  injectWorkerSignal,
+  provideWorkerClient,
+} from "@cosystem/angular";
 
 type CounterState = {
   readonly counter: {
@@ -579,7 +618,9 @@ type CounterState = {
 })
 class WorkerCounterView {
   readonly counter = injectWorkerModule<Counter>("counter");
-  readonly count = injectWorkerSignal((state) => (state as CounterState).counter.count);
+  readonly count = injectWorkerSignal(
+    (state) => (state as CounterState).counter.count,
+  );
 }
 
 bootstrapApplication(WorkerCounterView, {
@@ -837,7 +878,9 @@ import {
 } from "@cosystem/router";
 
 const router =
-  typeof window === "undefined" ? createMemoryRouter({ initialPath: "/" }) : createBrowserRouter();
+  typeof window === "undefined"
+    ? createMemoryRouter({ initialPath: "/" })
+    : createBrowserRouter();
 
 const app = createApp({
   plugins: [
