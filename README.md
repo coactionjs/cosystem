@@ -2,10 +2,48 @@
 
 **The meta-framework for coexisting UI frameworks.**
 
+![base class: none](https://img.shields.io/badge/base_class-none-success)
+![inheritance: none](https://img.shields.io/badge/inheritance-none-success)
+![reflect-metadata: none](https://img.shields.io/badge/reflect--metadata-none-success)
+![UI frameworks: 5](https://img.shields.io/badge/UI_frameworks-5-blue)
+![Web Worker: ready](https://img.shields.io/badge/Web_Worker-ready-blueviolet)
+![module: ESM](https://img.shields.io/badge/module-ESM-orange)
+
+**Facts:** [5 UI frameworks](./docs/ui-adapters.md) · [no base class, no inheritance](./docs/modules.md) · [no `reflect-metadata`](./docs/dependency-injection.md) · [runs in a Web Worker](./docs/worker-runtime.md)
+
 CoSystem creates a typed application core powered by [Coaction](https://www.npmjs.com/package/coaction),
 then lets each UI framework render with its own native API. Business modules are
 plain classes with lightweight DI, object-oriented state, actions, computed
 getters, effects, and test-friendly app composition.
+
+```ts
+import { createApp, defineModule } from "@cosystem/core";
+
+class Counter {
+  count = 0;
+  get double() {
+    return this.count * 2;
+  }
+  increase(step = 1) {
+    this.count += step;
+  }
+}
+
+defineModule(Counter, {
+  name: "counter",
+  state: ["count"],
+  computed: ["double"],
+  actions: ["increase"],
+});
+
+const app = createApp({ providers: [Counter] });
+app.getModule(Counter).increase();
+```
+
+The same `Counter` module powers a React, Vue, Svelte, Solid, or Angular view —
+or runs inside a Web Worker — without rewriting a line of business logic.
+
+<details><summary>Prefer decorators? The same module, with decorators:</summary>
 
 ```ts
 @Module({ name: "counter" })
@@ -18,13 +56,9 @@ class Counter {
     this.count += step;
   }
 }
-
-const app = createApp({ providers: [Counter] });
-app.getModule(Counter).increase();
 ```
 
-The same `Counter` module powers a React, Vue, Svelte, Solid, or Angular view —
-or runs inside a Web Worker — without rewriting a line of business logic.
+</details>
 
 ## Why CoSystem
 
@@ -60,6 +94,40 @@ A CoSystem app is a graph of **modules** wired by a **DI container**:
 CoSystem does **not** own rendering — there is no `ViewModule`, root component
 base class, or `render()` abstraction. UI packages only provide context and
 subscription helpers.
+
+## How CoSystem compares
+
+Most state libraries are framework-specific and view-first. CoSystem is a
+framework-agnostic application layer, so the comparison is about scope, not just
+ergonomics — and it is honest about where simpler tools win.
+
+|                                 | CoSystem                       | Zustand        | Pinia       | MobX / MST    | Redux Toolkit   |
+| ------------------------------- | ------------------------------ | -------------- | ----------- | ------------- | --------------- |
+| Target frameworks               | React/Vue/Svelte/Solid/Angular | React          | Vue         | React-first   | React-first     |
+| Same logic across frameworks    | ✅ first-class                 | ❌             | ❌          | ⚠️ manual     | ❌              |
+| Run logic in a Worker / tabs    | ✅ built-in                    | ❌ DIY         | ❌ DIY      | ❌            | ❌              |
+| Dependency injection            | ✅ explicit, zero-reflection   | ❌             | ❌          | ❌            | ❌              |
+| Mental model                    | modules (classes)              | hooks/closures | setup store | observables   | slices/reducers |
+| Base class / inheritance needed | ❌ none                        | ❌             | ❌          | ⚠️ MST models | ❌              |
+| `reflect-metadata`              | ❌ none                        | —              | —           | —             | —               |
+| First-class test harness        | ✅ `testApp`                   | ⚠️             | ⚠️          | ⚠️            | ✅              |
+| Ecosystem & maturity            | 🟡 new (v0.x)                  | 🟢 huge        | 🟢 huge     | 🟢 mature     | 🟢 huge         |
+| Best for small / single-fw apps | ⚠️ overkill                    | 🟢             | 🟢          | 🟢            | ⚠️              |
+
+### When _not_ to reach for CoSystem
+
+- A small or single-framework app — Zustand, Pinia, or signals are simpler.
+- You need a mature SSR meta-framework today — Next, Nuxt, or SvelteKit.
+- It is not a renderer, router framework, server, or component library.
+
+### Reach for it when
+
+- Complex domain logic you want decoupled from the view and trivially testable.
+- You ship the **same logic in 2+ frameworks**, or you are migrating frameworks.
+- You want to move logic **off the main thread** or **sync across tabs** without
+  rewriting it.
+- Your team values explicit dependency injection and a clear module boundary
+  (e.g. an Angular or NestJS background).
 
 ## Packages
 
@@ -111,6 +179,51 @@ pnpm start
 ## Core API
 
 ```ts
+import { createApp, defineModule, provide } from "@cosystem/core";
+
+abstract class Logger {
+  abstract info(message: string): void;
+}
+
+class Counter {
+  count = 0;
+
+  constructor(readonly logger: Logger) {}
+
+  get double(): number {
+    return this.count * 2;
+  }
+
+  increase(step = 1): void {
+    this.count += step;
+    this.logger.info(`count:${this.count}`);
+  }
+
+  recordCount(): void {
+    this.logger.info(`effect:${this.count}`);
+  }
+}
+
+defineModule(Counter, {
+  actions: ["increase"],
+  computed: ["double"],
+  deps: [Logger],
+  effects: ["recordCount"],
+  name: "counter",
+  state: ["count"],
+});
+
+const app = createApp({
+  providers: [Counter, provide(Logger, { useValue: console })],
+});
+
+const counter = app.getModule(Counter);
+counter.increase();
+```
+
+The same module reads more declaratively with decorators:
+
+```ts
 import {
   Action,
   Computed,
@@ -121,10 +234,6 @@ import {
   runInAction,
   State,
 } from "@cosystem/core";
-
-abstract class Logger {
-  abstract info(message: string): void;
-}
 
 @Module({
   deps: [Logger],
@@ -159,44 +268,6 @@ const app = createApp({
 
 const counter = app.getModule(Counter);
 counter.increase();
-```
-
-The same module can be defined without decorators:
-
-```ts
-import { createApp, defineModule, provide } from "@cosystem/core";
-
-class Counter {
-  count = 0;
-
-  constructor(readonly logger: Logger) {}
-
-  get double(): number {
-    return this.count * 2;
-  }
-
-  increase(step = 1): void {
-    this.count += step;
-    this.logger.info(`count:${this.count}`);
-  }
-
-  recordCount(): void {
-    this.logger.info(`effect:${this.count}`);
-  }
-}
-
-defineModule(Counter, {
-  actions: ["increase"],
-  computed: ["double"],
-  deps: [Logger],
-  effects: ["recordCount"],
-  name: "counter",
-  state: ["count"],
-});
-
-const app = createApp({
-  providers: [Counter, provide(Logger, { useValue: console })],
-});
 ```
 
 `@State` intentionally targets standard accessor decorators. Plain fields should

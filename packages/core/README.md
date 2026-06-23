@@ -64,62 +64,18 @@ each framework's native reactivity.
 
 ## Defining a module
 
-### With decorators
+### Without decorators
 
-`@State` targets standard accessor decorators, `@Action`/`@Effect` target
-methods, and `@Computed` targets getters. Decorators require a TypeScript or
-build setup that supports the TC39 decorators + `accessor` keyword (the repo's
-`tsdown`/`tsc` config does).
+`defineModule()` declares module metadata for a class. This form needs no special
+build setup, supports **plain fields** as state, and is the simplest way to
+start.
 
 ```ts
-import { Action, Computed, createApp, Effect, Module, provide, State } from "@cosystem/core";
+import { createApp, defineModule, provide } from "@cosystem/core";
 
 abstract class Logger {
   abstract info(message: string): void;
 }
-
-@Module({
-  deps: [Logger],
-  name: "counter",
-})
-class Counter {
-  constructor(readonly logger: Logger) {}
-
-  @State
-  accessor count = 0;
-
-  @Computed
-  get double(): number {
-    return this.count * 2;
-  }
-
-  @Action
-  increase(step = 1): void {
-    this.count += step;
-    this.logger.info(`count:${this.count}`);
-  }
-
-  @Effect
-  recordCount(): void {
-    this.logger.info(`effect:${this.count}`);
-  }
-}
-
-const app = createApp({
-  providers: [Counter, provide(Logger, { useValue: console })],
-});
-
-app.getModule(Counter).increase();
-```
-
-### Without decorators
-
-`defineModule()` declares the same metadata for a plain class — useful for plain
-fields (decorators only support `accessor` state) or environments without
-decorator support.
-
-```ts
-import { createApp, defineModule, provide } from "@cosystem/core";
 
 class Counter {
   count = 0;
@@ -148,6 +104,50 @@ defineModule(Counter, {
   name: "counter",
   state: ["count"],
 });
+
+const app = createApp({
+  providers: [Counter, provide(Logger, { useValue: console })],
+});
+
+app.getModule(Counter).increase();
+```
+
+### With decorators
+
+The same module reads more declaratively with decorators. `@State` targets
+standard accessor decorators, `@Action`/`@Effect` target methods, and `@Computed`
+targets getters. Decorators require a TypeScript or build setup that supports the
+TC39 decorators + `accessor` keyword (the repo's `tsdown`/`tsc` config does).
+
+```ts
+import { Action, Computed, Effect, Module, State } from "@cosystem/core";
+
+@Module({
+  deps: [Logger],
+  name: "counter",
+})
+class Counter {
+  constructor(readonly logger: Logger) {}
+
+  @State
+  accessor count = 0;
+
+  @Computed
+  get double(): number {
+    return this.count * 2;
+  }
+
+  @Action
+  increase(step = 1): void {
+    this.count += step;
+    this.logger.info(`count:${this.count}`);
+  }
+
+  @Effect
+  recordCount(): void {
+    this.logger.info(`effect:${this.count}`);
+  }
+}
 ```
 
 `@Computed` getters are cached through Coaction's signal-backed computed runtime
