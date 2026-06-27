@@ -358,16 +358,22 @@ import type { Plugin } from "@cosystem/core";
 
 const plugin: Plugin = {
   name: "my-plugin",
-  setup(app) {},
-  onModuleCreated(event) {},
-  onActionStart(event) {},
-  onActionEnd(event) {},
-  onPatch(event) {},
-  onStateChange(event) {},
-  onError(error, context) {},
-  dispose() {},
+  providers: [],
+  setup(app, context) {},
+  onModuleCreated(event, context) {},
+  onActionStart(event, context) {},
+  onActionEnd(event, context) {},
+  onPatch(event, context) {},
+  onStateChange(event, context) {},
+  onError(error, errorContext, context) {},
+  dispose(context) {},
 };
 ```
+
+`PluginContext` gives plugins managed cleanup. `context.watch()` is `app.watch()`
+with automatic teardown, and `context.onDispose()` registers any other disposer.
+Plugin `providers` can contribute service/token dependencies before app providers
+are registered, but they cannot register CoSystem modules.
 
 Built-in: [`createLoggerPlugin()`](#logger-plugin). The
 [`@cosystem/storage`](../storage), [`@cosystem/router`](../router), and
@@ -507,8 +513,8 @@ All errors extend `CosystemError`:
 `tokenName`, `inject`, `lazyModule`, `runInAction`, `testApp`,
 `createLoggerPlugin`, and the worker factories are all exported from the package
 root, alongside their TypeScript types (`App`, `CreateAppOptions`, `Plugin`,
-`Container`, `Provider`, `Scope`, `WorkerClient`, `WorkerAppHost`, the event
-types, and more).
+`PluginContext`, `Container`, `Provider`, `Scope`, `WorkerClient`,
+`WorkerAppHost`, the event types, and more).
 
 ### App
 

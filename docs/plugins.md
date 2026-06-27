@@ -1,9 +1,9 @@
 # Plugins
 
-Plugins extend the runtime without coupling it to any framework. They observe the
-app lifecycle and the store, and can run setup/teardown work. Routing,
-persistence, and devtools are all plugins — nothing observability-related is baked
-into the core.
+Plugins extend the runtime without coupling it to any framework. They are for
+app-level cross-cutting concerns: lifecycle integration, observability, persistence,
+routing bridges, telemetry, and tooling. Business state and actions should stay in
+modules; ordinary dependencies should stay providers.
 
 ## The `Plugin` interface
 
@@ -12,14 +12,28 @@ Implement any subset of these hooks:
 ```ts
 interface Plugin {
   name?: string;
-  setup?(app: App): void | Promise<void>;
-  onModuleCreated?(event: ModuleCreatedEvent): void;
-  onActionStart?(event: ActionEvent): void;
-  onActionEnd?(event: ActionEvent): void;
-  onPatch?(event: PatchEvent): void;
-  onStateChange?(event: StateChangeEvent): void;
-  onError?(error: unknown, context: ErrorContext): void;
-  dispose?(): void | Promise<void>;
+  providers?: readonly ProviderInput[];
+  setup?(app: App, context: PluginContext): void | Promise<void>;
+  onModuleCreated?(event: ModuleCreatedEvent, context: PluginContext): void;
+  onActionStart?(event: ActionEvent, context: PluginContext): void;
+  onActionEnd?(event: ActionEvent, context: PluginContext): void;
+  onPatch?(event: PatchEvent, context: PluginContext): void;
+  onStateChange?(event: StateChangeEvent, context: PluginContext): void;
+  onError?(error: unknown, context: ErrorContext, pluginContext: PluginContext): void;
+  dispose?(context: PluginContext): void | Promise<void>;
+}
+
+interface PluginContext {
+  readonly app: App;
+  readonly name: string;
+  readonly signal: AbortSignal;
+  emitError(error: unknown, phase?: string): void;
+  onDispose(disposer: () => void | Promise<void>): void;
+  watch<T>(
+    read: () => T,
+    listener: (value: T, previous: T) => void,
+    options?: WatchOptions<T>,
+  ): () => void;
 }
 ```
 
@@ -34,16 +48,17 @@ const app = createApp({
 
 ## When each hook fires
 
-| Hook                      | Fires when                                                             |
-| ------------------------- | ---------------------------------------------------------------------- |
-| `setup(app)`              | During app init (before `onInit`); may be async — `start()` awaits it. |
-| `onModuleCreated(event)`  | After each module instance is created and bound.                       |
-| `onActionStart(event)`    | When an action begins.                                                 |
-| `onActionEnd(event)`      | When an action settles (includes `error` on failure).                  |
-| `onPatch(event)`          | On each store patch (requires `engine: { patches: true }`).            |
-| `onStateChange(event)`    | On every store change.                                                 |
-| `onError(error, context)` | When a lifecycle phase throws (`context.phase`).                       |
-| `dispose()`               | During `app.dispose()`; may be async.                                  |
+| Hook                      | Fires when                                                                                         |
+| ------------------------- | -------------------------------------------------------------------------------------------------- |
+| `providers`               | Before app providers are registered. Providers are for services/tokens only, not CoSystem modules. |
+| `setup(app, context)`     | During app init (before `onInit`); may be async — `start()` awaits it.                             |
+| `onModuleCreated(event)`  | After each module instance is created and bound.                                                   |
+| `onActionStart(event)`    | When an action begins.                                                                             |
+| `onActionEnd(event)`      | When an action settles (includes `error` on failure).                                              |
+| `onPatch(event)`          | On each store patch. A plugin with `onPatch` enables patches unless `engine.patches` is set.       |
+| `onStateChange(event)`    | On every store change.                                                                             |
+| `onError(error, context)` | When a runtime phase or plugin observer hook throws (`context.phase`).                             |
+| `dispose(context)`        | During `app.dispose()`; may be async. Context disposers run after this hook.                       |
 
 See [Application Lifecycle](./application-lifecycle.md#phase-ordering) for the
 exact ordering of `setup`, `onInit`, and effects.
@@ -75,6 +90,34 @@ interface ErrorContext {
   phase: string;
 }
 ```
+
+## Plugin context
+
+Use `PluginContext` for resources owned by the plugin:
+
+```ts
+const plugin: Plugin = {
+  name: "metrics",
+  setup(app, context) {
+    context.watch(
+      () => app.state.version,
+      (version) => sendMetric("state.version", version),
+    );
+
+    const stop = startExternalSubscription();
+    context.onDispose(stop);
+  },
+};
+```
+
+`context.watch()` is `app.watch()` plus automatic cleanup. `context.onDispose()`
+registers any other teardown callback. `context.signal` is aborted before context
+disposers run, so long-running async work can stop early.
+
+Observer hook errors do not interrupt app actions or state updates. They are
+reported to `onError` with a phase like `plugin:metrics.onActionEnd`. Errors from
+`setup()` still fail app init, and errors during `dispose()` are aggregated and
+re-thrown after teardown has been attempted.
 
 ## Built-in plugins
 
@@ -118,13 +161,14 @@ await app.start(); // waits for hydration
 Bridges a `Router` into the app lifecycle and exposes it via `RouterToken`.
 
 ```ts
-import { createRouterPlugin, createBrowserRouter, provideRouter } from "@cosystem/router";
+import { RouterToken, createBrowserRouter, createRouterPlugin } from "@cosystem/router";
 
 const router = createBrowserRouter();
 const app = createApp({
   plugins: [createRouterPlugin(router, { onChange: (loc) => console.log(loc.path) })],
-  providers: [provideRouter(router)],
 });
+
+app.get(RouterToken).navigate("/settings");
 ```
 
 ### Devtools — [`@cosystem/devtools`](../packages/devtools/README.md)
@@ -157,8 +201,10 @@ export function createTimingPlugin(): Plugin {
         durations.push(event.endedAt - event.startedAt);
       }
     },
-    dispose() {
-      durations.length = 0;
+    setup(app, context) {
+      context.onDispose(() => {
+        durations.length = 0;
+      });
     },
   };
 }
@@ -167,11 +213,14 @@ export function createTimingPlugin(): Plugin {
 Tips:
 
 - Give every plugin a `name` (used in error context and tooling).
-- Use `setup(app)` for work that needs the live `App` (subscribing, resolving
-  services); return a promise if it is async so `start()` waits.
-- Clean up everything you allocate in `dispose()` — it runs during
-  `app.dispose()`.
-- A plugin that needs patches should be paired with `engine: { patches: true }`.
+- Use `setup(app, context)` for work that needs the live `App` (subscribing,
+  resolving services); return a promise if it is async so `start()` waits.
+- Prefer `context.watch()` and `context.onDispose()` for resources that must be
+  cleaned up with the app.
+- Use `providers` only for service/token dependencies. Plugin providers cannot
+  register CoSystem modules, and app-level providers can override them.
+- A plugin with `onPatch` enables patches automatically unless
+  `engine: { patches: false }` is set.
 - For imperative controls beyond the `Plugin` interface (like storage's
   `flush()`), return an object that **extends** `Plugin` with extra methods, as
   the storage and devtools plugins do.

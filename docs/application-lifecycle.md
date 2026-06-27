@@ -34,16 +34,17 @@ always done by the host framework after the app exists.
 ```txt
 createApp()
   1. create the root container (optionally under a parent)
-  2. normalize provider inputs
-  3. apply test overrides (testApp only)
-  4. freeze the provider graph
-  5. instantiate eager @Module providers
-  6. build the single Coaction store from module state
-  7. bind module state/actions/computed to the store
-  8. instantiate other eager providers
-  9. run onModuleCreated plugin hooks
-  10. init():
-       - run each plugin's setup(app)
+  2. register plugin providers
+  3. normalize provider inputs (app providers can override plugin providers)
+  4. apply test overrides (testApp only)
+  5. freeze the provider graph
+  6. instantiate eager @Module providers
+  7. build the single Coaction store from module state
+  8. bind module state/actions/computed to the store
+  9. instantiate other eager providers
+  10. run onModuleCreated plugin hooks
+  11. init():
+       - run each plugin's setup(app, context)
        - run module onInit() hooks
        - start effects
      (steps under init() are tracked by an internal init promise)
@@ -62,7 +63,7 @@ app.dispose()
   - stop and drain effects
   - run module onDispose() hooks in reverse order
   - dispose dynamically loaded scopes in reverse load order
-  - dispose plugins
+  - dispose plugins and plugin context resources in reverse order
   - dispose the container (provider dispose callbacks, reverse creation order)
   - destroy the store
 ```

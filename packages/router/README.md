@@ -23,7 +23,6 @@ import {
   createBrowserRouter,
   createMemoryRouter,
   createRouterPlugin,
-  provideRouter,
 } from "@cosystem/router";
 import { createApp } from "@cosystem/core";
 
@@ -38,7 +37,6 @@ const app = createApp({
       },
     }),
   ],
-  providers: [provideRouter(router)],
 });
 
 app.get(RouterToken).navigate("/settings");
@@ -65,7 +63,8 @@ interface Router {
 ### Plugin
 
 `createRouterPlugin(router, options)` returns a CoSystem `Plugin` that subscribes
-to the router for the app's lifetime and unsubscribes on dispose.
+to the router for the app's lifetime, unsubscribes on dispose, and provides
+`RouterToken` for DI.
 
 | Option      | Type                                       | Description                                          |
 | ----------- | ------------------------------------------ | ---------------------------------------------------- |
@@ -77,7 +76,9 @@ to the router for the app's lifetime and unsubscribes on dispose.
 
 - `RouterToken: Token<Router>` — inject the router anywhere (`app.get(RouterToken)`).
 - `provideRouter(router?)` — a `ProviderInput` that binds `RouterToken` to the
-  router (defaults to a fresh memory router).
+  router (defaults to a fresh memory router). This is still useful when you want
+  to provide a router without installing the plugin, or override the plugin's
+  default router provider at the app level.
 
 ### Location helpers
 

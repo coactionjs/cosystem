@@ -6,7 +6,8 @@
 
 Works with `localStorage`, `sessionStorage`, IndexedDB wrappers, or any object
 implementing `getItem` / `setItem` (and optionally `removeItem`). Writes are
-queued so they never interleave, and hydration is awaited by `app.start()`.
+queued so they never interleave, hydration is awaited by `app.start()`, and
+pending writes are flushed when the app is disposed.
 
 ## Installation
 
@@ -65,6 +66,9 @@ await storage.flush(); // resolves when all queued writes settle
 await storage.persist(app); // force-write the current full state
 await storage.clear(); // remove the persisted entry
 ```
+
+`app.dispose()` also waits for pending storage writes through the plugin context,
+so production teardown does not need an extra `flush()` call.
 
 `StorageLike`:
 

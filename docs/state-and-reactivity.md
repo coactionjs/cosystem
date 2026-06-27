@@ -146,7 +146,9 @@ Async actions may return promises; their settlement is reported to plugins.
 
 ## Patches
 
-Enable patch generation to receive structured diffs of each change:
+Enable patch generation to receive structured diffs of each change. A plugin with
+`onPatch` enables patches automatically unless `engine.patches` is explicitly
+set:
 
 ```ts
 const app = createApp({ providers: [Counter], engine: { patches: true } });

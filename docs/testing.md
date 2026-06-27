@@ -90,8 +90,9 @@ expect(app.test.getActions()).toMatchObject([{ method: "increase", module: "coun
 expect(app.test.getState()).toEqual({ counter: { count: 2 } });
 ```
 
-`getPatches()` requires `engine: { patches: true }`. `flushEffects()` resolves
-once pending effects settle — call it before asserting on effect-driven state.
+`testApp()` enables patch capture for `getPatches()` automatically. `flushEffects()`
+resolves once pending effects settle — call it before asserting on effect-driven
+state.
 
 ## Auto-starting
 
