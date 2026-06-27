@@ -639,6 +639,45 @@ describe("app runtime", () => {
     expect(app.test.getState()).toEqual({ counter: { count: 3 } });
   });
 
+  it("enables Coaction patches when a plugin observes patches", () => {
+    const patches: (readonly unknown[])[] = [];
+    const app = createApp({
+      plugins: [
+        {
+          onPatch(event) {
+            patches.push(event.patches);
+          },
+        },
+      ],
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+
+    app.getModule(Counter).increase();
+
+    expect(patches).toHaveLength(1);
+  });
+
+  it("does not enable Coaction patches when engine patches are explicitly disabled", () => {
+    const patches: (readonly unknown[])[] = [];
+    const app = createApp({
+      engine: {
+        patches: false,
+      },
+      plugins: [
+        {
+          onPatch(event) {
+            patches.push(event.patches);
+          },
+        },
+      ],
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+
+    app.getModule(Counter).increase();
+
+    expect(patches).toEqual([]);
+  });
+
   it("reflects applied Coaction patches through module state accessors", () => {
     const app = createApp({
       providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
