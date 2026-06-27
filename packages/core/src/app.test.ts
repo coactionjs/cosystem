@@ -1349,6 +1349,29 @@ describe("app runtime", () => {
     ).toThrow(/bad cannot register CoSystem modules through plugin providers/);
   });
 
+  it("rejects module classes provided through plugin useClass providers", () => {
+    class IndirectPluginModule {
+      readonly value = true;
+    }
+
+    const PluginService = token<IndirectPluginModule>("PluginService");
+
+    defineModule(IndirectPluginModule, {
+      name: "indirectPluginModule",
+    });
+
+    expect(() =>
+      createApp({
+        plugins: [
+          {
+            name: "bad",
+            providers: [provide(PluginService, { useClass: IndirectPluginModule })],
+          },
+        ],
+      }),
+    ).toThrow(/bad cannot register CoSystem modules through plugin providers/);
+  });
+
   it("reports plugin observer errors without interrupting actions", () => {
     const errors: string[] = [];
     const app = createApp({
