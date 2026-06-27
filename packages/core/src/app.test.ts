@@ -17,6 +17,7 @@ import {
   testApp,
   token,
   type Plugin,
+  type PluginContext,
 } from "./index.js";
 
 abstract class Logger {
@@ -1053,6 +1054,89 @@ describe("app runtime", () => {
       "module:dispose",
       "plugin:dispose",
     ]);
+  });
+
+  it("passes plugin context and disposes plugin resources", async () => {
+    const events: string[] = [];
+    let capturedContext: PluginContext | undefined;
+
+    const app = createApp({
+      plugins: [
+        {
+          name: "watcher",
+          setup(app, context) {
+            capturedContext = context;
+            events.push(`${context.name}:${context.app === app}:${context.signal.aborted}`);
+            context.onDispose(() => {
+              events.push(`dispose:${context.signal.aborted}`);
+            });
+            context.watch(
+              () => app.getModule(Counter).count,
+              (value, previous) => {
+                events.push(`watch:${previous}->${value}`);
+              },
+              { immediate: true },
+            );
+          },
+        },
+      ],
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+
+    await app.start();
+    app.getModule(Counter).increase();
+    await app.dispose();
+
+    expect(capturedContext?.app).toBe(app);
+    expect(capturedContext?.signal.aborted).toBe(true);
+    expect(events).toEqual(["watcher:true:false", "watch:0->0", "watch:0->1", "dispose:true"]);
+  });
+
+  it("reports plugin observer errors without interrupting actions", () => {
+    const errors: string[] = [];
+    const app = createApp({
+      plugins: [
+        {
+          name: "broken",
+          onActionStart() {
+            throw new Error("plugin boom");
+          },
+        },
+        {
+          onError(error, context) {
+            errors.push(`${context.phase}:${error instanceof Error ? error.message : error}`);
+          },
+        },
+      ],
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+
+    expect(() => app.getModule(Counter).increase()).not.toThrow();
+    expect(app.getModule(Counter).count).toBe(1);
+    expect(errors).toEqual(["plugin:broken.onActionStart:plugin boom"]);
+  });
+
+  it("does not recurse when plugin error hooks throw", () => {
+    const app = createApp({
+      plugins: [
+        {
+          name: "broken-observer",
+          onActionEnd() {
+            throw new Error("observer boom");
+          },
+        },
+        {
+          name: "broken-error",
+          onError() {
+            throw new Error("error boom");
+          },
+        },
+      ],
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+
+    expect(() => app.getModule(Counter).increase()).not.toThrow();
+    expect(app.getModule(Counter).count).toBe(1);
   });
 
   it("emits plugin error hooks when an action fails", () => {

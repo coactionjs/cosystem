@@ -97,14 +97,27 @@ export interface RunInActionOptions {
 
 export interface Plugin {
   readonly name?: string;
-  setup?(app: App): void | Promise<void>;
-  onModuleCreated?(event: ModuleCreatedEvent): void;
-  onActionStart?(event: ActionEvent): void;
-  onActionEnd?(event: ActionEvent): void;
-  onPatch?(event: PatchEvent): void;
-  onStateChange?(event: StateChangeEvent): void;
-  onError?(error: unknown, context: ErrorContext): void;
-  dispose?(): void | Promise<void>;
+  setup?(app: App, context: PluginContext): void | Promise<void>;
+  onModuleCreated?(event: ModuleCreatedEvent, context: PluginContext): void;
+  onActionStart?(event: ActionEvent, context: PluginContext): void;
+  onActionEnd?(event: ActionEvent, context: PluginContext): void;
+  onPatch?(event: PatchEvent, context: PluginContext): void;
+  onStateChange?(event: StateChangeEvent, context: PluginContext): void;
+  onError?(error: unknown, context: ErrorContext, pluginContext: PluginContext): void;
+  dispose?(context: PluginContext): void | Promise<void>;
+}
+
+export interface PluginContext {
+  readonly app: App;
+  readonly name: string;
+  readonly signal: AbortSignal;
+  emitError(error: unknown, phase?: string): void;
+  onDispose(disposer: () => void | Promise<void>): void;
+  watch<T>(
+    read: () => T,
+    listener: (value: T, previous: T) => void,
+    options?: WatchOptions<T>,
+  ): () => void;
 }
 
 export interface ModuleCreatedEvent {
@@ -183,6 +196,11 @@ interface RuntimeModuleMetadata {
   readonly app: App;
   readonly name: string;
   readonly token: InjectionToken;
+}
+
+interface PluginRecord {
+  readonly plugin: Plugin;
+  readonly context: RuntimePluginContext;
 }
 
 interface LifecycleModule {
@@ -274,6 +292,77 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
   return app;
 }
 
+class RuntimePluginContext implements PluginContext {
+  readonly app: App;
+  readonly name: string;
+  readonly #abortController = new AbortController();
+  readonly #disposers: (() => void | Promise<void>)[] = [];
+  readonly #emitError: (error: unknown, context: ErrorContext) => void;
+
+  constructor(options: {
+    readonly app: App;
+    readonly name: string;
+    readonly emitError: (error: unknown, context: ErrorContext) => void;
+  }) {
+    this.app = options.app;
+    this.name = options.name;
+    this.#emitError = options.emitError;
+  }
+
+  get signal(): AbortSignal {
+    return this.#abortController.signal;
+  }
+
+  emitError(error: unknown, phase = `plugin:${this.name}`): void {
+    this.#emitError(error, { phase });
+  }
+
+  onDispose(disposer: () => void | Promise<void>): void {
+    this.#disposers.push(disposer);
+  }
+
+  watch<T>(
+    read: () => T,
+    listener: (value: T, previous: T) => void,
+    options?: WatchOptions<T>,
+  ): () => void {
+    const stop = this.app.watch(read, listener, options);
+    let active = true;
+
+    const managedStop = () => {
+      if (!active) {
+        return;
+      }
+
+      active = false;
+      stop();
+    };
+
+    this.onDispose(managedStop);
+
+    return managedStop;
+  }
+
+  async dispose(): Promise<void> {
+    this.#abortController.abort();
+
+    const errors: unknown[] = [];
+
+    for (const dispose of this.#disposers.splice(0).toReversed()) {
+      try {
+        // eslint-disable-next-line no-await-in-loop -- plugin resources are disposed in registration order.
+        await dispose();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new AggregateError(errors, `One or more disposers failed for plugin ${this.name}.`);
+    }
+  }
+}
+
 class RuntimeApp implements App {
   readonly state: AppState;
   readonly store: Store<RootState>;
@@ -284,7 +373,7 @@ class RuntimeApp implements App {
   private readonly pendingLazyModules: LazyModule[];
   private readonly moduleByToken = new Map<InjectionToken, ModuleBinding>();
   private readonly moduleByName = new Map<string, ModuleBinding>();
-  private readonly plugins: readonly Plugin[];
+  private readonly pluginRecords: readonly PluginRecord[];
   private readonly testInspector: MutableTestInspector | undefined;
   private readonly effectDisposers: (() => void)[] = [];
   private readonly pendingEffects = new Set<Promise<void>>();
@@ -308,10 +397,17 @@ class RuntimeApp implements App {
     this.devOptions = options.devOptions;
     this.pendingLazyModules = [...options.lazyModules];
     this.modules = options.modules;
-    this.plugins = options.plugins;
     this.state = options.state;
     this.store = options.store;
     this.testInspector = options.testInspector;
+    this.pluginRecords = options.plugins.map((plugin, index) => ({
+      context: new RuntimePluginContext({
+        app: this,
+        emitError: (error, context) => this.emitError(error, context),
+        name: plugin.name ?? `anonymous-${index + 1}`,
+      }),
+      plugin,
+    }));
 
     for (const moduleBinding of options.modules) {
       this.moduleByToken.set(moduleBinding.token, moduleBinding);
@@ -473,7 +569,7 @@ class RuntimeApp implements App {
         // eslint-disable-next-line no-await-in-loop -- dynamic scopes are disposed in reverse load order.
         await scope.dispose();
       }
-      await Promise.all(this.plugins.map((plugin) => plugin.dispose?.()));
+      await this.disposePlugins();
       await this.#container.dispose();
       this.store.destroy();
       this.isDisposed = true;
@@ -589,8 +685,10 @@ class RuntimeApp implements App {
     for (const moduleBinding of modules) {
       const event = toModuleCreatedEvent(moduleBinding);
 
-      for (const plugin of this.plugins) {
-        plugin.onModuleCreated?.(event);
+      for (const record of this.pluginRecords) {
+        this.runPluginHook(record, "onModuleCreated", () =>
+          record.plugin.onModuleCreated?.(event, record.context),
+        );
       }
     }
   }
@@ -599,7 +697,9 @@ class RuntimeApp implements App {
     this.initPromise = (async () => {
       try {
         await Promise.all(
-          this.plugins.map((plugin) => this.runWithAppInjectContext(() => plugin.setup?.(this))),
+          this.pluginRecords.map((record) =>
+            this.runWithAppInjectContext(() => record.plugin.setup?.(this, record.context)),
+          ),
         );
         await this.runLifecycle("onInit");
         this.startEffects();
@@ -938,6 +1038,30 @@ class RuntimeApp implements App {
     }
   }
 
+  private async disposePlugins(): Promise<void> {
+    const errors: unknown[] = [];
+
+    for (const record of this.pluginRecords.toReversed()) {
+      try {
+        // eslint-disable-next-line no-await-in-loop -- plugin teardown order is observable.
+        await record.plugin.dispose?.(record.context);
+      } catch (error) {
+        errors.push(error);
+      }
+
+      try {
+        // eslint-disable-next-line no-await-in-loop -- plugin context disposers belong to the same plugin.
+        await record.context.dispose();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "One or more plugins failed to dispose.");
+    }
+  }
+
   private async flushEffects(): Promise<void> {
     await this.initPromise;
     await this.waitForPendingEffects();
@@ -951,32 +1075,63 @@ class RuntimeApp implements App {
   }
 
   private emitActionStart(event: ActionEvent): void {
-    for (const plugin of this.plugins) {
-      plugin.onActionStart?.(event);
+    for (const record of this.pluginRecords) {
+      this.runPluginHook(record, "onActionStart", () =>
+        record.plugin.onActionStart?.(event, record.context),
+      );
     }
   }
 
   private emitActionEnd(event: ActionEvent): void {
-    for (const plugin of this.plugins) {
-      plugin.onActionEnd?.(event);
+    for (const record of this.pluginRecords) {
+      this.runPluginHook(record, "onActionEnd", () =>
+        record.plugin.onActionEnd?.(event, record.context),
+      );
     }
   }
 
   private emitStateChange(event: StateChangeEvent): void {
-    for (const plugin of this.plugins) {
-      plugin.onStateChange?.(event);
+    for (const record of this.pluginRecords) {
+      this.runPluginHook(record, "onStateChange", () =>
+        record.plugin.onStateChange?.(event, record.context),
+      );
     }
   }
 
   private emitPatch(event: PatchEvent): void {
-    for (const plugin of this.plugins) {
-      plugin.onPatch?.(event);
+    for (const record of this.pluginRecords) {
+      this.runPluginHook(record, "onPatch", () => record.plugin.onPatch?.(event, record.context));
     }
   }
 
   private emitError(error: unknown, context: ErrorContext): void {
-    for (const plugin of this.plugins) {
-      plugin.onError?.(error, context);
+    for (const record of this.pluginRecords) {
+      try {
+        record.plugin.onError?.(error, context, record.context);
+      } catch {
+        // Error hooks are terminal observers; do not recurse if they fail.
+      }
+    }
+  }
+
+  private runPluginHook(
+    record: PluginRecord,
+    hook: keyof Pick<
+      Plugin,
+      "onActionEnd" | "onActionStart" | "onModuleCreated" | "onPatch" | "onStateChange"
+    >,
+    callback: () => unknown,
+  ): void {
+    try {
+      const result = callback();
+
+      if (isPromiseLike(result)) {
+        void Promise.resolve(result).catch((error: unknown) => {
+          this.emitError(error, { phase: `plugin:${record.context.name}.${hook}` });
+        });
+      }
+    } catch (error) {
+      this.emitError(error, { phase: `plugin:${record.context.name}.${hook}` });
     }
   }
 

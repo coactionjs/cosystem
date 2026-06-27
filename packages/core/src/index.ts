@@ -24,6 +24,7 @@ export {
   type ModuleCreatedEvent,
   type PatchEvent,
   type Plugin,
+  type PluginContext,
   type RunInActionOptions,
   type RunInActionTarget,
   type StateChangeEvent,
