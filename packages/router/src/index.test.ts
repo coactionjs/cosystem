@@ -78,6 +78,20 @@ describe("router package", () => {
     expect(locations).toEqual(["/", "/settings"]);
   });
 
+  it("provides the router through the router plugin", () => {
+    const router = createMemoryRouter({
+      initialPath: "/",
+    });
+    const app = createApp({
+      plugins: [createRouterPlugin(router)],
+    });
+
+    app.get(RouterToken).navigate("/settings");
+
+    expect(router.current.path).toBe("/settings");
+    expect(app.get(RouterToken)).toBe(router);
+  });
+
   it("adapts browser history navigation to the router contract", () => {
     const browserWindow = createMockBrowserWindow("/initial?tab=1#top");
     const router = createBrowserRouter({

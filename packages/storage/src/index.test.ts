@@ -102,6 +102,24 @@ describe("storage plugin", () => {
     expect(storage.getItem("app")).toBe(JSON.stringify({ storageCounter: { count: 1 } }));
   });
 
+  it("flushes pending writes when the app is disposed", async () => {
+    const storage = new AsyncMemoryStorage();
+    const plugin = createStoragePlugin({
+      key: "app",
+      storage,
+    });
+    const app = createApp({
+      plugins: [plugin],
+      providers: [Counter],
+    });
+
+    await app.start();
+    app.getModule(Counter).increase();
+    await app.dispose();
+
+    expect(storage.getItem("app")).toBe(JSON.stringify({ storageCounter: { count: 1 } }));
+  });
+
   it("can persist a partial state slice", async () => {
     const storage = new MemoryStorage();
     const plugin = createStoragePlugin({

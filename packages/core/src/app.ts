@@ -97,6 +97,7 @@ export interface RunInActionOptions {
 
 export interface Plugin {
   readonly name?: string;
+  readonly providers?: readonly ProviderInput[];
   setup?(app: App, context: PluginContext): void | Promise<void>;
   onModuleCreated?(event: ModuleCreatedEvent, context: PluginContext): void;
   onActionStart?(event: ActionEvent, context: PluginContext): void;
@@ -232,6 +233,22 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
   const container = parent === undefined ? createContainer() : createContainer({ parent });
   const moduleTokens: InjectionToken[] = [];
   const lazyModules: LazyModule[] = [];
+  const pluginProviderTokens = new Set<InjectionToken>();
+
+  for (const plugin of options.plugins ?? []) {
+    for (const provider of plugin.providers ?? []) {
+      const normalized = normalizeAppProvider(provider);
+
+      if (normalized.moduleToken !== undefined) {
+        throw new CosystemError(
+          `${plugin.name ?? "Anonymous plugin"} cannot register CoSystem modules through plugin providers.`,
+        );
+      }
+
+      container.provide(normalized.provider);
+      pluginProviderTokens.add(providerInputToken(normalized.provider));
+    }
+  }
 
   for (const provider of options.providers ?? []) {
     if (isLazyModule(provider)) {
@@ -240,7 +257,13 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
     }
 
     const normalized = normalizeAppProvider(provider);
-    container.provide(normalized.provider);
+    const token = providerInputToken(normalized.provider);
+
+    if (pluginProviderTokens.has(token) && !isMultiProvider(normalized.provider)) {
+      container.override(normalized.provider);
+    } else {
+      container.provide(normalized.provider);
+    }
 
     if (normalized.moduleToken !== undefined) {
       moduleTokens.push(normalized.moduleToken);
@@ -1243,6 +1266,14 @@ function normalizeAppProvider(provider: ProviderInput): {
   }
 
   return { provider };
+}
+
+function providerInputToken(provider: ProviderInput): InjectionToken {
+  return typeof provider === "function" ? provider : provider.provide;
+}
+
+function isMultiProvider(provider: ProviderInput): boolean {
+  return typeof provider !== "function" && provider.multi === true;
 }
 
 function createStoreOptions(

@@ -1092,6 +1092,72 @@ describe("app runtime", () => {
     expect(events).toEqual(["watcher:true:false", "watch:0->0", "watch:0->1", "dispose:true"]);
   });
 
+  it("registers plugin providers before modules and setup", async () => {
+    const Config = token<{ readonly label: string }>("Config");
+    const events: string[] = [];
+
+    class ConfigReader {
+      constructor(readonly config: { readonly label: string }) {}
+    }
+
+    defineModule(ConfigReader, {
+      deps: [Config],
+      name: "configReader",
+    });
+
+    const app = createApp({
+      plugins: [
+        {
+          name: "config",
+          providers: [provide(Config, { useValue: { label: "plugin" } })],
+          setup() {
+            events.push(inject(Config).label);
+          },
+        },
+      ],
+      providers: [ConfigReader],
+    });
+
+    await app.start();
+
+    expect(app.get(Config)).toEqual({ label: "plugin" });
+    expect(app.getModule(ConfigReader).config).toEqual({ label: "plugin" });
+    expect(events).toEqual(["plugin"]);
+  });
+
+  it("lets app providers override plugin providers for the same token", () => {
+    const Config = token<{ readonly label: string }>("Config");
+    const app = createApp({
+      plugins: [
+        {
+          providers: [provide(Config, { useValue: { label: "plugin" } })],
+        },
+      ],
+      providers: [provide(Config, { useValue: { label: "app" } })],
+    });
+
+    expect(app.get(Config)).toEqual({ label: "app" });
+  });
+
+  it("rejects modules from plugin providers", () => {
+    class PluginModule {}
+
+    defineModule(PluginModule, {
+      name: "pluginModule",
+    });
+
+    expect(() =>
+      createApp({
+        plugins: [
+          {
+            name: "bad",
+            providers: [PluginModule],
+          },
+        ],
+      }),
+    ).toThrow(/bad cannot register CoSystem modules through plugin providers/);
+  });
+
   it("reports plugin observer errors without interrupting actions", () => {
     const errors: string[] = [];
     const app = createApp({

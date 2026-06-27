@@ -136,11 +136,10 @@ export function createBrowserRouter(options: BrowserRouterOptions = {}): Router 
 }
 
 export function createRouterPlugin(router: Router, options: RouterPluginOptions = {}): Plugin {
-  let unsubscribe: (() => void) | undefined;
-
   return {
     name: "cosystem:router",
-    setup(app) {
+    providers: [provideRouter(router)],
+    setup(app, context) {
       const notify = (location: RouteLocation): void => {
         if (options.onChange === undefined) {
           return;
@@ -159,15 +158,13 @@ export function createRouterPlugin(router: Router, options: RouterPluginOptions 
         }
       };
 
-      unsubscribe = router.subscribe(notify);
+      const unsubscribe = router.subscribe(notify);
 
       if (options.immediate === true) {
         notify(router.current);
       }
-    },
-    dispose() {
-      unsubscribe?.();
-      unsubscribe = undefined;
+
+      context.onDispose(unsubscribe);
     },
   };
 }

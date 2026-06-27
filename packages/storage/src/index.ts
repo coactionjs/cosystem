@@ -78,7 +78,12 @@ export function createStoragePlugin<TState = unknown>(
     ready() {
       return readyPromise;
     },
-    setup(app) {
+    setup(app, context) {
+      context.onDispose(async () => {
+        await readyPromise;
+        await writeQueue;
+      });
+
       readyPromise = (async () => {
         try {
           const stored = await options.storage.getItem(options.key);
