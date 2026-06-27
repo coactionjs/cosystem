@@ -61,6 +61,7 @@ app.stop()
 app.dispose()
   - if init is still in flight, abort plugin contexts, wait for setup to settle,
     and skip any remaining init work
+  - if start is still in flight, wait for onStart hooks before stopping
   - stop() if still running
   - stop and drain effects
   - run module onDispose() hooks in reverse order

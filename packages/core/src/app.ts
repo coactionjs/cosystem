@@ -407,6 +407,7 @@ class RuntimeApp implements App {
   private readonly loadedLazyModules = new WeakMap<LazyModule, LazyModuleLoadResult>();
   private readonly dynamicScopes: Container[] = [];
   private initPromise: Promise<void> = Promise.resolve();
+  private startPromise: Promise<void> | undefined;
   private disposePromise: Promise<void> | undefined;
   private isInitialized = false;
   private isStarted = false;
@@ -559,22 +560,29 @@ class RuntimeApp implements App {
       return;
     }
 
-    if (this.isDisposing || this.isDisposed) {
-      throw new CosystemError("Cannot start an app after disposal.");
-    }
+    this.startPromise ??= this.startApp();
+    await this.startPromise;
+  }
 
-    await this.initPromise;
-
+  private async startApp(): Promise<void> {
     if (this.isDisposing || this.isDisposed) {
       throw new CosystemError("Cannot start an app after disposal.");
     }
 
     try {
+      await this.initPromise;
+
+      if (this.isDisposing || this.isDisposed) {
+        throw new CosystemError("Cannot start an app after disposal.");
+      }
+
       await this.runLifecycle("onStart");
       this.isStarted = true;
     } catch (error) {
       this.emitError(error, { phase: "start" });
       throw error;
+    } finally {
+      this.startPromise = undefined;
     }
   }
 
@@ -612,6 +620,13 @@ class RuntimeApp implements App {
       await this.initPromise;
     } catch {
       // Init errors are already reported through plugin onError hooks. Disposal
+      // should still release any resources registered before the failure.
+    }
+
+    try {
+      await this.startPromise;
+    } catch {
+      // Start errors are already reported through plugin onError hooks. Disposal
       // should still release any resources registered before the failure.
     }
 

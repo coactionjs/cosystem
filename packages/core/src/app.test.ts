@@ -1096,6 +1096,59 @@ describe("app runtime", () => {
     ]);
   });
 
+  it("waits for in-flight start hooks before disposing the app", async () => {
+    const events: string[] = [];
+    let releaseStart: (() => void) | undefined;
+    const startGate = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+
+    class SlowStartModule {
+      async onStart(): Promise<void> {
+        events.push("module:start");
+        await startGate;
+        events.push("module:start:done");
+      }
+
+      onStop(): void {
+        events.push("module:stop");
+      }
+
+      onDispose(): void {
+        events.push("module:dispose");
+      }
+    }
+
+    defineModule(SlowStartModule, {
+      name: "slowStart",
+    });
+
+    const app = createApp({
+      providers: [SlowStartModule],
+    });
+
+    const startPromise = app.start();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toEqual(["module:start"]);
+
+    const disposePromise = app.dispose();
+    await Promise.resolve();
+
+    expect(events).toEqual(["module:start"]);
+
+    if (releaseStart === undefined) {
+      throw new Error("Expected start gate to be initialized.");
+    }
+
+    releaseStart();
+    await Promise.all([startPromise, disposePromise]);
+
+    expect(app.started).toBe(false);
+    expect(events).toEqual(["module:start", "module:start:done", "module:stop", "module:dispose"]);
+  });
+
   it("passes plugin context and disposes plugin resources", async () => {
     const events: string[] = [];
     let capturedContext: PluginContext | undefined;
