@@ -5,6 +5,7 @@ import {
   Action,
   Computed,
   CosystemError,
+  DuplicateProviderError,
   createApp,
   defineModule,
   Effect,
@@ -1285,6 +1286,46 @@ describe("app runtime", () => {
     });
 
     expect(app.get(Config)).toEqual({ label: "app" });
+  });
+
+  it("merges plugin and app multi providers in registration order", () => {
+    const Extension = token<{ readonly name: string }>("Extension");
+    const app = createApp({
+      plugins: [
+        {
+          providers: [provide(Extension, { multi: true, useValue: { name: "plugin:first" } })],
+        },
+        {
+          providers: [provide(Extension, { multi: true, useValue: { name: "plugin:second" } })],
+        },
+      ],
+      providers: [provide(Extension, { multi: true, useValue: { name: "app" } })],
+    });
+
+    expect(app.getAll(Extension).map((extension) => extension.name)).toEqual([
+      "plugin:first",
+      "plugin:second",
+      "app",
+    ]);
+  });
+
+  it("rejects duplicate non-multi providers across plugins", () => {
+    const Config = token<{ readonly label: string }>("Config");
+
+    expect(() =>
+      createApp({
+        plugins: [
+          {
+            name: "first",
+            providers: [provide(Config, { useValue: { label: "first" } })],
+          },
+          {
+            name: "second",
+            providers: [provide(Config, { useValue: { label: "second" } })],
+          },
+        ],
+      }),
+    ).toThrow(DuplicateProviderError);
   });
 
   it("rejects modules from plugin providers", () => {
