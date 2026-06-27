@@ -344,6 +344,10 @@ class RuntimePluginContext implements PluginContext {
     this.#disposers.push(disposer);
   }
 
+  abort(): void {
+    this.#abortController.abort();
+  }
+
   watch<T>(
     read: () => T,
     listener: (value: T, previous: T) => void,
@@ -367,7 +371,7 @@ class RuntimePluginContext implements PluginContext {
   }
 
   async dispose(): Promise<void> {
-    this.#abortController.abort();
+    this.abort();
 
     const errors: unknown[] = [];
 
@@ -403,7 +407,10 @@ class RuntimeApp implements App {
   private readonly loadedLazyModules = new WeakMap<LazyModule, LazyModuleLoadResult>();
   private readonly dynamicScopes: Container[] = [];
   private initPromise: Promise<void> = Promise.resolve();
+  private disposePromise: Promise<void> | undefined;
+  private isInitialized = false;
   private isStarted = false;
+  private isDisposing = false;
   private isDisposed = false;
 
   constructor(options: {
@@ -552,7 +559,15 @@ class RuntimeApp implements App {
       return;
     }
 
+    if (this.isDisposing || this.isDisposed) {
+      throw new CosystemError("Cannot start an app after disposal.");
+    }
+
     await this.initPromise;
+
+    if (this.isDisposing || this.isDisposed) {
+      throw new CosystemError("Cannot start an app after disposal.");
+    }
 
     try {
       await this.runLifecycle("onStart");
@@ -582,6 +597,24 @@ class RuntimeApp implements App {
       return;
     }
 
+    this.disposePromise ??= this.disposeApp();
+    await this.disposePromise;
+  }
+
+  private async disposeApp(): Promise<void> {
+    this.isDisposing = true;
+
+    if (!this.isInitialized) {
+      this.abortPluginContexts();
+    }
+
+    try {
+      await this.initPromise;
+    } catch {
+      // Init errors are already reported through plugin onError hooks. Disposal
+      // should still release any resources registered before the failure.
+    }
+
     await this.stop();
 
     try {
@@ -598,6 +631,8 @@ class RuntimeApp implements App {
       this.isDisposed = true;
     } catch (error) {
       this.emitError(error, { phase: "dispose" });
+      this.disposePromise = undefined;
+      this.isDisposing = false;
       throw error;
     }
   }
@@ -724,8 +759,19 @@ class RuntimeApp implements App {
             this.runWithAppInjectContext(() => record.plugin.setup?.(this, record.context)),
           ),
         );
+
+        if (this.isDisposing || this.isDisposed) {
+          return;
+        }
+
         await this.runLifecycle("onInit");
+
+        if (this.isDisposing || this.isDisposed) {
+          return;
+        }
+
         this.startEffects();
+        this.isInitialized = true;
       } catch (error) {
         this.emitError(error, { phase: "init" });
         throw error;
@@ -1082,6 +1128,12 @@ class RuntimeApp implements App {
 
     if (errors.length > 0) {
       throw new AggregateError(errors, "One or more plugins failed to dispose.");
+    }
+  }
+
+  private abortPluginContexts(): void {
+    for (const record of this.pluginRecords) {
+      record.context.abort();
     }
   }
 

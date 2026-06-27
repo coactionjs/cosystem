@@ -1132,6 +1132,63 @@ describe("app runtime", () => {
     expect(events).toEqual(["watcher:true:false", "watch:0->0", "watch:0->1", "dispose:true"]);
   });
 
+  it("waits for in-flight plugin setup before disposing plugin context resources", async () => {
+    const events: string[] = [];
+    let releaseSetup: (() => void) | undefined;
+    const setupGate = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+
+    class InitAfterDisposeModule {
+      onInit(): void {
+        events.push("module:init");
+      }
+    }
+
+    defineModule(InitAfterDisposeModule, {
+      name: "initAfterDispose",
+    });
+
+    const app = createApp({
+      plugins: [
+        {
+          name: "async-setup",
+          async setup(_app, context) {
+            events.push(`setup:start:${context.signal.aborted}`);
+            await setupGate;
+            events.push(`setup:resume:${context.signal.aborted}`);
+            context.onDispose(() => {
+              events.push(`context:dispose:${context.signal.aborted}`);
+            });
+          },
+        },
+      ],
+      providers: [InitAfterDisposeModule],
+    });
+
+    const disposePromise = (async () => {
+      await app.dispose();
+      events.push("disposed");
+    })();
+
+    await Promise.resolve();
+    expect(events).toEqual(["setup:start:false"]);
+
+    if (releaseSetup === undefined) {
+      throw new Error("Expected plugin setup gate to be initialized.");
+    }
+
+    releaseSetup();
+    await disposePromise;
+
+    expect(events).toEqual([
+      "setup:start:false",
+      "setup:resume:true",
+      "context:dispose:true",
+      "disposed",
+    ]);
+  });
+
   it("lets plugin context watches stop manually before app disposal", async () => {
     const events: string[] = [];
     let stopWatch: (() => void) | undefined;
