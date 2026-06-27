@@ -270,11 +270,34 @@ export function createLocalSpaceStoragePlugin<TState = unknown>(
     },
     setup(app, context) {
       context.onDispose(async () => {
-        await readyPromise;
-        await writeQueue;
+        const errors: unknown[] = [];
+
+        try {
+          await readyPromise;
+        } catch (error) {
+          errors.push(error);
+        }
+
+        try {
+          await writeQueue;
+        } catch (error) {
+          errors.push(error);
+        }
 
         if (destroyOnDispose) {
-          await storage.destroy();
+          try {
+            await storage.destroy();
+          } catch (error) {
+            errors.push(error);
+          }
+        }
+
+        if (errors.length === 1) {
+          throw errors[0];
+        }
+
+        if (errors.length > 1) {
+          throw new AggregateError(errors, "One or more storage disposal steps failed.");
         }
       });
 

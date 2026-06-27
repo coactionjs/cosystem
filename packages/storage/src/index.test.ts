@@ -8,6 +8,7 @@ import {
   createStoragePlugin,
   type LocalSpacePlugin,
   type StorageLike,
+  type StorageService,
 } from "./index.js";
 
 class Counter {
@@ -322,6 +323,51 @@ describe("localspace storage plugin", () => {
     await app.dispose();
 
     expect(events).toEqual(["set:item", "get:item", "destroy"]);
+  });
+
+  it("destroys owned localspace resources when hydration fails", async () => {
+    const hydrateError = new Error("ready failed");
+    const events: string[] = [];
+    const errors: Array<{ readonly error: unknown; readonly phase: string }> = [];
+    const storage: StorageService = {
+      instance: {} as StorageService["instance"],
+      clear: async () => undefined,
+      destroy: async () => {
+        events.push("destroy");
+      },
+      driver: () => "test",
+      dropInstance: async () => undefined,
+      get: async () => null,
+      getMany: async () => [],
+      getPerformanceStats: () => undefined,
+      keys: async () => [],
+      length: async () => 0,
+      ready: async () => {
+        events.push("ready");
+        throw hydrateError;
+      },
+      remove: async () => undefined,
+      removeMany: async () => undefined,
+      set: async (_key, value) => value,
+      setMany: async () => [],
+      transaction: async (_mode, runner) => runner({} as never),
+    };
+    const plugin = createLocalSpaceStoragePlugin({
+      destroyOnDispose: true,
+      onError(error, phase) {
+        errors.push({ error, phase });
+      },
+      service: storage,
+    });
+    const app = createApp({
+      plugins: [plugin],
+    });
+
+    await expect(app.start()).rejects.toBe(hydrateError);
+    await expect(app.dispose()).rejects.toBeInstanceOf(AggregateError);
+
+    expect(errors).toEqual([{ error: hydrateError, phase: "hydrate" }]);
+    expect(events).toEqual(["ready", "destroy"]);
   });
 });
 
