@@ -111,9 +111,7 @@ class RuntimeContainer implements ContainerImpl {
   override(provider: ProviderInput): void {
     this.assertMutable();
     const record = normalizeProvider(provider);
-    const existing = this.records.get(record.token) ?? [];
-    const kept = existing.filter((candidate) => candidate.multi && !record.multi);
-    this.records.set(record.token, [...kept, record]);
+    this.records.set(record.token, [record]);
   }
 
   createScope(options: ScopeOptions = {}): Container {

@@ -235,6 +235,10 @@ interface Container {
 }
 ```
 
+`override()` replaces the container's existing records for the same token. Use
+`provide(..., { multi: true })` when you want to append to a multi-provider
+extension point instead.
+
 `build()` / `buildAsync()` construct an **unregistered** class without caching it
 — useful in tests and advanced factories:
 

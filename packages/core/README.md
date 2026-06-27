@@ -373,7 +373,9 @@ const plugin: Plugin = {
 `PluginContext` gives plugins managed cleanup. `context.watch()` is `app.watch()`
 with automatic teardown, and `context.onDispose()` registers any other disposer.
 Plugin `providers` can contribute service/token dependencies before app providers
-are registered, but they cannot register CoSystem modules.
+are registered, but they cannot register CoSystem modules. App-level non-`multi`
+providers replace plugin providers for the same token; app-level `multi`
+providers append to plugin `multi` providers.
 
 Built-in: [`createLoggerPlugin()`](#logger-plugin). The
 [`@cosystem/storage`](../storage), [`@cosystem/router`](../router), and
@@ -562,6 +564,9 @@ interface Container {
   dispose(): Promise<void>;
 }
 ```
+
+`override()` replaces existing records for the same token. Use `multi: true`
+providers with `provide()` when you want to append extension entries.
 
 ## License
 

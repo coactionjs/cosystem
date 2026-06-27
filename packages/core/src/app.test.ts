@@ -1345,6 +1345,24 @@ describe("app runtime", () => {
     expect(app.get(Config)).toEqual({ label: "app" });
   });
 
+  it("lets app non-multi providers replace plugin multi providers for the same token", () => {
+    const Extension = token<{ readonly name: string }>("ReplaceableExtension");
+    const app = createApp({
+      plugins: [
+        {
+          providers: [provide(Extension, { multi: true, useValue: { name: "plugin:first" } })],
+        },
+        {
+          providers: [provide(Extension, { multi: true, useValue: { name: "plugin:second" } })],
+        },
+      ],
+      providers: [provide(Extension, { useValue: { name: "app" } })],
+    });
+
+    expect(app.get(Extension)).toEqual({ name: "app" });
+    expect(app.getAll(Extension)).toEqual([{ name: "app" }]);
+  });
+
   it("merges plugin and app multi providers in registration order", () => {
     const Extension = token<{ readonly name: string }>("Extension");
     const app = createApp({

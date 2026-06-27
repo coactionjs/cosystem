@@ -224,7 +224,9 @@ Tips:
 - Prefer `context.watch()` and `context.onDispose()` for resources that must be
   cleaned up with the app.
 - Use `providers` only for service/token dependencies. Plugin providers cannot
-  register CoSystem modules, and app-level providers can override them.
+  register CoSystem modules. App-level non-`multi` providers replace plugin
+  providers for the same token; app-level `multi` providers append to plugin
+  `multi` providers.
 - A plugin with `onPatch` enables patches automatically unless
   `engine: { patches: false }` is set.
 - For imperative controls beyond the `Plugin` interface (like storage's

@@ -254,6 +254,21 @@ describe("DI container", () => {
     );
   });
 
+  it("replaces multi provider records with overrides", () => {
+    const LoggerToken = token<Logger>("OverrideMultiLogger");
+    const first = new ConsoleLogger();
+    const second = new ConsoleLogger();
+    const override = new ConsoleLogger();
+    const container = createContainer();
+
+    container.provide(provide(LoggerToken, { multi: true, useValue: first }));
+    container.provide(provide(LoggerToken, { multi: true, useValue: second }));
+    container.override(provide(LoggerToken, { useValue: override }));
+
+    expect(container.get(LoggerToken)).toBe(override);
+    expect(container.getAll(LoggerToken)).toEqual([override]);
+  });
+
   it("detects circular dependencies", () => {
     class First {
       static readonly inject = [] as const;
