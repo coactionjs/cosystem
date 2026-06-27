@@ -92,6 +92,25 @@ describe("router package", () => {
     expect(app.get(RouterToken)).toBe(router);
   });
 
+  it("lets app-level router providers override the router plugin provider", () => {
+    const pluginRouter = createMemoryRouter({
+      initialPath: "/plugin",
+    });
+    const appRouter = createMemoryRouter({
+      initialPath: "/app",
+    });
+    const app = createApp({
+      plugins: [createRouterPlugin(pluginRouter)],
+      providers: [provideRouter(appRouter)],
+    });
+
+    app.get(RouterToken).navigate("/settings");
+
+    expect(app.get(RouterToken)).toBe(appRouter);
+    expect(appRouter.current.path).toBe("/settings");
+    expect(pluginRouter.current.path).toBe("/plugin");
+  });
+
   it("adapts browser history navigation to the router contract", () => {
     const browserWindow = createMockBrowserWindow("/initial?tab=1#top");
     const router = createBrowserRouter({
