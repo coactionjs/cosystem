@@ -138,6 +138,7 @@ app.getModule(AdminCounter).increase();
 - `await app.load()` loads **all** pending lazy modules, in registration order.
 - `await app.load(module)` loads **one** specific lazy module (idempotent — a
   second call returns the same result).
+- Once app disposal begins, lazy loads reject instead of installing new modules.
 - A loader may return a provider, a provider array, or a module-namespace object
   (`{ default }` / `{ providers }`), which makes dynamic `import()` ergonomic:
 

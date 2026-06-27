@@ -661,6 +661,8 @@ class RuntimeApp implements App {
   async load(module: LazyModule): Promise<LazyModuleLoadResult>;
   async load(): Promise<readonly LazyModuleLoadResult[]>;
   async load(module?: LazyModule): Promise<LazyModuleLoadResult | readonly LazyModuleLoadResult[]> {
+    this.assertCanLoadLazyModule();
+
     if (module === undefined) {
       const modules = this.pendingLazyModules.splice(0);
       const results: LazyModuleLoadResult[] = [];
@@ -679,14 +681,13 @@ class RuntimeApp implements App {
       return existing;
     }
 
-    if (this.isDisposed) {
-      throw new CosystemError("Cannot load a lazy module after app disposal.");
-    }
-
     await this.initPromise;
+    this.assertCanLoadLazyModule();
 
     try {
       const providers = normalizeLazyModuleProviders(await module.load());
+      this.assertCanLoadLazyModule();
+
       const scopeContainer = this.#container.createScope();
       const moduleTokens: InjectionToken[] = [];
 
@@ -711,10 +712,13 @@ class RuntimeApp implements App {
       this.dynamicScopes.push(scopeContainer);
       this.runModuleCreatedHooks(loadedModules);
       await this.runLifecycle("onInit", false, loadedModules);
+      this.assertCanLoadLazyModule();
+
       this.startEffects(loadedModules);
 
       if (this.isStarted) {
         await this.runLifecycle("onStart", false, loadedModules);
+        this.assertCanLoadLazyModule();
       }
 
       const result: LazyModuleLoadResult = {
@@ -1276,6 +1280,12 @@ class RuntimeApp implements App {
       if (this.moduleByName.has(moduleBinding.name)) {
         throw new DuplicateProviderError(moduleBinding.name);
       }
+    }
+  }
+
+  private assertCanLoadLazyModule(): void {
+    if (this.isDisposing || this.isDisposed) {
+      throw new CosystemError("Cannot load a lazy module after app disposal.");
     }
   }
 

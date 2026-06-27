@@ -280,6 +280,55 @@ describe("app runtime", () => {
     expect(app.getModule(LazyCounter).count).toBe(1);
   });
 
+  it("rejects in-flight lazy loads when the app is disposed before the loader resolves", async () => {
+    const events: string[] = [];
+    let releaseLoad: (() => void) | undefined;
+    const loadGate = new Promise<void>((resolve) => {
+      releaseLoad = resolve;
+    });
+
+    class LazyAfterDispose {
+      onInit(): void {
+        events.push("lazy:init");
+      }
+    }
+
+    defineModule(LazyAfterDispose, {
+      name: "lazyAfterDispose",
+    });
+
+    const app = createApp();
+    await app.start();
+
+    const feature = lazyModule(async () => {
+      events.push("load:start");
+      await loadGate;
+      events.push("load:resume");
+      return LazyAfterDispose;
+    });
+
+    const loadPromise = app.load(feature).catch((error: unknown) => {
+      events.push(error instanceof CosystemError ? "load:error" : "load:unknown-error");
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events).toEqual(["load:start"]);
+
+    await app.dispose();
+    events.push("disposed");
+
+    if (releaseLoad === undefined) {
+      throw new Error("Expected lazy loader gate to be initialized.");
+    }
+
+    releaseLoad();
+    await loadPromise;
+
+    expect(events).toEqual(["load:start", "disposed", "load:resume", "load:error"]);
+    expect(() => app.getModule(LazyAfterDispose)).toThrow(CosystemError);
+  });
+
   it("runs lazy module lifecycle hooks when loaded after app start", async () => {
     const events: string[] = [];
 
