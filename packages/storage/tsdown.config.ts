@@ -3,7 +3,7 @@ import { defineConfig } from "tsdown";
 export default defineConfig({
   clean: true,
   deps: {
-    neverBundle: ["@cosystem/core"],
+    neverBundle: ["@cosystem/core", "localspace"],
   },
   dts: true,
   entry: ["src/index.ts"],

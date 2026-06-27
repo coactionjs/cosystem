@@ -33,7 +33,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@cosystem/core": "workspace:*"
+    "@cosystem/core": "workspace:*",
+    "localspace": "catalog:"
   },
   "devDependencies": {
     "@cosystem/tsconfig": "workspace:*",

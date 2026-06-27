@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { createApp, defineModule } from "@cosystem/core";
 
-import { createStoragePlugin, type StorageLike } from "./index.js";
+import {
+  StorageToken,
+  createLocalSpaceStoragePlugin,
+  createStoragePlugin,
+  type LocalSpacePlugin,
+  type StorageLike,
+} from "./index.js";
 
 class Counter {
   count = 0;
@@ -226,6 +232,99 @@ describe("storage plugin", () => {
   });
 });
 
+describe("localspace storage plugin", () => {
+  it("hydrates and persists app state with localspace", async () => {
+    const plugin = createLocalSpaceStoragePlugin<{
+      readonly storageCounter: { readonly count: number };
+    }>({
+      key: "app",
+      options: createMemoryLocalSpaceOptions("state"),
+    });
+    await plugin.storage.set("app", { storageCounter: { count: 4 } });
+    const app = createApp({
+      plugins: [plugin],
+      providers: [Counter],
+    });
+
+    await app.start();
+
+    expect(app.getModule(Counter).count).toBe(4);
+
+    app.getModule(Counter).increase();
+    await plugin.flush();
+
+    expect(await plugin.storage.get("app")).toEqual({ storageCounter: { count: 5 } });
+
+    await app.dispose();
+  });
+
+  it("provides a cross-framework storage service through app DI", async () => {
+    const plugin = createLocalSpaceStoragePlugin({
+      options: createMemoryLocalSpaceOptions("di"),
+    });
+    const app = createApp({
+      plugins: [plugin],
+    });
+
+    await app.start();
+
+    const storage = app.get(StorageToken);
+    await storage.setMany([
+      { key: "first", value: 1 },
+      { key: "second", value: 2 },
+    ]);
+
+    expect(storage).toBe(plugin.storage);
+    expect(await storage.getMany<number>(["first", "second"])).toEqual([
+      { key: "first", value: 1 },
+      { key: "second", value: 2 },
+    ]);
+    expect(await storage.keys()).toEqual(["first", "second"]);
+
+    await app.dispose();
+  });
+
+  it("runs localspace plugins and destroys owned localspace resources on app disposal", async () => {
+    const events: string[] = [];
+    const localspacePlugin: LocalSpacePlugin = {
+      name: "tagger",
+      afterGet(key: string, value: unknown) {
+        events.push(`get:${key}`);
+        return value;
+      },
+      beforeSet(key: string, value: unknown) {
+        events.push(`set:${key}`);
+        return {
+          ...(value as Record<string, unknown>),
+          tagged: true,
+        };
+      },
+      onDestroy() {
+        events.push("destroy");
+      },
+    };
+    const plugin = createLocalSpaceStoragePlugin({
+      hydrate: false,
+      options: {
+        ...createMemoryLocalSpaceOptions("plugins"),
+        plugins: [localspacePlugin],
+      },
+    });
+    const app = createApp({
+      plugins: [plugin],
+    });
+
+    await app.start();
+    await plugin.storage.set("item", { value: 1 });
+
+    expect(await plugin.storage.get("item")).toEqual({ tagged: true, value: 1 });
+
+    await app.dispose();
+
+    expect(events).toEqual(["set:item", "get:item", "destroy"]);
+  });
+});
+
 class AsyncMemoryStorage extends MemoryStorage {
   override setItem(key: string, value: string): Promise<void> {
     return new Promise((resolve) => {
@@ -235,4 +334,12 @@ class AsyncMemoryStorage extends MemoryStorage {
       });
     });
   }
+}
+
+function createMemoryLocalSpaceOptions(suffix: string) {
+  return {
+    driver: "memoryStorageWrapper",
+    name: `cosystem-storage-${suffix}`,
+    storeName: "state",
+  };
 }

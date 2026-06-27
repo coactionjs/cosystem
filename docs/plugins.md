@@ -135,10 +135,11 @@ createApp({ plugins: [createLoggerPlugin()], providers: [Counter] });
 
 ### Storage — [`@cosystem/storage`](../packages/storage/README.md)
 
-Hydrates state on startup and persists changes to any sync/async backend.
+Hydrates state on startup, persists changes through localspace drivers, and
+exposes a cross-framework storage service through `StorageToken`.
 
 ```ts
-import { createStoragePlugin } from "@cosystem/storage";
+import { StorageToken, createLocalSpaceStoragePlugin } from "@cosystem/storage";
 
 type CounterAppState = {
   readonly counter: {
@@ -146,14 +147,19 @@ type CounterAppState = {
   };
 };
 
-const storage = createStoragePlugin({
+const storage = createLocalSpaceStoragePlugin<CounterAppState>({
   key: "cosystem:app",
-  storage: window.localStorage,
+  options: {
+    name: "my-app",
+    storeName: "state",
+  },
   partialize: (state) => ({ counter: (state as CounterAppState).counter }),
 });
 
 const app = createApp({ plugins: [storage], providers: [Counter] });
 await app.start(); // waits for hydration
+
+await app.get(StorageToken).set("draft", { title: "Hello" });
 ```
 
 ### Router — [`@cosystem/router`](../packages/router/README.md)

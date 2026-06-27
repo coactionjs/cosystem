@@ -796,7 +796,7 @@ unsubscribe();
 ## Storage
 
 ```ts
-import { createStoragePlugin } from "@cosystem/storage";
+import { StorageToken, createLocalSpaceStoragePlugin, syncPlugin } from "@cosystem/storage";
 
 type CounterAppState = {
   readonly counter: {
@@ -804,8 +804,13 @@ type CounterAppState = {
   };
 };
 
-const storage = createStoragePlugin({
+const storage = createLocalSpaceStoragePlugin<CounterAppState>({
   key: "cosystem:app",
+  options: {
+    name: "my-app",
+    storeName: "state",
+    plugins: [syncPlugin({ channelName: "my-app-state" })],
+  },
   merge: (persisted, current) => ({
     ...(current as object),
     ...persisted,
@@ -813,7 +818,6 @@ const storage = createStoragePlugin({
   partialize: (state) => ({
     counter: (state as CounterAppState).counter,
   }),
-  storage: window.localStorage,
 });
 
 const app = createApp({
@@ -823,6 +827,7 @@ const app = createApp({
 
 await app.start(); // waits for hydration
 await storage.flush(); // waits for queued persistence writes in tests/tools
+await app.get(StorageToken).set("draft", { title: "Hello" });
 await app.dispose(); // also waits for pending storage writes
 ```
 

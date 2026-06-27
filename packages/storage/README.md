@@ -1,13 +1,14 @@
 # @cosystem/storage
 
-> Persistence plugin for [CoSystem](../../README.md): hydrate app state on
-> startup and persist state changes to any synchronous or asynchronous storage
-> backend.
+> Cross-framework persistence plugin for [CoSystem](../../README.md), powered by
+> [`localspace`](https://www.npmjs.com/package/localspace): hydrate app state on
+> startup, persist state changes, and expose a shared storage service through app
+> DI.
 
-Works with `localStorage`, `sessionStorage`, IndexedDB wrappers, or any object
-implementing `getItem` / `setItem` (and optionally `removeItem`). Writes are
-queued so they never interleave, hydration is awaited by `app.start()`, and
-pending writes are flushed when the app is disposed.
+The recommended `createLocalSpaceStoragePlugin()` uses localspace drivers and
+plugins, including IndexedDB, localStorage, memory fallback, TTL, encryption,
+compression, multi-tab sync, and quota helpers. The older `createStoragePlugin()`
+adapter is still available for simple `getItem` / `setItem` backends.
 
 ## Installation
 
@@ -19,7 +20,12 @@ pnpm add @cosystem/storage @cosystem/core
 
 ```ts
 import { createApp } from "@cosystem/core";
-import { createStoragePlugin } from "@cosystem/storage";
+import {
+  StorageToken,
+  createLocalSpaceStoragePlugin,
+  syncPlugin,
+  ttlPlugin,
+} from "@cosystem/storage";
 
 type CounterAppState = {
   readonly counter: {
@@ -27,9 +33,13 @@ type CounterAppState = {
   };
 };
 
-const storage = createStoragePlugin({
+const storage = createLocalSpaceStoragePlugin<CounterAppState>({
   key: "cosystem:app",
-  storage: window.localStorage,
+  options: {
+    name: "my-app",
+    storeName: "state",
+    plugins: [ttlPlugin({ defaultTTL: 7 * 24 * 60 * 60_000 }), syncPlugin()],
+  },
   partialize: (state) => ({ counter: (state as CounterAppState).counter }),
   merge: (persisted, current) => ({ ...(current as object), ...persisted }),
 });
@@ -41,9 +51,48 @@ const app = createApp({
 
 await app.start(); // waits for hydration to complete
 await storage.flush(); // waits for queued writes (useful in tests/tools)
+
+const kv = app.get(StorageToken);
+await kv.set("draft", { title: "Hello" });
 ```
 
-## Options
+## Localspace Options
+
+`createLocalSpaceStoragePlugin()` accepts:
+
+| Option             | Type                                   | Default            | Description                                                          |
+| ------------------ | -------------------------------------- | ------------------ | -------------------------------------------------------------------- |
+| `key`              | `string`                               | `cosystem:state`   | localspace key used for CoSystem app state.                          |
+| `options`          | `LocalSpaceOptions`                    | localspace default | localspace instance config (`name`, `storeName`, `driver`, plugins). |
+| `instance`         | `LocalSpaceInstance`                   | —                  | Existing localspace instance to wrap.                                |
+| `service`          | `StorageService`                       | —                  | Existing CoSystem storage service to provide.                        |
+| `hydrate`          | `boolean`                              | `true`             | Hydrate app state from `key` during plugin setup.                    |
+| `persist`          | `boolean`                              | `true`             | Persist app state on store changes.                                  |
+| `destroyOnDispose` | `boolean`                              | owns instance      | Destroy localspace resources when the app is disposed.               |
+| `partialize`       | `(state) => TState`                    | identity           | Pick the subset of app state to persist.                             |
+| `merge`            | `(persisted, current) => state`        | use persisted      | Combine persisted state with current defaults on hydrate.            |
+| `shouldPersist`    | `(event: StateChangeEvent) => boolean` | always             | Skip selected state changes.                                         |
+| `onError`          | `(error, phase) => void`               | —                  | Observe `"hydrate"`, `"persist"`, or `"clear"` failures.             |
+
+`StorageToken` resolves a `StorageService` in every UI framework integration:
+
+```ts
+const storage = app.get(StorageToken);
+
+await storage.set("theme", "dark");
+const theme = await storage.get<string>("theme");
+await storage.setMany([
+  { key: "cache:user", value: { name: "Ada" } },
+  { key: "cache:org", value: { name: "CoSystem" } },
+]);
+```
+
+`StorageService.instance` exposes the underlying localspace instance when you
+need lower-level APIs or performance stats.
+
+## Legacy StorageLike Adapter
+
+`createStoragePlugin()` is retained for custom string-only backends:
 
 | Option          | Type                                   | Default          | Description                                                |
 | --------------- | -------------------------------------- | ---------------- | ---------------------------------------------------------- |
@@ -70,6 +119,10 @@ await storage.clear(); // remove the persisted entry
 `app.dispose()` also waits for pending storage writes through the plugin context,
 so production teardown does not need an extra `flush()` call.
 
+For the localspace plugin, `storage.clear()` removes the persisted app-state key.
+Use `app.get(StorageToken).clear()` when you want to clear the whole localspace
+store.
+
 `StorageLike`:
 
 ```ts
@@ -82,8 +135,10 @@ interface StorageLike {
 
 ## Exports
 
-`createStoragePlugin`, and the `StoragePlugin`, `StoragePluginOptions`,
-`StorageLike`, `StoragePluginErrorPhase` types.
+`createLocalSpaceStoragePlugin`, `createLocalSpaceStorage`, `StorageToken`,
+`createStoragePlugin`, localspace plugin/driver re-exports, and the
+`StorageService`, `StoragePlugin`, `StoragePluginOptions`, `StorageLike`,
+`StoragePluginErrorPhase` types.
 
 ## License
 
