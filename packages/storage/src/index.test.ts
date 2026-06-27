@@ -120,6 +120,35 @@ describe("storage plugin", () => {
     expect(storage.getItem("app")).toBe(JSON.stringify({ storageCounter: { count: 1 } }));
   });
 
+  it("reports pending write failures while disposing the app", async () => {
+    const writeError = new Error("dispose write failed");
+    const errors: Array<{ error: unknown; phase: string }> = [];
+    const storage: StorageLike = {
+      getItem: () => null,
+      setItem: () =>
+        new Promise((_resolve, reject) => {
+          queueMicrotask(() => reject(writeError));
+        }),
+    };
+    const plugin = createStoragePlugin({
+      key: "app",
+      onError(error, phase) {
+        errors.push({ error, phase });
+      },
+      storage,
+    });
+    const app = createApp({
+      plugins: [plugin],
+      providers: [Counter],
+    });
+
+    await app.start();
+    app.getModule(Counter).increase();
+    await expect(app.dispose()).resolves.toBeUndefined();
+
+    expect(errors).toEqual([{ error: writeError, phase: "persist" }]);
+  });
+
   it("can persist a partial state slice", async () => {
     const storage = new MemoryStorage();
     const plugin = createStoragePlugin({
