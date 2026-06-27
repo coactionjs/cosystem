@@ -1131,6 +1131,36 @@ describe("app runtime", () => {
     expect(events).toEqual(["watcher:true:false", "watch:0->0", "watch:0->1", "dispose:true"]);
   });
 
+  it("lets plugin context watches stop manually before app disposal", async () => {
+    const events: string[] = [];
+    let stopWatch: (() => void) | undefined;
+    const app = createApp({
+      plugins: [
+        {
+          setup(runtimeApp, context) {
+            stopWatch = context.watch(
+              () => runtimeApp.getModule(Counter).count,
+              (value, previous) => {
+                events.push(`${previous}->${value}`);
+              },
+              { immediate: true },
+            );
+          },
+        },
+      ],
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+
+    await app.start();
+    app.getModule(Counter).increase();
+    stopWatch?.();
+    stopWatch?.();
+    app.getModule(Counter).increase();
+    await app.dispose();
+
+    expect(events).toEqual(["0->0", "0->1"]);
+  });
+
   it("lets plugin context emit default and custom error phases", async () => {
     const errors: string[] = [];
     const app = createApp({
