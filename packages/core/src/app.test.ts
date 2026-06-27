@@ -1131,6 +1131,30 @@ describe("app runtime", () => {
     expect(events).toEqual(["watcher:true:false", "watch:0->0", "watch:0->1", "dispose:true"]);
   });
 
+  it("lets plugin context emit default and custom error phases", async () => {
+    const errors: string[] = [];
+    const app = createApp({
+      plugins: [
+        {
+          name: "emitter",
+          setup(_app, context) {
+            context.emitError(new Error("default boom"));
+            context.emitError("custom boom", "plugin:emitter.custom");
+          },
+        },
+        {
+          onError(error, context) {
+            errors.push(`${context.phase}:${error instanceof Error ? error.message : error}`);
+          },
+        },
+      ],
+    });
+
+    await app.start();
+
+    expect(errors).toEqual(["plugin:emitter:default boom", "plugin:emitter.custom:custom boom"]);
+  });
+
   it("registers plugin providers before modules and setup", async () => {
     const Config = token<{ readonly label: string }>("Config");
     const events: string[] = [];
