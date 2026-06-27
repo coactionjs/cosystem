@@ -1155,6 +1155,61 @@ describe("app runtime", () => {
     expect(errors).toEqual(["plugin:emitter:default boom", "plugin:emitter.custom:custom boom"]);
   });
 
+  it("disposes plugins in reverse order and aggregates teardown errors", async () => {
+    const events: string[] = [];
+    const pluginError = new Error("plugin dispose boom");
+    const contextError = new Error("context dispose boom");
+    const app = createApp({
+      plugins: [
+        {
+          name: "first",
+          setup(_app, context) {
+            context.onDispose(() => {
+              events.push(`first:context:${context.signal.aborted}`);
+            });
+          },
+          dispose(context) {
+            events.push(`first:plugin:${context.signal.aborted}`);
+          },
+        },
+        {
+          name: "second",
+          setup(_app, context) {
+            context.onDispose(() => {
+              events.push(`second:context:${context.signal.aborted}`);
+              throw contextError;
+            });
+          },
+          dispose(context) {
+            events.push(`second:plugin:${context.signal.aborted}`);
+            throw pluginError;
+          },
+        },
+      ],
+    });
+
+    await app.start();
+
+    let caught: unknown;
+    try {
+      await app.dispose();
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(events).toEqual([
+      "second:plugin:false",
+      "second:context:true",
+      "first:plugin:false",
+      "first:context:true",
+    ]);
+    expect(caught).toBeInstanceOf(AggregateError);
+    expect((caught as AggregateError).errors).toHaveLength(2);
+    expect((caught as AggregateError).errors[0]).toBe(pluginError);
+    expect((caught as AggregateError).errors[1]).toBeInstanceOf(AggregateError);
+    expect(((caught as AggregateError).errors[1] as AggregateError).errors).toEqual([contextError]);
+  });
+
   it("registers plugin providers before modules and setup", async () => {
     const Config = token<{ readonly label: string }>("Config");
     const events: string[] = [];
