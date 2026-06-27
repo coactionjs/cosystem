@@ -1064,14 +1064,14 @@ describe("app runtime", () => {
       plugins: [
         {
           name: "watcher",
-          setup(app, context) {
+          setup(runtimeApp, context) {
             capturedContext = context;
-            events.push(`${context.name}:${context.app === app}:${context.signal.aborted}`);
+            events.push(`${context.name}:${context.app === runtimeApp}:${context.signal.aborted}`);
             context.onDispose(() => {
               events.push(`dispose:${context.signal.aborted}`);
             });
             context.watch(
-              () => app.getModule(Counter).count,
+              () => runtimeApp.getModule(Counter).count,
               (value, previous) => {
                 events.push(`watch:${previous}->${value}`);
               },
@@ -1140,7 +1140,9 @@ describe("app runtime", () => {
   });
 
   it("rejects modules from plugin providers", () => {
-    class PluginModule {}
+    class PluginModule {
+      readonly value = true;
+    }
 
     defineModule(PluginModule, {
       name: "pluginModule",
