@@ -1223,6 +1223,51 @@ describe("app runtime", () => {
     expect(errors).toEqual(["plugin:broken.onActionStart:plugin boom"]);
   });
 
+  it("reports async plugin observer errors without interrupting updates", async () => {
+    const errors: string[] = [];
+    const app = createApp({
+      plugins: [
+        {
+          name: "async-action",
+          onActionEnd() {
+            return Promise.reject(new Error("action observer boom"));
+          },
+        },
+        {
+          name: "async-state",
+          onStateChange() {
+            return Promise.reject(new Error("state observer boom"));
+          },
+        },
+        {
+          name: "async-patch",
+          onPatch() {
+            return Promise.reject(new Error("patch observer boom"));
+          },
+        },
+        {
+          onError(error, context) {
+            errors.push(`${context.phase}:${error instanceof Error ? error.message : error}`);
+          },
+        },
+      ],
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+
+    expect(() => app.getModule(Counter).increase()).not.toThrow();
+    expect(app.getModule(Counter).count).toBe(1);
+    await Promise.resolve();
+
+    expect(errors).toHaveLength(3);
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        "plugin:async-action.onActionEnd:action observer boom",
+        "plugin:async-patch.onPatch:patch observer boom",
+        "plugin:async-state.onStateChange:state observer boom",
+      ]),
+    );
+  });
+
   it("does not recurse when plugin error hooks throw", () => {
     const app = createApp({
       plugins: [
