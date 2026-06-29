@@ -46,10 +46,16 @@ class SharedCounter {
   increase(step = 1): void {
     this.count += step;
   }
+
+  async increaseLater(step = 1): Promise<number> {
+    await Promise.resolve();
+    this.count += step;
+    return this.count;
+  }
 }
 
 defineModule(SharedCounter, {
-  actions: ["increase"],
+  actions: ["increase", "increaseLater"],
   name: "frameworkAdapterCounter",
   state: ["count"],
 });
@@ -171,6 +177,41 @@ describe("framework adapter integration", () => {
       expect(counter.count).toBe(5);
       expect(readAdapterCounts()).toEqual([5, 5, 5, 5, 5]);
       expect(svelteValues).toEqual([0, 2, 5]);
+
+      await act(async () => {
+        await expect(reactCounter?.increaseLater(4)).resolves.toBe(9);
+      });
+
+      expect(readAdapterCounts()).toEqual([9, 9, 9, 9, 9]);
+      expect(reactRenderer?.toJSON()).toMatchObject({
+        children: ["9"],
+        type: "span",
+      });
+
+      await act(async () => {
+        await expect(vueCounter?.increaseLater(5)).resolves.toBe(14);
+      });
+
+      expect(readAdapterCounts()).toEqual([14, 14, 14, 14, 14]);
+
+      await act(async () => {
+        await expect(solidCounter?.increaseLater(6)).resolves.toBe(20);
+      });
+
+      expect(readAdapterCounts()).toEqual([20, 20, 20, 20, 20]);
+
+      await act(async () => {
+        await expect(angularCounter?.increaseLater(7)).resolves.toBe(27);
+      });
+
+      expect(readAdapterCounts()).toEqual([27, 27, 27, 27, 27]);
+
+      await act(async () => {
+        await expect(svelteCounter?.increaseLater(8)).resolves.toBe(35);
+      });
+
+      expect(readAdapterCounts()).toEqual([35, 35, 35, 35, 35]);
+      expect(svelteValues).toEqual([0, 2, 5, 9, 14, 20, 27, 35]);
     } finally {
       if (reactRenderer !== undefined) {
         act(() => {
