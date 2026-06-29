@@ -11,7 +11,7 @@
   "type": "module",
   "scripts": {
     "build": "turbo run build",
-    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:create-runtime && pnpm run test:scaffold-install && pnpm run test:core:lifecycle-install && pnpm run test:core:async-lazy-install && pnpm run test:core:logger-install && pnpm run test:examples && pnpm run test:examples:install && pnpm run test:examples:testing-install && pnpm run test:svelte:install-runtime && pnpm run test:frameworks:worker-install && pnpm run test:examples:runtime && pnpm run test:storage:service-install && pnpm run test:storage-browser && pnpm run test:devtools-browser && pnpm run test:plugins:browser && pnpm run test:worker:install-runtime && pnpm run test:worker:async-browser && pnpm run test:worker:broadcast-browser && pnpm run test:worker:data-transport-install && pnpm run test:exports && pnpm run test:pack && pnpm run test:install && pnpm run test:publish-dry-run",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:create-runtime && pnpm run test:scaffold-install && pnpm run test:core:lifecycle-install && pnpm run test:core:async-lazy-install && pnpm run test:core:logger-install && pnpm run test:examples && pnpm run test:examples:install && pnpm run test:examples:testing-install && pnpm run test:svelte:install-runtime && pnpm run test:frameworks:worker-install && pnpm run test:examples:runtime && pnpm run test:router-browser && pnpm run test:storage:service-install && pnpm run test:storage-browser && pnpm run test:devtools-browser && pnpm run test:plugins:browser && pnpm run test:worker:install-runtime && pnpm run test:worker:async-browser && pnpm run test:worker:broadcast-browser && pnpm run test:worker:data-transport-install && pnpm run test:exports && pnpm run test:pack && pnpm run test:install && pnpm run test:publish-dry-run",
     "ci": "pnpm run check",
     "clean": "turbo run clean && rm -rf node_modules .turbo coverage",
     "commit": "cz",
@@ -40,6 +40,7 @@
     "test:pack": "node scripts/package-pack-smoke.mjs",
     "test:plugins:browser": "node scripts/installed-plugin-stack-browser-smoke.mjs",
     "test:publish-dry-run": "node scripts/publish-dry-run-smoke.mjs",
+    "test:router-browser": "node scripts/installed-router-browser-smoke.mjs",
     "test:scaffold-install": "node scripts/scaffold-install-smoke.mjs",
     "test:storage:service-install": "node scripts/installed-storage-service-smoke.mjs",
     "test:storage-browser": "node scripts/storage-browser-smoke.mjs",
