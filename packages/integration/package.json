@@ -8,14 +8,28 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@cosystem/angular": "workspace:*",
     "@cosystem/core": "workspace:*",
     "@cosystem/devtools": "workspace:*",
+    "@cosystem/react": "workspace:*",
     "@cosystem/router": "workspace:*",
-    "@cosystem/storage": "workspace:*"
+    "@cosystem/solid": "workspace:*",
+    "@cosystem/storage": "workspace:*",
+    "@cosystem/svelte": "workspace:*",
+    "@cosystem/vue": "workspace:*"
   },
   "devDependencies": {
+    "@angular/core": "catalog:",
     "@cosystem/tsconfig": "workspace:*",
+    "@types/react": "catalog:",
+    "@types/react-test-renderer": "catalog:",
+    "@vue/server-renderer": "catalog:",
+    "react": "catalog:",
+    "react-test-renderer": "catalog:",
+    "solid-js": "catalog:",
+    "svelte": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "vue": "catalog:"
   }
 }

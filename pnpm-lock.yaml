@@ -498,28 +498,70 @@ importers:
 
   packages/integration:
     dependencies:
+      '@cosystem/angular':
+        specifier: workspace:*
+        version: link:../angular
       '@cosystem/core':
         specifier: workspace:*
         version: link:../core
       '@cosystem/devtools':
         specifier: workspace:*
         version: link:../devtools
+      '@cosystem/react':
+        specifier: workspace:*
+        version: link:../react
       '@cosystem/router':
         specifier: workspace:*
         version: link:../router
+      '@cosystem/solid':
+        specifier: workspace:*
+        version: link:../solid
       '@cosystem/storage':
         specifier: workspace:*
         version: link:../storage
+      '@cosystem/svelte':
+        specifier: workspace:*
+        version: link:../svelte
+      '@cosystem/vue':
+        specifier: workspace:*
+        version: link:../vue
     devDependencies:
+      '@angular/core':
+        specifier: 'catalog:'
+        version: 22.0.2(@angular/compiler@22.0.2)(rxjs@7.8.2)(zone.js@0.16.2)
       '@cosystem/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.17
+      '@types/react-test-renderer':
+        specifier: 'catalog:'
+        version: 19.1.0
+      '@vue/server-renderer':
+        specifier: 'catalog:'
+        version: 3.5.38(vue@3.5.38(typescript@6.0.3))
+      react:
+        specifier: 'catalog:'
+        version: 19.2.7
+      react-test-renderer:
+        specifier: 'catalog:'
+        version: 19.2.7(react@19.2.7)
+      solid-js:
+        specifier: 'catalog:'
+        version: 1.9.13
+      svelte:
+        specifier: 'catalog:'
+        version: 5.56.3
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
       vitest:
         specifier: 'catalog:'
         version: 4.1.9(@types/node@22.19.21)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@22.19.21)(esbuild@0.28.1)(jiti@2.6.1)(sass@1.99.0)(yaml@2.9.0))
+      vue:
+        specifier: 'catalog:'
+        version: 3.5.38(typescript@6.0.3)
 
   packages/react:
     dependencies:
