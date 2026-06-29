@@ -11,7 +11,7 @@
   "type": "module",
   "scripts": {
     "build": "turbo run build",
-    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:create-runtime && pnpm run test:scaffold-install && pnpm run test:core:lifecycle-install && pnpm run test:examples && pnpm run test:examples:install && pnpm run test:examples:testing-install && pnpm run test:examples:runtime && pnpm run test:storage-browser && pnpm run test:devtools-browser && pnpm run test:plugins:browser && pnpm run test:worker:install-runtime && pnpm run test:worker:async-browser && pnpm run test:worker:broadcast-browser && pnpm run test:worker:data-transport-install && pnpm run test:exports && pnpm run test:pack && pnpm run test:install && pnpm run test:publish-dry-run",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:create-runtime && pnpm run test:scaffold-install && pnpm run test:core:lifecycle-install && pnpm run test:core:async-lazy-install && pnpm run test:examples && pnpm run test:examples:install && pnpm run test:examples:testing-install && pnpm run test:examples:runtime && pnpm run test:storage-browser && pnpm run test:devtools-browser && pnpm run test:plugins:browser && pnpm run test:worker:install-runtime && pnpm run test:worker:async-browser && pnpm run test:worker:broadcast-browser && pnpm run test:worker:data-transport-install && pnpm run test:exports && pnpm run test:pack && pnpm run test:install && pnpm run test:publish-dry-run",
     "ci": "pnpm run check",
     "clean": "turbo run clean && rm -rf node_modules .turbo coverage",
     "commit": "cz",
@@ -25,6 +25,7 @@
     "release": "pnpm run build && pnpm run publish:packages",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:core:async-lazy-install": "node scripts/installed-core-async-lazy-smoke.mjs",
     "test:core:lifecycle-install": "node scripts/installed-core-lifecycle-scope-smoke.mjs",
     "test:create-runtime": "node scripts/create-project-runtime-smoke.mjs",
     "test:examples": "node scripts/example-build-smoke.mjs",
