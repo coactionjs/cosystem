@@ -141,9 +141,13 @@ async function writeConsumerProject(coreTarball, devtoolsTarball, catalog) {
       '        <div><dt>Count</dt><dd id="count">0</dd></div>',
       '        <div><dt>Timeline count</dt><dd id="timeline-count">0</dd></div>',
       '        <div><dt>Last event</dt><dd id="last-event">none</dd></div>',
+      '        <div><dt>Error count</dt><dd id="error-count">0</dd></div>',
       '        <div><dt>Subscriber count</dt><dd id="subscriber-count">0</dd></div>',
+      '        <div><dt>Trimmed events</dt><dd id="trimmed-events">none</dd></div>',
       "      </dl>",
       '      <button type="button" id="increase">Increase</button>',
+      '      <button type="button" id="fail">Fail</button>',
+      '      <button type="button" id="trim">Trim timeline</button>',
       '      <button type="button" id="clear">Clear timeline</button>',
       '      <button type="button" id="unsubscribe">Unsubscribe</button>',
       "    </main>",
@@ -173,11 +177,14 @@ type BrowserDevtoolsTimelineEvent = ReturnType<
 type SmokeSnapshot = {
   readonly actionMethods: readonly string[];
   readonly count: number;
+  readonly errorMessages: readonly string[];
+  readonly errorPhases: readonly string[];
   readonly moduleNames: readonly string[];
   readonly patchCount: number;
   readonly stateCounts: readonly (number | null)[];
   readonly subscriberTypes: readonly string[];
   readonly timelineTypes: readonly string[];
+  readonly trimmedTypes: readonly string[];
 };
 
 declare global {
@@ -185,8 +192,10 @@ declare global {
     __cosystemDevtoolsSmoke?: {
       readonly ready: Promise<void>;
       clear(): Promise<void>;
+      fail(): Promise<void>;
       increase(): Promise<void>;
       read(): SmokeSnapshot;
+      trim(): Promise<void>;
       unsubscribe(): Promise<void>;
     };
   }
@@ -206,6 +215,31 @@ defineModule(DevtoolsBrowserCounter, {
   state: ["count"],
 });
 
+class DevtoolsFailingAction {
+  fail(): void {
+    throw new Error("boom");
+  }
+}
+
+defineModule(DevtoolsFailingAction, {
+  actions: ["fail"],
+  name: "devtoolsFailingAction",
+});
+
+class DevtoolsTrimCounter {
+  count = 0;
+
+  increase(): void {
+    this.count += 1;
+  }
+}
+
+defineModule(DevtoolsTrimCounter, {
+  actions: ["increase"],
+  name: "devtoolsTrimCounter",
+  state: ["count"],
+});
+
 const devtools = createDevtoolsPlugin();
 const subscriberTypes: string[] = [];
 const unsubscribeDevtools = devtools.subscribe((event) => {
@@ -213,10 +247,19 @@ const unsubscribeDevtools = devtools.subscribe((event) => {
 });
 const app = createApp({
   plugins: [devtools],
-  providers: [DevtoolsBrowserCounter],
+  providers: [DevtoolsBrowserCounter, DevtoolsFailingAction],
+});
+const trimDevtools = createDevtoolsPlugin({
+  maxEvents: 2,
+});
+const trimApp = createApp({
+  plugins: [trimDevtools],
+  providers: [DevtoolsTrimCounter],
 });
 
 let counter: DevtoolsBrowserCounter;
+let failingAction: DevtoolsFailingAction;
+let trimCounter: DevtoolsTrimCounter;
 let subscribed = true;
 
 const ready = start();
@@ -224,13 +267,21 @@ const ready = start();
 window.__cosystemDevtoolsSmoke = {
   ready,
   clear,
+  fail,
   increase,
   read,
+  trim,
   unsubscribe,
 };
 
 getElement<HTMLButtonElement>("increase").addEventListener("click", () => {
   void runButtonAction(increase);
+});
+getElement<HTMLButtonElement>("fail").addEventListener("click", () => {
+  void runButtonAction(fail);
+});
+getElement<HTMLButtonElement>("trim").addEventListener("click", () => {
+  void runButtonAction(trim);
 });
 getElement<HTMLButtonElement>("clear").addEventListener("click", () => {
   void runButtonAction(clear);
@@ -242,11 +293,29 @@ getElement<HTMLButtonElement>("unsubscribe").addEventListener("click", () => {
 async function start(): Promise<void> {
   await app.start();
   counter = app.getModule(DevtoolsBrowserCounter);
+  failingAction = app.getModule(DevtoolsFailingAction);
+  trimCounter = trimApp.getModule(DevtoolsTrimCounter);
   render("ready");
 }
 
 async function increase(): Promise<void> {
   counter.increase();
+  render("ready");
+}
+
+async function fail(): Promise<void> {
+  try {
+    failingAction.fail();
+  } catch (error) {
+    render("ready");
+    return;
+  }
+
+  throw new Error("Expected failing action to throw.");
+}
+
+async function trim(): Promise<void> {
+  trimCounter.increase();
   render("ready");
 }
 
@@ -267,12 +336,17 @@ async function unsubscribe(): Promise<void> {
 function read(): SmokeSnapshot {
   const timeline = devtools.getTimeline();
   const actionEvents = timeline.filter(isActionEvent);
+  const errorEvents = timeline.filter(isErrorEvent);
   const moduleEvents = timeline.filter(isModuleEvent);
   const stateEvents = timeline.filter(isStateEvent);
 
   return {
     actionMethods: actionEvents.map((event) => event.event.method),
     count: counter.count,
+    errorMessages: errorEvents.map((event) =>
+      event.error instanceof Error ? event.error.message : String(event.error),
+    ),
+    errorPhases: errorEvents.map((event) => event.context.phase),
     moduleNames: moduleEvents.map((event) => event.event.name),
     patchCount: timeline.filter((event) => event.type === "patch").length,
     stateCounts: stateEvents.map((event) => {
@@ -281,6 +355,7 @@ function read(): SmokeSnapshot {
     }),
     subscriberTypes: [...subscriberTypes],
     timelineTypes: timeline.map((event) => event.type),
+    trimmedTypes: trimDevtools.getTimeline().map((event) => event.type),
   };
 }
 
@@ -291,7 +366,9 @@ function render(status: string): void {
   getElement("count").textContent = String(snapshot.count);
   getElement("timeline-count").textContent = String(snapshot.timelineTypes.length);
   getElement("last-event").textContent = snapshot.timelineTypes.at(-1) ?? "none";
+  getElement("error-count").textContent = String(snapshot.errorMessages.length);
   getElement("subscriber-count").textContent = String(snapshot.subscriberTypes.length);
+  getElement("trimmed-events").textContent = snapshot.trimmedTypes.join(",") || "none";
 }
 
 async function runButtonAction(action: () => Promise<void>): Promise<void> {
@@ -308,6 +385,12 @@ function isModuleEvent(
   event: BrowserDevtoolsTimelineEvent,
 ): event is Extract<BrowserDevtoolsTimelineEvent, { readonly type: "module" }> {
   return event.type === "module";
+}
+
+function isErrorEvent(
+  event: BrowserDevtoolsTimelineEvent,
+): event is Extract<BrowserDevtoolsTimelineEvent, { readonly type: "error" }> {
+  return event.type === "error";
 }
 
 function isStateEvent(
@@ -389,6 +472,27 @@ async function runDevtoolsSmoke(browserInstance, url) {
       beforeUnsubscribedAction.subscriberTypes,
       "subscriber events after unsubscribe",
     );
+
+    await clickButton(page, "Fail");
+    await expectStat(page, "Error count", "1");
+    await expectStat(page, "Last event", "action:end");
+
+    const afterFailure = await readSmokeSnapshot(page);
+    assertIncludes(afterFailure.timelineTypes, "error", "timeline types after failure");
+    assertIncludes(afterFailure.actionMethods, "fail", "action methods after failure");
+    assertIncludes(afterFailure.errorMessages, "boom", "error messages after failure");
+    assertIncludes(afterFailure.errorPhases, "action", "error phases after failure");
+    assertArraysEqual(
+      afterFailure.subscriberTypes,
+      beforeUnsubscribedAction.subscriberTypes,
+      "subscriber events after failing action while unsubscribed",
+    );
+
+    await clickButton(page, "Trim timeline");
+    await expectStat(page, "Trimmed events", "patch,action:end");
+
+    const afterTrim = await readSmokeSnapshot(page);
+    assertArraysEqual(afterTrim.trimmedTypes, ["patch", "action:end"], "trimmed timeline types");
 
     if (errors.length > 0) {
       throw new Error(`Installed devtools smoke emitted browser errors:\n${errors.join("\n")}`);
