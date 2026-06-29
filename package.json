@@ -11,7 +11,7 @@
   "type": "module",
   "scripts": {
     "build": "turbo run build",
-    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:exports && pnpm run test:pack",
+    "check": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run test:examples && pnpm run test:exports && pnpm run test:pack",
     "ci": "pnpm run check",
     "clean": "turbo run clean && rm -rf node_modules .turbo coverage",
     "commit": "cz",
@@ -25,6 +25,7 @@
     "release": "pnpm run build && pnpm run publish:packages",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:examples": "node scripts/example-build-smoke.mjs",
     "test:exports": "node scripts/package-exports-smoke.mjs",
     "test:pack": "node scripts/package-pack-smoke.mjs",
     "test:turbo": "turbo run test",
