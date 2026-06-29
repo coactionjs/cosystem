@@ -1,12 +1,17 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createCosystemProject } from "./index.js";
 
 const roots: string[] = [];
+const execFileAsync = promisify(execFile);
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 describe("create package", () => {
   afterEach(async () => {
@@ -33,5 +38,42 @@ describe("create package", () => {
       '"skipLibCheck": true',
     );
     await expect(readFile(join(root, "src/main.ts"), "utf8")).resolves.toContain("createApp");
+  });
+
+  it("generates a project entrypoint that typechecks against the current core package", async () => {
+    const root = await mkdtemp(join(tmpdir(), "cosystem-create-e2e-"));
+    roots.push(root);
+    await createCosystemProject({
+      name: "demo",
+      root,
+    });
+    await writeFile(
+      join(root, "tsconfig.e2e.json"),
+      `${JSON.stringify(
+        {
+          extends: "./tsconfig.json",
+          compilerOptions: {
+            baseUrl: ".",
+            ignoreDeprecations: "6.0",
+            lib: ["DOM", "ESNext"],
+            noEmit: true,
+            paths: {
+              "@cosystem/core": [join(repoRoot, "packages/core/src/index.ts")],
+            },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    await expect(
+      execFileAsync(join(repoRoot, "node_modules/.bin/tsc"), ["-p", "tsconfig.e2e.json"], {
+        cwd: root,
+      }),
+    ).resolves.toMatchObject({
+      stderr: "",
+      stdout: "",
+    });
   });
 });
