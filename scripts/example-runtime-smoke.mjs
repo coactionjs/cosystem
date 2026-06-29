@@ -61,6 +61,26 @@ const exampleSmokes = [
       await expectStat(page, "Path", "/help");
       await expectStat(page, "Search", "-");
       await expectStat(page, "Hash", "#shortcuts");
+
+      await page.goBack();
+      await expectStat(page, "Path", "/settings");
+      await expectStat(page, "Search", "?tab=profile");
+      await expectStat(page, "Hash", "-");
+
+      await page.goBack();
+      await expectStat(page, "Path", "/");
+      await expectStat(page, "Search", "-");
+      await expectStat(page, "Hash", "-");
+
+      await page.goForward();
+      await expectStat(page, "Path", "/settings");
+      await expectStat(page, "Search", "?tab=profile");
+      await expectStat(page, "Hash", "-");
+
+      await page.goForward();
+      await expectStat(page, "Path", "/help");
+      await expectStat(page, "Search", "-");
+      await expectStat(page, "Hash", "#shortcuts");
     },
   },
   {
