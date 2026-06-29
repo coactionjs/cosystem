@@ -48,6 +48,14 @@ export default defineConfig({
         extends: true,
         test: {
           include: ["src/**/*.test.ts"],
+          name: "@cosystem/integration",
+          root: "./packages/integration",
+        },
+      },
+      {
+        extends: true,
+        test: {
+          include: ["src/**/*.test.ts"],
           name: "@cosystem/react",
           root: "./packages/react",
         },

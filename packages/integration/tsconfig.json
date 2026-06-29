@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "@cosystem/tsconfig/node.json",
+  "compilerOptions": {
+    "declarationMap": false,
+    "isolatedDeclarations": false,
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"]
+}

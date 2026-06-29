@@ -496,6 +496,31 @@ importers:
         specifier: 'catalog:'
         version: 4.1.9(@types/node@22.19.21)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@22.19.21)(esbuild@0.28.1)(jiti@2.6.1)(sass@1.99.0)(yaml@2.9.0))
 
+  packages/integration:
+    dependencies:
+      '@cosystem/core':
+        specifier: workspace:*
+        version: link:../core
+      '@cosystem/devtools':
+        specifier: workspace:*
+        version: link:../devtools
+      '@cosystem/router':
+        specifier: workspace:*
+        version: link:../router
+      '@cosystem/storage':
+        specifier: workspace:*
+        version: link:../storage
+    devDependencies:
+      '@cosystem/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.9(@types/node@22.19.21)(@vitest/coverage-v8@4.1.9)(vite@8.0.16(@types/node@22.19.21)(esbuild@0.28.1)(jiti@2.6.1)(sass@1.99.0)(yaml@2.9.0))
+
   packages/react:
     dependencies:
       '@cosystem/core':

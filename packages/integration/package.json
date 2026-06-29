@@ -1,0 +1,21 @@
+{
+  "name": "@cosystem/integration",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "cd ../.. && vitest run --project @cosystem/integration",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@cosystem/core": "workspace:*",
+    "@cosystem/devtools": "workspace:*",
+    "@cosystem/router": "workspace:*",
+    "@cosystem/storage": "workspace:*"
+  },
+  "devDependencies": {
+    "@cosystem/tsconfig": "workspace:*",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
