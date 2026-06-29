@@ -70,6 +70,11 @@ interface WorkerClient {
 
 `module<T>(name)` returns an `AsyncMethodProxy<T>`: every method becomes
 `(...args) => Promise<...>`, since each call is delegated across the transport.
+When a delegated method settles, the client waits until its mirrored state has
+reached the worker state version observed by that method result. If the result
+arrives before the corresponding state message, the client requests a snapshot
+sync and resolves or rejects the method promise only after the local mirror is
+caught up.
 
 ## Transports
 

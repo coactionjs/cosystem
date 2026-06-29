@@ -12,6 +12,7 @@ import {
   type DataTransportLike,
   type PostMessageEndpoint,
   type PostMessageEventLike,
+  type WorkerTransport,
   type WorkerConflictEvent,
   type WorkerMessage,
   type WorkerStateMessage,
@@ -29,6 +30,22 @@ class WorkerCounter {
 defineModule(WorkerCounter, {
   actions: ["increase"],
   name: "workerCounter",
+  state: ["count"],
+});
+
+class WorkerFailingCounter {
+  count = 0;
+
+  async failAfterIncrease(): Promise<void> {
+    await Promise.resolve();
+    this.count += 1;
+    throw new Error("fail after increase");
+  }
+}
+
+defineModule(WorkerFailingCounter, {
+  actions: ["failAfterIncrease"],
+  name: "workerFailingCounter",
   state: ["count"],
 });
 
@@ -103,6 +120,84 @@ describe("worker prototype", () => {
       },
     ]);
     expect(patchMessages.every((message) => (message.patches?.length ?? 0) > 0)).toBe(true);
+
+    client.dispose();
+    await host.dispose();
+  });
+
+  it("syncs state before resolving delegated calls when result arrives before state", async () => {
+    const pair = createControlledWorkerTransportPair();
+    const conflicts: WorkerConflictEvent[] = [];
+    const client = createWorkerClient({
+      onConflict: (event) => {
+        conflicts.push(event);
+      },
+      transport: pair.clientTransport,
+    });
+    const host = createWorkerApp({
+      providers: [WorkerCounter],
+      transport: pair.hostTransport,
+    });
+    const countsAtResolution: number[] = [];
+
+    await client.ready;
+    pair.holdNextPatchStateMessage();
+
+    await expect(
+      client
+        .module<WorkerCounter>("workerCounter")
+        .increase(2)
+        .then((value) => {
+          countsAtResolution.push(client.select(selectWorkerCount));
+          return value;
+        }),
+    ).resolves.toBe(2);
+
+    expect(pair.syncRequests).toEqual([1]);
+    expect(pair.heldStateMessages.map((message) => message.version)).toEqual([1]);
+    expect(countsAtResolution).toEqual([2]);
+    expect(client.select(selectWorkerCount)).toBe(2);
+    pair.releaseHeldStateMessages();
+    expect(conflicts).toEqual([]);
+
+    client.dispose();
+    await host.dispose();
+  });
+
+  it("syncs state before rejecting delegated calls when result arrives before state", async () => {
+    const pair = createControlledWorkerTransportPair();
+    const conflicts: WorkerConflictEvent[] = [];
+    const client = createWorkerClient({
+      onConflict: (event) => {
+        conflicts.push(event);
+      },
+      transport: pair.clientTransport,
+    });
+    const host = createWorkerApp({
+      providers: [WorkerFailingCounter],
+      transport: pair.hostTransport,
+    });
+    const countsAtRejection: number[] = [];
+
+    await client.ready;
+    pair.holdNextPatchStateMessage();
+
+    await expect(
+      client
+        .module<WorkerFailingCounter>("workerFailingCounter")
+        .failAfterIncrease()
+        .catch((error: unknown) => {
+          countsAtRejection.push(client.select(selectFailingWorkerCount));
+          throw error;
+        }),
+    ).rejects.toThrow("Remote worker error: fail after increase");
+
+    expect(pair.syncRequests).toEqual([1]);
+    expect(pair.heldStateMessages.map((message) => message.version)).toEqual([1]);
+    expect(countsAtRejection).toEqual([1]);
+    expect(client.select(selectFailingWorkerCount)).toBe(1);
+    pair.releaseHeldStateMessages();
+    expect(conflicts).toEqual([]);
 
     client.dispose();
     await host.dispose();
@@ -481,6 +576,76 @@ describe("worker prototype", () => {
     clientTwoChannel.close?.();
   });
 
+  it("targets broadcast snapshot resyncs to the requesting client", async () => {
+    const channel = "worker-broadcast-sync";
+    const hostChannel = createMemoryBroadcastChannel(channel);
+    const clientOneChannel = createMemoryBroadcastChannel(channel);
+    const clientTwoChannel = createMemoryBroadcastChannel(channel);
+    const rawHostTransport = createBroadcastWorkerTransport(hostChannel, {
+      peerId: "host",
+    });
+    const clientOneConflicts: WorkerConflictEvent[] = [];
+    const heldStateMessages: WorkerStateMessage[] = [];
+    let holdNextPatchStateMessage = false;
+    const hostTransport: WorkerTransport = {
+      post(message) {
+        if (message.type === "state" && message.sync === "patch" && holdNextPatchStateMessage) {
+          holdNextPatchStateMessage = false;
+          heldStateMessages.push(message);
+          return;
+        }
+
+        rawHostTransport.post(message);
+      },
+      subscribe(listener) {
+        return rawHostTransport.subscribe(listener);
+      },
+    };
+    const clientOne = createWorkerClient({
+      onConflict: (event) => {
+        clientOneConflicts.push(event);
+      },
+      transport: createBroadcastWorkerTransport(clientOneChannel, {
+        peerId: "client:one",
+        targetPeerId: "host",
+      }),
+    });
+    const clientTwo = createWorkerClient({
+      transport: createBroadcastWorkerTransport(clientTwoChannel, {
+        peerId: "client:two",
+        targetPeerId: "host",
+      }),
+    });
+    const host = createWorkerApp({
+      providers: [WorkerCounter],
+      sync: "patch",
+      transport: hostTransport,
+    });
+
+    await Promise.all([clientOne.ready, clientTwo.ready]);
+
+    holdNextPatchStateMessage = true;
+    await expect(clientOne.module<WorkerCounter>("workerCounter").increase(2)).resolves.toBe(2);
+
+    expect(heldStateMessages.map((message) => message.version)).toEqual([1]);
+    expect(clientOne.select(selectWorkerCount)).toBe(2);
+    expect(clientTwo.select(selectWorkerCount)).toBe(0);
+
+    for (const message of heldStateMessages.splice(0)) {
+      rawHostTransport.post(message);
+    }
+
+    expect(clientTwo.select(selectWorkerCount)).toBe(2);
+    expect(clientOneConflicts).toEqual([]);
+
+    clientOne.dispose();
+    clientTwo.dispose();
+    await host.dispose();
+    hostChannel.close?.();
+    clientOneChannel.close?.();
+    clientTwoChannel.close?.();
+  });
+
   it("removes postMessage listeners when unsubscribed", () => {
     const [endpoint] = createPostMessageEndpointPair();
     const messages: WorkerMessage[] = [];
@@ -597,8 +762,87 @@ interface WorkerCounterState {
   };
 }
 
+interface WorkerFailingCounterState {
+  readonly workerFailingCounter: {
+    readonly count: number;
+  };
+}
+
 function selectWorkerCount(state: unknown): number {
   return (state as WorkerCounterState).workerCounter.count;
+}
+
+function selectFailingWorkerCount(state: unknown): number {
+  return (state as WorkerFailingCounterState).workerFailingCounter.count;
+}
+
+function createControlledWorkerTransportPair(): {
+  readonly hostTransport: WorkerTransport;
+  readonly clientTransport: WorkerTransport;
+  readonly heldStateMessages: WorkerStateMessage[];
+  readonly syncRequests: number[];
+  holdNextPatchStateMessage(): void;
+  releaseHeldStateMessages(): void;
+} {
+  const hostListeners = new Set<(message: WorkerMessage) => void>();
+  const clientListeners = new Set<(message: WorkerMessage) => void>();
+  const heldStateMessages: WorkerStateMessage[] = [];
+  const syncRequests: number[] = [];
+  let holdNextPatchStateMessage = false;
+
+  return {
+    clientTransport: {
+      post(message) {
+        if (message.type === "sync" && typeof message.stateVersion === "number") {
+          syncRequests.push(message.stateVersion);
+        }
+
+        deliverWorkerMessage(hostListeners, message);
+      },
+      subscribe(listener) {
+        clientListeners.add(listener);
+        return () => {
+          clientListeners.delete(listener);
+        };
+      },
+    },
+    heldStateMessages,
+    holdNextPatchStateMessage() {
+      holdNextPatchStateMessage = true;
+    },
+    hostTransport: {
+      post(message) {
+        if (message.type === "state" && message.sync === "patch" && holdNextPatchStateMessage) {
+          holdNextPatchStateMessage = false;
+          heldStateMessages.push(message);
+          return;
+        }
+
+        deliverWorkerMessage(clientListeners, message);
+      },
+      subscribe(listener) {
+        hostListeners.add(listener);
+        return () => {
+          hostListeners.delete(listener);
+        };
+      },
+    },
+    releaseHeldStateMessages() {
+      for (const message of heldStateMessages.splice(0)) {
+        deliverWorkerMessage(clientListeners, message);
+      }
+    },
+    syncRequests,
+  };
+}
+
+function deliverWorkerMessage(
+  listeners: Set<(message: WorkerMessage) => void>,
+  message: WorkerMessage,
+): void {
+  for (const listener of listeners) {
+    listener(message);
+  }
 }
 
 function createDataTransportPair(): readonly [DataTransportLike, DataTransportLike] {

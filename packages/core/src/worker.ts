@@ -79,6 +79,7 @@ export type WorkerMessage =
   | WorkerCallMessage
   | WorkerResultMessage
   | WorkerStateMessage
+  | WorkerSyncMessage
   | WorkerReadyMessage;
 
 export interface WorkerCallMessage {
@@ -92,6 +93,7 @@ export interface WorkerCallMessage {
 export interface WorkerResultMessage {
   readonly id: number;
   readonly type: "result";
+  readonly stateVersion?: number;
   readonly value?: unknown;
   readonly error?: SerializedWorkerError;
 }
@@ -102,11 +104,18 @@ export interface WorkerStateMessage {
   readonly patches?: readonly unknown[];
   readonly sections?: readonly WorkerStateSection[];
   readonly sync: "patch" | "snapshot";
+  readonly syncId?: number;
   readonly version: number;
 }
 
 export interface WorkerReadyMessage {
   readonly type: "ready";
+}
+
+export interface WorkerSyncMessage {
+  readonly id: number;
+  readonly type: "sync";
+  readonly stateVersion?: number;
 }
 
 export interface SerializedWorkerError {
@@ -194,7 +203,7 @@ interface WorkerSelectorWatcher<T> {
 type PatchPathSegment = string | number;
 type PatchContainer = Record<string, unknown> | unknown[];
 
-interface BroadcastCallRoute {
+interface BroadcastMessageRoute {
   readonly id: number;
   readonly source: string;
 }
@@ -203,6 +212,18 @@ interface WorkerPatch {
   readonly op: "add" | "replace" | "remove";
   readonly path: unknown;
   readonly value?: unknown;
+}
+
+interface PendingWorkerCall {
+  readonly resolve: (value: unknown) => void;
+  readonly reject: (error: unknown) => void;
+  result?: PendingWorkerResult;
+}
+
+interface PendingWorkerResult {
+  readonly value?: unknown;
+  readonly error?: SerializedWorkerError;
+  readonly stateVersion?: number;
 }
 
 export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost {
@@ -240,11 +261,14 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
     return undefined;
   });
   const unsubscribeTransport = transport.subscribe((message) => {
-    if (message.type !== "call") {
+    if (message.type === "sync") {
+      void handleSync(app, transport, message, ready, stateSections, () => stateSyncVersion);
       return;
     }
 
-    void handleCall(app, transport, message, ready);
+    if (message.type === "call") {
+      void handleCall(app, transport, message, ready, () => stateSyncVersion);
+    }
   });
 
   return {
@@ -262,15 +286,11 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
   const { onConflict, transport } = options;
   const listeners = new Set<(message: WorkerStateMessage) => void>();
   const selectorWatchers = new Set<WorkerSelectorWatcher<unknown>>();
-  const pending = new Map<
-    number,
-    {
-      readonly resolve: (value: unknown) => void;
-      readonly reject: (error: unknown) => void;
-    }
-  >();
+  const pending = new Map<number, PendingWorkerCall>();
   const state = { version: 0 };
   let nextId = 1;
+  let requestedSyncVersion = 0;
+  let syncedStaleVersion = 0;
   let snapshot: unknown;
   let readySettled = false;
   let resolveReady!: () => void;
@@ -379,6 +399,56 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
     },
   };
 
+  const settlePendingResult = (
+    id: number,
+    entry: PendingWorkerCall,
+    result: PendingWorkerResult,
+  ): void => {
+    pending.delete(id);
+
+    if (result.error !== undefined) {
+      entry.reject(createRemoteError(result.error));
+      return;
+    }
+
+    entry.resolve(result.value);
+  };
+
+  const trySettlePendingResult = (
+    id: number,
+    entry: PendingWorkerCall,
+    result: PendingWorkerResult,
+  ): boolean => {
+    if (result.stateVersion !== undefined && result.stateVersion > state.version) {
+      return false;
+    }
+
+    settlePendingResult(id, entry, result);
+    return true;
+  };
+
+  const resolveSyncedResults = () => {
+    for (const [id, entry] of pending) {
+      if (entry.result !== undefined) {
+        trySettlePendingResult(id, entry, entry.result);
+      }
+    }
+  };
+
+  const requestStateSync = (stateVersion: number): void => {
+    if (stateVersion <= state.version || stateVersion <= requestedSyncVersion) {
+      return;
+    }
+
+    requestedSyncVersion = stateVersion;
+    transport.post({
+      id: nextId,
+      stateVersion,
+      type: "sync",
+    });
+    nextId += 1;
+  };
+
   const publishSelectorWatchers = () => {
     if (snapshot === undefined) {
       return;
@@ -412,6 +482,10 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
   unsubscribe = transport.subscribe((message) => {
     if (message.type === "state") {
       if (readySettled && message.version <= state.version) {
+        if (message.version <= syncedStaleVersion) {
+          return;
+        }
+
         reportWorkerConflict(onConflict, {
           currentVersion: state.version,
           incomingVersion: message.version,
@@ -459,6 +533,10 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
       }
 
       state.version = message.version;
+      if (requestedSyncVersion > 0 && requestedSyncVersion <= state.version) {
+        syncedStaleVersion = Math.max(syncedStaleVersion, state.version);
+        requestedSyncVersion = 0;
+      }
 
       if (!readySettled) {
         readySettled = true;
@@ -470,6 +548,7 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
       }
 
       publishSelectorWatchers();
+      resolveSyncedResults();
 
       return;
     }
@@ -485,13 +564,20 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
     }
 
     pending.delete(message.id);
+    const result: PendingWorkerResult = {
+      ...(message.error === undefined ? { value: message.value } : { error: message.error }),
+      ...(typeof message.stateVersion === "number" ? { stateVersion: message.stateVersion } : {}),
+    };
 
-    if (message.error !== undefined) {
-      entry.reject(createRemoteError(message.error));
+    if (trySettlePendingResult(message.id, entry, result)) {
       return;
     }
 
-    entry.resolve(message.value);
+    pending.set(message.id, {
+      ...entry,
+      result,
+    });
+    requestStateSync(result.stateVersion!);
   });
 
   return client;
@@ -554,13 +640,13 @@ export function createBroadcastWorkerTransport(
 ): WorkerTransport {
   const channel = options.channel ?? defaultBroadcastWorkerChannel;
   const peerId = options.peerId ?? createWorkerPeerId();
-  const callRoutes = new Map<number, BroadcastCallRoute>();
+  const messageRoutes = new Map<number, BroadcastMessageRoute>();
   let nextRoutedCallId = 1;
 
   return {
     post(message) {
       try {
-        const routed = routeBroadcastWorkerMessage(message, callRoutes);
+        const routed = routeBroadcastWorkerMessage(message, messageRoutes);
         const target = routed.target ?? getBroadcastWorkerTarget(message, options);
         const envelope: BroadcastWorkerMessageEnvelope = {
           channel,
@@ -589,10 +675,10 @@ export function createBroadcastWorkerTransport(
           return;
         }
 
-        if (envelope.message.type === "call") {
+        if (envelope.message.type === "call" || envelope.message.type === "sync") {
           const routedCallId = nextRoutedCallId;
           nextRoutedCallId += 1;
-          callRoutes.set(routedCallId, {
+          messageRoutes.set(routedCallId, {
             id: envelope.message.id,
             source: envelope.source,
           });
@@ -698,30 +784,46 @@ function getBroadcastWorkerTarget(
   message: WorkerMessage,
   options: BroadcastWorkerTransportOptions,
 ): string | undefined {
-  return message.type === "call" ? options.targetPeerId : undefined;
+  return message.type === "call" || message.type === "sync" ? options.targetPeerId : undefined;
 }
 
 function routeBroadcastWorkerMessage(
   message: WorkerMessage,
-  callRoutes: Map<number, BroadcastCallRoute>,
+  messageRoutes: Map<number, BroadcastMessageRoute>,
 ): { readonly message: WorkerMessage; readonly target?: string } {
-  if (message.type !== "result") {
+  if (message.type === "result") {
+    const route = messageRoutes.get(message.id);
+
+    if (route === undefined) {
+      return { message };
+    }
+
+    messageRoutes.delete(message.id);
+
+    return {
+      message: {
+        ...message,
+        id: route.id,
+      },
+      target: route.source,
+    };
+  }
+
+  if (message.type !== "state" || message.syncId === undefined) {
     return { message };
   }
 
-  const route = callRoutes.get(message.id);
+  const route = messageRoutes.get(message.syncId);
 
   if (route === undefined) {
     return { message };
   }
 
-  callRoutes.delete(message.id);
+  messageRoutes.delete(message.syncId);
+  const { syncId: _syncId, ...stateMessage } = message;
 
   return {
-    message: {
-      ...message,
-      id: route.id,
-    },
+    message: stateMessage,
     target: route.source,
   };
 }
@@ -731,6 +833,7 @@ async function handleCall(
   transport: WorkerTransport,
   message: WorkerCallMessage,
   ready: Promise<void>,
+  getStateVersion: () => number,
 ): Promise<void> {
   try {
     await ready;
@@ -744,6 +847,7 @@ async function handleCall(
     const value = await method.apply(module, message.args);
     transport.post({
       id: message.id,
+      stateVersion: getStateVersion(),
       type: "result",
       value,
     });
@@ -751,8 +855,25 @@ async function handleCall(
     transport.post({
       error: serializeError(error),
       id: message.id,
+      stateVersion: getStateVersion(),
       type: "result",
     });
+  }
+}
+
+async function handleSync(
+  app: App,
+  transport: WorkerTransport,
+  message: WorkerSyncMessage,
+  ready: Promise<void>,
+  sections: readonly WorkerStateSection[] | undefined,
+  getStateVersion: () => number,
+): Promise<void> {
+  try {
+    await ready;
+    publishState(app, transport, [], "snapshot", sections, getStateVersion(), message.id);
+  } catch {
+    // The startup failure is reported through the host ready promise and call results.
   }
 }
 
@@ -763,6 +884,7 @@ function publishState(
   mode: WorkerStateSyncMode = "snapshot",
   sections?: readonly WorkerStateSection[],
   version: number = app.state.version,
+  syncId?: number,
 ): boolean {
   const filteredPatches = filterWorkerPatches(patches, sections);
   const isPatch = filteredPatches.length > 0;
@@ -776,6 +898,7 @@ function publishState(
     ...(isPatch && mode === "patch" ? {} : { state }),
     ...(sections === undefined ? {} : { sections }),
     sync: isPatch ? "patch" : "snapshot",
+    ...(syncId === undefined ? {} : { syncId }),
     type: "state",
     version,
     ...(isPatch ? { patches: filteredPatches } : {}),
@@ -991,7 +1114,7 @@ function createMemoryWorkerTransport(
   };
 }
 
-const workerMessageTypes = ["call", "result", "state", "ready"] as const;
+const workerMessageTypes = ["call", "result", "state", "sync", "ready"] as const;
 const defaultBroadcastWorkerChannel = "cosystem:worker";
 const memoryBroadcastChannels = new Map<string, Set<MemoryBroadcastChannel>>();
 let nextWorkerPeerId = 1;

@@ -473,6 +473,11 @@ client.dispose();
 await host.dispose();
 ```
 
+Delegated method promises settle after the client mirror reaches the worker
+state version associated with the method result. If a result arrives before its
+state update, the client requests a snapshot sync and waits before resolving or
+rejecting the call.
+
 Transports (all interchangeable):
 
 - `createMemoryWorkerTransportPair()` — in-process host/client pair (tests).

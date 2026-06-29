@@ -28,6 +28,7 @@
 
 ### Patch Changes
 
+- Ensure delegated worker method promises settle only after the client state mirror reaches the worker state version associated with the result.
 - 8d18a9a: Return the bound CoSystem module facade from `app.get()` and `app.getAsync()` for module tokens, even when the provider scope is not singleton.
 
 ## 0.0.2
