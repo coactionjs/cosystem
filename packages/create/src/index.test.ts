@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createCosystemProject } from "./index.js";
 
@@ -75,5 +75,36 @@ describe("create package", () => {
       stderr: "",
       stdout: "",
     });
+  });
+
+  it("scaffolds a project through the CLI entrypoint", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "cosystem-create-cli-"));
+    roots.push(workspace);
+    const target = "cli-demo";
+    const root = join(workspace, target);
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(workspace);
+    const logs: unknown[][] = [];
+    const log = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      logs.push(args);
+    });
+    const originalArgv = process.argv;
+
+    process.argv = [process.execPath, "create-cosystem", target];
+
+    try {
+      await import("./cli.js");
+    } finally {
+      process.argv = originalArgv;
+      cwd.mockRestore();
+      log.mockRestore();
+    }
+
+    expect(logs).toEqual([[`Created CoSystem project at ${root}`]]);
+    await expect(readFile(join(root, "package.json"), "utf8")).resolves.toContain(
+      '"name": "cli-demo"',
+    );
+    await expect(readFile(join(root, "src/main.ts"), "utf8")).resolves.toContain(
+      "console.log(app.store.getPureState())",
+    );
   });
 });
