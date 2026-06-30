@@ -24,7 +24,7 @@ try {
   await writeConsumerProject({ catalog, coreTarball, storageTarball });
   await run(
     "pnpm",
-    ["install", "--offline", "--no-frozen-lockfile", "--ignore-scripts"],
+    ["install", "--prefer-offline", "--no-frozen-lockfile", "--ignore-scripts"],
     consumerDir,
   );
   await run(tscBin, ["-p", "tsconfig.json"], consumerDir);

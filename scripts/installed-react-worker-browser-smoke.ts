@@ -29,7 +29,7 @@ try {
   const reactTarball = await packPackage("@cosystem/react");
 
   await writeConsumerProject({ catalog, coreTarball, reactTarball });
-  await run("pnpm", ["install", "--offline", "--no-frozen-lockfile"], consumerDir);
+  await run("pnpm", ["install", "--prefer-offline", "--no-frozen-lockfile"], consumerDir);
   await run("pnpm", ["run", "typecheck"], consumerDir);
   await run("pnpm", ["run", "build"], consumerDir);
 

@@ -29,7 +29,7 @@ try {
   const routerTarball = await packPackage("@cosystem/router");
 
   await writeConsumerProject(coreTarball, routerTarball, catalog);
-  await run("pnpm", ["install", "--offline", "--no-frozen-lockfile"], consumerDir);
+  await run("pnpm", ["install", "--prefer-offline", "--no-frozen-lockfile"], consumerDir);
   await run("pnpm", ["run", "typecheck"], consumerDir);
   await run("pnpm", ["run", "build"], consumerDir);
 

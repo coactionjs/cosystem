@@ -29,7 +29,7 @@ try {
   const svelteTarball = await packPackage("@cosystem/svelte");
 
   await writeConsumerProject({ catalog, coreTarball, svelteTarball });
-  await run("pnpm", ["install", "--offline", "--no-frozen-lockfile"], consumerDir);
+  await run("pnpm", ["install", "--prefer-offline", "--no-frozen-lockfile"], consumerDir);
   await run("pnpm", ["run", "typecheck"], consumerDir);
   await run("pnpm", ["run", "build"], consumerDir);
 
