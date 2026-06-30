@@ -1,0 +1,2 @@
+scripts/*.ts linguist-language=TypeScript
+packages/create/src/cli.ts linguist-language=TypeScript
