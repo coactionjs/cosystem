@@ -43,5 +43,161 @@ jobs:
           pnpm exec playwright install --with-deps chromium
           echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(node -e 'const { chromium } = require(\"playwright\"); console.log(chromium.executablePath())')" >> "$GITHUB_ENV"
 
-      - name: Verify
-        run: pnpm run ci
+      - name: Format
+        run: pnpm run format:check
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Unit tests
+        run: pnpm run test
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Smoke generated project runtime
+        run: pnpm run test:create-runtime
+
+      - name: Smoke installed scaffold
+        run: pnpm run test:scaffold-install
+
+      - name: Smoke pnpm dlx scaffold
+        run: pnpm run test:scaffold-dlx
+
+      - name: Smoke core decorators install
+        run: pnpm run test:core:decorators-install
+
+      - name: Smoke core container install
+        run: pnpm run test:core:container-install
+
+      - name: Smoke core app providers install
+        run: pnpm run test:core:app-providers-install
+
+      - name: Smoke core plugin providers install
+        run: pnpm run test:core:plugin-providers-install
+
+      - name: Smoke core lifecycle install
+        run: pnpm run test:core:lifecycle-install
+
+      - name: Smoke core effects install
+        run: pnpm run test:core:effects-install
+
+      - name: Smoke core async lazy install
+        run: pnpm run test:core:async-lazy-install
+
+      - name: Smoke core logger install
+        run: pnpm run test:core:logger-install
+
+      - name: Smoke core actions install
+        run: pnpm run test:core:actions-install
+
+      - name: Smoke example builds
+        run: pnpm run test:examples
+
+      - name: Smoke installed example builds
+        run: pnpm run test:examples:install
+
+      - name: Smoke installed testing example
+        run: pnpm run test:examples:testing-install
+
+      - name: Smoke testing helper install
+        run: pnpm run test:testing:install-runtime
+
+      - name: Smoke Svelte runtime install
+        run: pnpm run test:svelte:install-runtime
+
+      - name: Smoke Svelte browser
+        run: pnpm run test:svelte:browser
+
+      - name: Smoke Svelte worker browser
+        run: pnpm run test:svelte:worker-browser
+
+      - name: Smoke framework adapters install
+        run: pnpm run test:frameworks:install
+
+      - name: Smoke React browser
+        run: pnpm run test:frameworks:react-browser
+
+      - name: Smoke React worker browser
+        run: pnpm run test:frameworks:react-worker-browser
+
+      - name: Smoke Vue browser
+        run: pnpm run test:frameworks:vue-browser
+
+      - name: Smoke Vue worker browser
+        run: pnpm run test:frameworks:vue-worker-browser
+
+      - name: Smoke Solid browser
+        run: pnpm run test:frameworks:solid-browser
+
+      - name: Smoke Solid worker browser
+        run: pnpm run test:frameworks:solid-worker-browser
+
+      - name: Smoke Angular browser
+        run: pnpm run test:frameworks:angular-browser
+
+      - name: Smoke Angular worker browser
+        run: pnpm run test:frameworks:angular-worker-browser
+
+      - name: Smoke framework worker adapters install
+        run: pnpm run test:frameworks:worker-install
+
+      - name: Smoke example runtime
+        run: pnpm run test:examples:runtime
+
+      - name: Smoke router memory install
+        run: pnpm run test:router:memory-install
+
+      - name: Smoke router browser
+        run: pnpm run test:router-browser
+
+      - name: Smoke storage-like install
+        run: pnpm run test:storage:like-install
+
+      - name: Smoke storage service install
+        run: pnpm run test:storage:service-install
+
+      - name: Smoke storage localspace plugins install
+        run: pnpm run test:storage:localspace-plugins-install
+
+      - name: Smoke storage browser
+        run: pnpm run test:storage-browser
+
+      - name: Smoke storage IndexedDB browser
+        run: pnpm run test:storage:indexeddb-browser
+
+      - name: Smoke devtools browser
+        run: pnpm run test:devtools-browser
+
+      - name: Smoke plugin stack browser
+        run: pnpm run test:plugins:browser
+
+      - name: Smoke worker runtime install
+        run: pnpm run test:worker:install-runtime
+
+      - name: Smoke worker async browser
+        run: pnpm run test:worker:async-browser
+
+      - name: Smoke worker state conflict install
+        run: pnpm run test:worker:state-conflict-install
+
+      - name: Smoke broadcast worker browser
+        run: pnpm run test:worker:broadcast-browser
+
+      - name: Smoke data transport worker install
+        run: pnpm run test:worker:data-transport-install
+
+      - name: Smoke package exports
+        run: pnpm run test:exports
+
+      - name: Smoke package pack
+        run: pnpm run test:pack
+
+      - name: Smoke package install
+        run: pnpm run test:install
+
+      - name: Smoke publish dry run
+        run: pnpm run test:publish-dry-run
