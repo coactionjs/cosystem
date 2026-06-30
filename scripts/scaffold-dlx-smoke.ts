@@ -42,7 +42,7 @@ try {
   }
 
   await writeGeneratedAppOverrides(coreTarball, catalog);
-  await run("pnpm", ["install", "--offline"], appDir);
+  await run("pnpm", ["install", "--prefer-offline"], appDir);
   await run("pnpm", ["run", "build"], appDir);
 
   const startResult = await run("pnpm", ["run", "start"], appDir);
