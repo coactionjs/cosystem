@@ -29,7 +29,7 @@ try {
   const solidTarball = await packPackage("@cosystem/solid");
 
   await writeConsumerProject({ catalog, coreTarball, solidTarball });
-  await run("pnpm", ["install", "--offline"], consumerDir);
+  await run("pnpm", ["install", "--offline", "--no-frozen-lockfile"], consumerDir);
   await run("pnpm", ["run", "typecheck"], consumerDir);
   await run("pnpm", ["run", "build"], consumerDir);
 

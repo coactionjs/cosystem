@@ -29,7 +29,7 @@ try {
   const coreTarball = await packPackage("@cosystem/core");
 
   await writeConsumerProject({ angularTarball, catalog, coreTarball });
-  await run("pnpm", ["install", "--offline"], consumerDir);
+  await run("pnpm", ["install", "--offline", "--no-frozen-lockfile"], consumerDir);
   await run("pnpm", ["run", "typecheck"], consumerDir);
   await run("pnpm", ["run", "build"], consumerDir);
 

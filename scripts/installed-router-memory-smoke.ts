@@ -22,7 +22,11 @@ try {
   const routerTarball = await packPackage("@cosystem/router");
 
   await writeConsumerProject({ catalog, coreTarball, routerTarball });
-  await run("pnpm", ["install", "--offline", "--ignore-scripts"], consumerDir);
+  await run(
+    "pnpm",
+    ["install", "--offline", "--no-frozen-lockfile", "--ignore-scripts"],
+    consumerDir,
+  );
   await run(tscBin, ["-p", "tsconfig.json"], consumerDir);
   await run(process.execPath, ["runtime.mjs"], consumerDir);
 

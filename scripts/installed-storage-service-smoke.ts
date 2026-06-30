@@ -22,7 +22,11 @@ try {
   const storageTarball = await packPackage("@cosystem/storage");
 
   await writeConsumerProject({ catalog, coreTarball, storageTarball });
-  await run("pnpm", ["install", "--offline", "--ignore-scripts"], consumerDir);
+  await run(
+    "pnpm",
+    ["install", "--offline", "--no-frozen-lockfile", "--ignore-scripts"],
+    consumerDir,
+  );
   await run(tscBin, ["-p", "tsconfig.json"], consumerDir);
   await run(process.execPath, ["runtime.mjs"], consumerDir);
 

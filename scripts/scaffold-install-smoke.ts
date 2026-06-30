@@ -23,7 +23,11 @@ try {
   const coreTarball = await packPackage("@cosystem/core");
 
   await writeCliConsumer(createTarball);
-  await run("pnpm", ["install", "--prefer-offline", "--ignore-scripts"], cliConsumerDir);
+  await run(
+    "pnpm",
+    ["install", "--prefer-offline", "--no-frozen-lockfile", "--ignore-scripts"],
+    cliConsumerDir,
+  );
 
   const createResult = await run("pnpm", ["exec", "create-cosystem", appName], cliConsumerDir);
   const createdPath = createResult.stdout.trim().replace("Created CoSystem project at ", "");
@@ -37,7 +41,7 @@ try {
   }
 
   await writeGeneratedAppOverrides(coreTarball, catalog);
-  await run("pnpm", ["install", "--prefer-offline"], appDir);
+  await run("pnpm", ["install", "--prefer-offline", "--no-frozen-lockfile"], appDir);
   await run("pnpm", ["run", "build"], appDir);
 
   const startResult = await run("pnpm", ["run", "start"], appDir);

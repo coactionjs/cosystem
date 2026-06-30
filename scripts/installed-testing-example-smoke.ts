@@ -24,7 +24,7 @@ try {
   const testingTarball = await packPackage("@cosystem/testing");
 
   await writeInstalledTestingExample(coreTarball, testingTarball, catalog, rootPackageJson);
-  await run("pnpm", ["install", "--offline"], tempDir);
+  await run("pnpm", ["install", "--offline", "--no-frozen-lockfile"], tempDir);
   await run("pnpm", ["--filter", "@cosystem/example-testing", "run", "typecheck"], tempDir);
   await run("pnpm", ["--filter", "@cosystem/example-testing", "run", "test"], tempDir);
 

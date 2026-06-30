@@ -152,7 +152,7 @@ try {
   }
 
   await writeInstalledExamplesWorkspace(buildableExamples, tarballByName, catalog, rootPackageJson);
-  await run("pnpm", ["install", "--offline"], tempDir);
+  await run("pnpm", ["install", "--offline", "--no-frozen-lockfile"], tempDir);
 
   for (const example of buildableExamples) {
     await run("pnpm", ["--filter", example.name, "run", "typecheck"], tempDir);

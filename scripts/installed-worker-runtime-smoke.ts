@@ -30,7 +30,7 @@ try {
   const coreTarball = await packPackage("@cosystem/core");
 
   await writeInstalledWorkerExample(coreTarball, catalog, rootPackageJson);
-  await run("pnpm", ["install", "--offline"], tempDir);
+  await run("pnpm", ["install", "--offline", "--no-frozen-lockfile"], tempDir);
   await run("pnpm", ["--filter", "@cosystem/example-worker-counter", "run", "typecheck"], tempDir);
   await run("pnpm", ["--filter", "@cosystem/example-worker-counter", "run", "build"], tempDir);
 
