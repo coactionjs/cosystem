@@ -1,5 +1,13 @@
 # @cosystem/core
 
+## 0.2.0
+
+### Minor Changes
+
+- c91cebc: Allow plugins to contribute non-module providers, have the router plugin provide `RouterToken`, and flush storage writes through plugin context disposal.
+- 51a2645: Rename decorator APIs to PascalCase: `Module`, `State`, `Action`, `Computed`, and `Effect`.
+- 80c4e58: Add `PluginContext` with managed disposers and `watch`, and isolate observer hook errors through plugin error hooks.
+
 ## 0.1.0
 
 ### Major Changes

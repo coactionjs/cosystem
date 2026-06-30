@@ -1,5 +1,18 @@
 # @cosystem/router
 
+## 0.2.0
+
+### Minor Changes
+
+- c91cebc: Allow plugins to contribute non-module providers, have the router plugin provide `RouterToken`, and flush storage writes through plugin context disposal.
+
+### Patch Changes
+
+- Updated dependencies [c91cebc]
+- Updated dependencies [51a2645]
+- Updated dependencies [80c4e58]
+  - @cosystem/core@0.2.0
+
 ## 0.1.0
 
 ### Major Changes

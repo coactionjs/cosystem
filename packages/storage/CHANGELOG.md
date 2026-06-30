@@ -1,5 +1,19 @@
 # @cosystem/storage
 
+## 0.2.0
+
+### Minor Changes
+
+- 09b158e: Add a localspace-backed cross-framework storage plugin with `StorageToken`, localspace driver/plugin re-exports, and a shared storage service for app DI.
+
+### Patch Changes
+
+- c91cebc: Allow plugins to contribute non-module providers, have the router plugin provide `RouterToken`, and flush storage writes through plugin context disposal.
+- Updated dependencies [c91cebc]
+- Updated dependencies [51a2645]
+- Updated dependencies [80c4e58]
+  - @cosystem/core@0.2.0
+
 ## 0.1.0
 
 ### Major Changes
