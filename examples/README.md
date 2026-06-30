@@ -13,6 +13,7 @@ compare adapters directly.
 | [`svelte-counter`](./svelte-counter)   | `@cosystem/example-svelte-counter`  | Svelte adapter: readable stores and `$store` syntax.                     |
 | [`solid-counter`](./solid-counter)     | `@cosystem/example-solid-counter`   | Solid adapter: `CoSystemProvider`, `useComputed` accessors.              |
 | [`angular-counter`](./angular-counter) | `@cosystem/example-angular-counter` | Angular adapter: `provideCoSystem`, `injectModule`, `injectSignal`.      |
+| [`ts-decorator`](./ts-decorator)       | `@cosystem/example-ts-decorator`    | TypeScript standard decorators: `@Module`, `@State accessor`, metadata.  |
 | [`no-decorator`](./no-decorator)       | `@cosystem/example-no-decorator`    | Defining modules with `defineModule()` metadata instead of decorators.   |
 | [`lazy-module`](./lazy-module)         | `@cosystem/example-lazy-module`     | Explicit lazy modules with `lazyModule()` and `app.load()`.              |
 | [`router`](./router)                   | `@cosystem/example-router`          | Router primitives, `RouterToken`, and `createRouterPlugin`.              |
@@ -41,6 +42,7 @@ Core-focused examples use the same Vite workflow:
 
 ```sh
 pnpm --filter @cosystem/example-no-decorator dev
+pnpm --filter @cosystem/example-ts-decorator dev
 pnpm --filter @cosystem/example-lazy-module dev
 pnpm --filter @cosystem/example-router dev
 pnpm --filter @cosystem/example-worker-counter dev

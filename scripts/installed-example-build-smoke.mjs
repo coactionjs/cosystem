@@ -43,6 +43,15 @@ const exampleSmokes = [
   counterExample("react-counter", "Increase"),
   counterExample("solid-counter", "Increase"),
   counterExample("svelte-counter", "Increase"),
+  counterExample("ts-decorator", "Increase", async (page) => {
+    await expectText(page, "pre + pre", "module:counter");
+    await expectText(page, "pre + pre", "state:count");
+    await expectText(page, "pre + pre", "computed:double");
+    await expectText(page, "pre + pre", "actions:increase,reset");
+    await clickButton(page, "Reset");
+    await expectStat(page, "Count", "0");
+    await expectText(page, "pre", "reset");
+  }),
   counterExample("vue-counter", "Increase"),
   {
     dirName: "lazy-module",
