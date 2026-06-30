@@ -34,6 +34,15 @@ const chromeExecutable = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ?? find
 
 const exampleSmokes = [
   counterExample("angular-counter", "Increase"),
+  counterExample("js-decorator", "Increase", async (page) => {
+    await expectText(page, "pre + pre", "module:counter");
+    await expectText(page, "pre + pre", "state:count");
+    await expectText(page, "pre + pre", "computed:double");
+    await expectText(page, "pre + pre", "actions:increase,reset");
+    await clickButton(page, "Reset");
+    await expectStat(page, "Count", "0");
+    await expectText(page, "pre", "reset");
+  }),
   counterExample("no-decorator", "Increase", async (page) => {
     await expectText(page, "pre", "count:1");
     await clickButton(page, "Reset");
