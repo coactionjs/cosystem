@@ -290,12 +290,18 @@ describe("worker prototype", () => {
   it("rejects pending calls when a state sync request cannot be posted", async () => {
     const syncError = new Error("sync post failed");
     let deliver!: (message: WorkerMessage) => void;
+    let failSync = true;
+    const successfulSyncs: number[] = [];
     const client = createWorkerClient({
       requestTimeout: 0,
       transport: {
         post(message) {
           if (message.type === "sync") {
-            throw syncError;
+            if (failSync) {
+              throw syncError;
+            }
+
+            successfulSyncs.push(message.stateVersion ?? -1);
           }
         },
         subscribe(listener) {
@@ -314,6 +320,24 @@ describe("worker prototype", () => {
     });
 
     await expect(pending).rejects.toBe(syncError);
+
+    failSync = false;
+    const retry = client.call("workerCounter", "increase", 1);
+    deliver({
+      id: 2,
+      stateVersion: 1,
+      type: "result",
+      value: 1,
+    });
+
+    expect(successfulSyncs).toEqual([1]);
+    deliver({
+      state: { workerCounter: { count: 1 } },
+      sync: "snapshot",
+      type: "state",
+      version: 1,
+    });
+    await expect(retry).resolves.toBe(1);
     client.dispose();
   });
 

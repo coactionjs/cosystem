@@ -615,13 +615,20 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
       return;
     }
 
+    const previousRequestedVersion = requestedSyncVersion;
     requestedSyncVersion = stateVersion;
-    transport.post({
-      id: nextId,
-      stateVersion,
-      type: "sync",
-    });
-    nextId += 1;
+
+    try {
+      transport.post({
+        id: nextId,
+        stateVersion,
+        type: "sync",
+      });
+      nextId += 1;
+    } catch (error) {
+      requestedSyncVersion = previousRequestedVersion;
+      throw error;
+    }
   };
 
   const publishSelectorWatchers = () => {
