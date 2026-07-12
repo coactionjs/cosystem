@@ -1965,6 +1965,10 @@ class RuntimeApp implements App {
   }
 
   private assertStoreMutationAllowed(operation: "apply" | "setState"): void {
+    if (this.internalMutationDepth === 0) {
+      this.assertModuleMutationAllowed(`call store.${operation}()`);
+    }
+
     if (
       this.devOptions.strictActions === true &&
       this.actionDepth === 0 &&

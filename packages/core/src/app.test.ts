@@ -2265,6 +2265,27 @@ describe("app runtime", () => {
     expect(app.state.version).toBe(version);
   });
 
+  it("rejects direct store writes after app disposal", async () => {
+    const app = createApp({
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+
+    await app.ready;
+    await app.dispose();
+
+    const state = app.store.getPureState();
+    const version = app.state.version;
+
+    expect(() => app.store.setState({ counter: { count: 10 } })).toThrow(
+      "Cannot call store.setState() after app disposal has begun.",
+    );
+    expect(() => app.store.apply({ counter: { count: 10 } })).toThrow(
+      "Cannot call store.apply() after app disposal has begun.",
+    );
+    expect(app.store.getPureState()).toBe(state);
+    expect(app.state.version).toBe(version);
+  });
+
   it("continues every disposal phase after teardown failures and stays terminal", async () => {
     const events: string[] = [];
     const stopError = new Error("stop boom");
