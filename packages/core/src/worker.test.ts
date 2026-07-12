@@ -516,6 +516,46 @@ describe("worker prototype", () => {
     client.dispose();
   });
 
+  it("rejects worker patches that replace the state root with a non-object", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const conflicts: WorkerConflictEvent[] = [];
+    const client = createWorkerClient({
+      onConflict(event) {
+        conflicts.push(event);
+      },
+      transport: clientTransport,
+    });
+
+    hostTransport.post({
+      state: { stable: true },
+      sync: "snapshot",
+      type: "state",
+      version: 0,
+    });
+    await client.ready;
+
+    hostTransport.post({
+      patches: [{ op: "replace", path: "", value: 1 }],
+      sync: "patch",
+      type: "state",
+      version: 1,
+    });
+    hostTransport.post({
+      patches: [{ op: "remove", path: "" }],
+      sync: "patch",
+      type: "state",
+      version: 1,
+    });
+
+    expect(conflicts.map((event) => event.reason)).toEqual([
+      "patch-apply-failed",
+      "patch-apply-failed",
+    ]);
+    expect(client.getState()).toEqual({ stable: true });
+    expect(client.state.version).toBe(0);
+    client.dispose();
+  });
+
   it("isolates worker state sync to configured state sections", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const client = createWorkerClient({

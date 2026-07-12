@@ -664,9 +664,15 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
       }
 
       try {
-        snapshot = isPatchOnly
+        const nextSnapshot = isPatchOnly
           ? applyWorkerPatches(snapshot, message.patches ?? [])
           : message.state;
+
+        if (!isRecord(nextSnapshot)) {
+          throw new CosystemError("Worker state root must remain an object.");
+        }
+
+        snapshot = nextSnapshot;
       } catch (error) {
         reportWorkerConflict(onConflict, {
           currentVersion: state.version,
