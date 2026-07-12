@@ -1304,7 +1304,7 @@ function applyPatchAtPath(
     throw new CosystemError("Worker state patch path is invalid.");
   }
 
-  const container = clonePatchContainer(state, segment);
+  const container = clonePatchContainer(state);
 
   if (rest.length === 0) {
     if (patch.op === "remove") {
@@ -1314,6 +1314,10 @@ function applyPatchAtPath(
 
     setPatchValue(container, segment, patch.value, patch.op);
     return container;
+  }
+
+  if (!hasPatchValue(container, segment)) {
+    throw new CosystemError("Worker state patch parent path does not exist.");
   }
 
   setPatchValue(
@@ -1326,16 +1330,16 @@ function applyPatchAtPath(
   return container;
 }
 
-function clonePatchContainer(state: unknown, nextSegment: PatchPathSegment): PatchContainer {
+function clonePatchContainer(state: unknown): PatchContainer {
   if (Array.isArray(state)) {
     return [...state];
   }
 
-  if (isRecord(state)) {
+  if (isWorkerStateRoot(state)) {
     return { ...state };
   }
 
-  return typeof nextSegment === "number" ? [] : {};
+  throw new CosystemError("Worker state patch parent must be an object or array.");
 }
 
 function getPatchValue(container: PatchContainer, segment: PatchPathSegment): unknown {
@@ -1344,6 +1348,14 @@ function getPatchValue(container: PatchContainer, segment: PatchPathSegment): un
   }
 
   return container[String(segment)];
+}
+
+function hasPatchValue(container: PatchContainer, segment: PatchPathSegment): boolean {
+  if (Array.isArray(container)) {
+    return toArrayIndex(segment) < container.length;
+  }
+
+  return Object.hasOwn(container, String(segment));
 }
 
 function setPatchValue(
@@ -1372,7 +1384,13 @@ function setPatchValue(
     return;
   }
 
-  container[String(segment)] = value;
+  const key = String(segment);
+
+  if (operation === "replace" && !Object.hasOwn(container, key)) {
+    throw new CosystemError("Worker state patch target does not exist.");
+  }
+
+  container[key] = value;
 }
 
 function removePatchValue(container: PatchContainer, segment: PatchPathSegment): void {
@@ -1387,7 +1405,13 @@ function removePatchValue(container: PatchContainer, segment: PatchPathSegment):
     return;
   }
 
-  delete container[String(segment)];
+  const key = String(segment);
+
+  if (!Object.hasOwn(container, key)) {
+    throw new CosystemError("Worker state patch target does not exist.");
+  }
+
+  delete container[key];
 }
 
 function toArrayIndex(segment: PatchPathSegment): number {

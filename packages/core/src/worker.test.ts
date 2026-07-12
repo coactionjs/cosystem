@@ -708,6 +708,57 @@ describe("worker prototype", () => {
     client.dispose();
   });
 
+  it("rejects worker patches whose object targets do not exist", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const conflicts: WorkerConflictEvent[] = [];
+    const client = createWorkerClient({
+      onConflict(event) {
+        conflicts.push(event);
+      },
+      transport: clientTransport,
+    });
+
+    hostTransport.post({
+      state: { nested: { count: 1 } },
+      sync: "snapshot",
+      type: "state",
+      version: 0,
+    });
+    await client.ready;
+
+    for (const patch of [
+      { op: "replace", path: "/nested/missing", value: 2 },
+      { op: "remove", path: "/nested/missing" },
+      { op: "add", path: "/missing/child", value: 2 },
+    ] as const) {
+      hostTransport.post({
+        patches: [patch],
+        sync: "patch",
+        type: "state",
+        version: 1,
+      });
+    }
+
+    expect(conflicts.map((event) => event.reason)).toEqual([
+      "patch-apply-failed",
+      "patch-apply-failed",
+      "patch-apply-failed",
+    ]);
+    expect(client.getState()).toEqual({ nested: { count: 1 } });
+    expect(client.state.version).toBe(0);
+
+    hostTransport.post({
+      patches: [{ op: "add", path: "/nested/added", value: 2 }],
+      sync: "patch",
+      type: "state",
+      version: 1,
+    });
+
+    expect(client.getState()).toEqual({ nested: { added: 2, count: 1 } });
+    expect(client.state.version).toBe(1);
+    client.dispose();
+  });
+
   it("rejects worker patches that replace the state root with a non-record", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const conflicts: WorkerConflictEvent[] = [];
