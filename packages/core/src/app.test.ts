@@ -600,6 +600,101 @@ describe("app runtime", () => {
     expect(app.store.getPureState()).toEqual({});
   });
 
+  it("waits for staged async effects before disposing a failed lazy scope", async () => {
+    const ResourceToken = token<{ disposed: boolean }>("PendingLazyEffectResource");
+    const events: string[] = [];
+    let markEffectStarted!: () => void;
+    let releaseEffect!: () => void;
+    const effectStarted = new Promise<void>((resolve) => {
+      markEffectStarted = resolve;
+    });
+    const effectGate = new Promise<void>((resolve) => {
+      releaseEffect = resolve;
+    });
+
+    class PendingLazyEffect {
+      value = 0;
+
+      constructor(readonly resource: { disposed: boolean }) {}
+
+      async waitForRelease(): Promise<void> {
+        events.push("effect:start");
+        markEffectStarted();
+        await effectGate;
+        events.push(`effect:resume:${String(this.resource.disposed)}`);
+      }
+
+      fail(): void {
+        events.push("effect:fail");
+        throw new Error("lazy effect boom");
+      }
+
+      onDispose(): void {
+        events.push("module:dispose");
+      }
+    }
+
+    defineModule(PendingLazyEffect, {
+      deps: [ResourceToken],
+      effects: ["waitForRelease", "fail"],
+      name: "pendingLazyEffect",
+      state: ["value"],
+    });
+
+    const app = createApp();
+    await app.ready;
+    const feature = lazyModule(() => ({
+      providers: [
+        provide(ResourceToken, {
+          dispose(resource) {
+            resource.disposed = true;
+            events.push("resource:dispose");
+          },
+          useFactory: () => {
+            events.push("resource:create");
+            return { disposed: false };
+          },
+        }),
+        PendingLazyEffect,
+      ],
+    }));
+    let loadSettled = false;
+    const loadResult = app.load(feature).then(
+      () => {
+        loadSettled = true;
+        return { status: "fulfilled" as const };
+      },
+      (error: unknown) => {
+        loadSettled = true;
+        return { error, status: "rejected" as const };
+      },
+    );
+
+    await effectStarted;
+    await Promise.resolve();
+
+    expect(loadSettled).toBe(false);
+    expect(events).toEqual(["resource:create", "effect:start", "effect:fail"]);
+
+    releaseEffect();
+
+    const result = await loadResult;
+    expect(result).toMatchObject({
+      error: { message: "lazy effect boom" },
+      status: "rejected",
+    });
+    expect(events).toEqual([
+      "resource:create",
+      "effect:start",
+      "effect:fail",
+      "effect:resume:false",
+      "module:dispose",
+      "resource:dispose",
+    ]);
+
+    await app.dispose();
+  });
+
   it("rolls back initialized lazy modules when startup fails", async () => {
     const events: string[] = [];
 

@@ -905,6 +905,7 @@ class RuntimeApp implements App {
     let scopeRegistered = false;
     let stateInstalled = false;
     let effectStartIndex: number | undefined;
+    let pendingEffectsBeforeStart: ReadonlySet<Promise<void>> | undefined;
 
     try {
       for (const provider of providers) {
@@ -946,6 +947,7 @@ class RuntimeApp implements App {
           stateInstalled = true;
           this.installModuleState(loadedModules, stagedState);
 
+          pendingEffectsBeforeStart = new Set(this.pendingEffects);
           effectStartIndex = this.effectDisposers.length;
           this.startEffects(loadedModules);
         } catch (error) {
@@ -1015,6 +1017,14 @@ class RuntimeApp implements App {
 
       if (rollbackEffectStartIndex !== undefined) {
         await runCleanupPhase(rollbackErrors, () => this.stopEffectsFrom(rollbackEffectStartIndex));
+      }
+
+      const stagedEffectBaseline = pendingEffectsBeforeStart;
+
+      if (stagedEffectBaseline !== undefined) {
+        await runCleanupPhase(rollbackErrors, () =>
+          this.waitForPendingEffectsCreatedAfter(stagedEffectBaseline),
+        );
       }
 
       if (modulesRegistered) {
@@ -1634,6 +1644,22 @@ class RuntimeApp implements App {
 
     if (errors.length > 0) {
       throw new AggregateError(errors, "One or more pending effects failed while disposing.");
+    }
+  }
+
+  private async waitForPendingEffectsCreatedAfter(
+    existingEffects: ReadonlySet<Promise<void>>,
+  ): Promise<void> {
+    const pendingEffects = [...this.pendingEffects].filter(
+      (pending) => !existingEffects.has(pending),
+    );
+    const results = await Promise.allSettled(pendingEffects);
+    const errors = results
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map((result) => result.reason);
+
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "One or more staged effects failed while rolling back.");
     }
   }
 
