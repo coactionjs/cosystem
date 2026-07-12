@@ -281,64 +281,63 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
   const moduleTokens: InjectionToken[] = [];
   const lazyModules: LazyModule[] = [];
   const pluginProviderTokens = new Set<InjectionToken>();
-
-  for (const plugin of options.plugins ?? []) {
-    for (const provider of plugin.providers ?? []) {
-      const normalized = normalizeAppProvider(provider);
-
-      if (normalized.moduleToken !== undefined) {
-        throw new CosystemError(
-          `${plugin.name ?? "Anonymous plugin"} cannot register CoSystem modules through plugin providers.`,
-        );
-      }
-
-      container.provide(normalized.provider);
-      pluginProviderTokens.add(providerInputToken(normalized.provider));
-    }
-  }
-
-  for (const provider of options.providers ?? []) {
-    if (isLazyModule(provider)) {
-      lazyModules.push(provider);
-      continue;
-    }
-
-    const normalized = normalizeAppProvider(provider);
-    const token = providerInputToken(normalized.provider);
-
-    if (pluginProviderTokens.has(token) && !isMultiProvider(normalized.provider)) {
-      container.override(normalized.provider);
-    } else {
-      container.provide(normalized.provider);
-    }
-
-    if (normalized.moduleToken !== undefined) {
-      moduleTokens.push(normalized.moduleToken);
-    }
-  }
-
-  for (const override of options.overrides ?? []) {
-    const normalized = normalizeAppProvider(override);
-    const token = providerInputToken(normalized.provider);
-    const replacesModule = moduleTokens.some((moduleToken) => moduleToken === token);
-
-    if (normalized.moduleToken !== undefined && !replacesModule) {
-      throw new CosystemError(
-        `Cannot add ${tokenName(normalized.moduleToken)} as a new CoSystem module through overrides.`,
-      );
-    }
-
-    if (replacesModule) {
-      assertSingletonModuleScope(token, providerInputScope(normalized.provider));
-    }
-
-    container.override(normalized.provider);
-  }
-
   let app: RuntimeApp | undefined;
   let store: Store<RootState> | undefined;
 
   try {
+    for (const plugin of options.plugins ?? []) {
+      for (const provider of plugin.providers ?? []) {
+        const normalized = normalizeAppProvider(provider);
+
+        if (normalized.moduleToken !== undefined) {
+          throw new CosystemError(
+            `${plugin.name ?? "Anonymous plugin"} cannot register CoSystem modules through plugin providers.`,
+          );
+        }
+
+        container.provide(normalized.provider);
+        pluginProviderTokens.add(providerInputToken(normalized.provider));
+      }
+    }
+
+    for (const provider of options.providers ?? []) {
+      if (isLazyModule(provider)) {
+        lazyModules.push(provider);
+        continue;
+      }
+
+      const normalized = normalizeAppProvider(provider);
+      const token = providerInputToken(normalized.provider);
+
+      if (pluginProviderTokens.has(token) && !isMultiProvider(normalized.provider)) {
+        container.override(normalized.provider);
+      } else {
+        container.provide(normalized.provider);
+      }
+
+      if (normalized.moduleToken !== undefined) {
+        moduleTokens.push(normalized.moduleToken);
+      }
+    }
+
+    for (const override of options.overrides ?? []) {
+      const normalized = normalizeAppProvider(override);
+      const token = providerInputToken(normalized.provider);
+      const replacesModule = moduleTokens.some((moduleToken) => moduleToken === token);
+
+      if (normalized.moduleToken !== undefined && !replacesModule) {
+        throw new CosystemError(
+          `Cannot add ${tokenName(normalized.moduleToken)} as a new CoSystem module through overrides.`,
+        );
+      }
+
+      if (replacesModule) {
+        assertSingletonModuleScope(token, providerInputScope(normalized.provider));
+      }
+
+      container.override(normalized.provider);
+    }
+
     container.freeze();
 
     const modules = instantiateModules(container, moduleTokens);

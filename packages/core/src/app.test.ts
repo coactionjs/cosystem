@@ -7,6 +7,7 @@ import {
   CosystemError,
   DuplicateProviderError,
   createApp,
+  createContainer,
   defineModule,
   Effect,
   inject,
@@ -3519,6 +3520,27 @@ describe("app runtime", () => {
         ],
       }),
     ).toThrow(DuplicateProviderError);
+  });
+
+  it("releases child containers when provider registration fails", async () => {
+    const Config = token<{ readonly label: string }>("FailedChildConfig");
+    const parent = createContainer();
+    const children = (parent as unknown as { readonly children: Set<unknown> }).children;
+
+    expect(() =>
+      createApp({
+        parent,
+        providers: [
+          provide(Config, { useValue: { label: "first" } }),
+          provide(Config, { useValue: { label: "second" } }),
+        ],
+      }),
+    ).toThrow(DuplicateProviderError);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(children).toHaveLength(0);
+
+    await parent.dispose();
   });
 
   it("rejects modules from plugin providers", () => {
