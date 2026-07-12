@@ -180,6 +180,39 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("isolates memory transport subscribers from each other", () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const received: WorkerMessage[] = [];
+
+    clientTransport.subscribe((message) => {
+      if (message.type === "state" && message.state !== undefined) {
+        (message.state as { counter: { count: number } }).counter.count = 99;
+      }
+
+      throw new Error("subscriber failed");
+    });
+    clientTransport.subscribe((message) => {
+      received.push(message);
+    });
+
+    expect(() =>
+      hostTransport.post({
+        state: { counter: { count: 1 } },
+        sync: "snapshot",
+        type: "state",
+        version: 1,
+      }),
+    ).not.toThrow();
+    expect(received).toEqual([
+      {
+        state: { counter: { count: 1 } },
+        sync: "snapshot",
+        type: "state",
+        version: 1,
+      },
+    ]);
+  });
+
   it("exposes only actions declared in module metadata to remote calls", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const client = createWorkerClient({ transport: clientTransport });
@@ -1267,6 +1300,27 @@ describe("worker prototype", () => {
     receiverChannel.close?.();
     trustedChannel.close?.();
     untrustedChannel.close?.();
+  });
+
+  it("isolates memory broadcast listeners from sender delivery", () => {
+    const channel = "worker-broadcast-listener-isolation";
+    const sender = createMemoryBroadcastChannel(channel);
+    const receiver = createMemoryBroadcastChannel(channel);
+    const messages: unknown[] = [];
+
+    receiver.addEventListener("message", () => {
+      throw new Error("listener failed");
+    });
+    receiver.addEventListener("message", (event) => {
+      messages.push(event.data);
+    });
+
+    // eslint-disable-next-line unicorn/require-post-message-target-origin -- BroadcastChannel-style endpoints accept one argument.
+    expect(() => sender.postMessage({ type: "ready" })).not.toThrow();
+    expect(messages).toEqual([{ type: "ready" }]);
+
+    sender.close?.();
+    receiver.close?.();
   });
 
   it("coordinates shared tab clients over a broadcast channel", async () => {

@@ -1002,7 +1002,7 @@ export function createDataTransportWorkerTransport(
           }
 
           for (const listener of listeners) {
-            listener(message);
+            runWorkerObserver(() => listener(message));
           }
         });
 
@@ -1473,10 +1473,9 @@ function createMemoryWorkerTransport(
 ): WorkerTransport {
   return {
     post(message) {
-      const clonedMessage = structuredClone(message);
-
       for (const listener of outbox) {
-        listener(clonedMessage);
+        const clonedMessage = structuredClone(message);
+        runWorkerObserver(() => listener(clonedMessage));
       }
     },
     subscribe(listener) {
@@ -1568,7 +1567,7 @@ class MemoryBroadcastChannel implements BroadcastChannelLike {
 
   private dispatch(event: BroadcastMessageEventLike): void {
     for (const listener of this.#listeners) {
-      listener(event);
+      runWorkerObserver(() => listener(event));
     }
   }
 }
