@@ -1120,7 +1120,7 @@ function filterWorkerState(state: unknown, sections?: readonly WorkerStateSectio
   const filtered: Record<string, unknown> = {};
 
   for (const section of sections) {
-    if (section in state) {
+    if (Object.hasOwn(state, section)) {
       filtered[section] = state[section];
     }
   }

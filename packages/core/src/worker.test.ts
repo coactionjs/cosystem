@@ -569,6 +569,21 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("ignores inherited worker state section names", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({ transport: clientTransport });
+    const host = createWorkerApp({
+      stateSections: ["constructor"],
+      transport: hostTransport,
+    });
+
+    await expect(Promise.all([client.ready, host.ready])).resolves.toEqual([undefined, undefined]);
+    expect(client.getState()).toEqual({});
+
+    client.dispose();
+    await host.dispose();
+  });
+
   it("reports worker state conflicts and keeps the current snapshot", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const conflicts: WorkerConflictEvent[] = [];
