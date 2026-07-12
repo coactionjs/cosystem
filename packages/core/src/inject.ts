@@ -9,7 +9,7 @@ export function inject<TToken extends InjectionToken>(token: TToken): TokenValue
     throw new InjectContextError(tokenName(token));
   }
 
-  return activeResolutionContext.requestContainer.get(token) as TokenValue<TToken>;
+  return activeResolutionContext.resolve(token) as TokenValue<TToken>;
 }
 
 export function runWithInjectContext<T>(context: ResolutionContext, callback: () => T): T {

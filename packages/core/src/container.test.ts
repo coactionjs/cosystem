@@ -120,6 +120,121 @@ describe("DI container", () => {
     await expect(container.getAsync(AsyncToken)).resolves.toBe("ready");
   });
 
+  it("shares in-flight async singleton factories across concurrent resolutions", async () => {
+    const AsyncToken = token<{ readonly id: symbol }>("ConcurrentAsync");
+    let createCount = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const container = createContainer();
+
+    container.provide(
+      provide(AsyncToken, {
+        useFactory: async () => {
+          createCount += 1;
+          await gate;
+          return { id: Symbol("async-singleton") };
+        },
+      }),
+    );
+
+    const firstResolution = container.getAsync(AsyncToken);
+    const secondResolution = container.getAsync(AsyncToken);
+
+    expect(createCount).toBe(1);
+    release();
+
+    const [first, second] = await Promise.all([firstResolution, secondResolution]);
+    expect(second).toBe(first);
+    expect(await container.getAsync(AsyncToken)).toBe(first);
+  });
+
+  it("clears rejected in-flight providers so a later resolution can retry", async () => {
+    const AsyncToken = token<{ readonly attempt: number }>("RetryAsync");
+    let attempt = 0;
+    const container = createContainer();
+
+    container.provide(
+      provide(AsyncToken, {
+        useFactory: async () => {
+          attempt += 1;
+
+          if (attempt === 1) {
+            throw new Error("first attempt failed");
+          }
+
+          return { attempt };
+        },
+      }),
+    );
+
+    const firstResolution = container.getAsync(AsyncToken);
+    const sharedResolution = container.getAsync(AsyncToken);
+
+    await expect(firstResolution).rejects.toThrow("first attempt failed");
+    await expect(sharedResolution).rejects.toThrow("first attempt failed");
+    await expect(container.getAsync(AsyncToken)).resolves.toEqual({ attempt: 2 });
+    expect(attempt).toBe(2);
+  });
+
+  it("shares async resolution-scoped dependencies within one graph", async () => {
+    const ResolutionToken = token<{ readonly id: symbol }>("AsyncResolution");
+
+    class UsesAsyncResolution {
+      static readonly inject = [ResolutionToken, ResolutionToken] as const;
+
+      constructor(
+        readonly first: { readonly id: symbol },
+        readonly second: { readonly id: symbol },
+      ) {}
+    }
+
+    const container = createContainer({ strictScopes: false });
+    container.provide(
+      provide(ResolutionToken, {
+        scope: "resolution",
+        useFactory: async () => ({ id: Symbol("resolution") }),
+      }),
+    );
+    container.provide(
+      provide(UsesAsyncResolution, {
+        scope: "transient",
+        useClass: UsesAsyncResolution,
+      }),
+    );
+
+    const consumer = await container.getAsync(UsesAsyncResolution);
+    expect(consumer.first).toBe(consumer.second);
+  });
+
+  it("observes rejected async factories reached through sync resolution", async () => {
+    const AsyncToken = token<string>("RejectedSyncAsync");
+    const unhandled: unknown[] = [];
+    const onUnhandled = (error: unknown) => {
+      unhandled.push(error);
+    };
+    const container = createContainer();
+
+    container.provide(
+      provide(AsyncToken, {
+        useFactory: async () => {
+          throw new Error("async rejection");
+        },
+      }),
+    );
+
+    process.on("unhandledRejection", onUnhandled);
+
+    try {
+      expect(() => container.get(AsyncToken)).toThrow(AsyncProviderInSyncResolutionError);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   it("supports explicit build without registering the class", () => {
     const container = createContainer();
     container.provide(ConsoleLogger);
@@ -336,6 +451,56 @@ describe("DI container", () => {
     expect(container.get(SummaryToken)).toBe("done");
     expect(logger.messages).toEqual(["injected"]);
     expect(() => inject(LoggerToken)).toThrow(InjectContextError);
+  });
+
+  it("resolves inject() within the active resolution graph", () => {
+    const ResolutionToken = token<{ readonly id: symbol }>("InjectedResolution");
+    const PairToken =
+      token<readonly [{ readonly id: symbol }, { readonly id: symbol }]>("InjectedPair");
+    const container = createContainer({ strictScopes: false });
+
+    container.provide(
+      provide(ResolutionToken, {
+        scope: "resolution",
+        useFactory: () => ({ id: Symbol("injected-resolution") }),
+      }),
+    );
+    container.provide(
+      provide(PairToken, {
+        scope: "resolution",
+        useFactory: () => [inject(ResolutionToken), inject(ResolutionToken)] as const,
+      }),
+    );
+
+    const [first, second] = container.get(PairToken);
+    expect(first).toBe(second);
+  });
+
+  it("applies lifetime and circular checks to inject()", () => {
+    const TransientToken = token<object>("InjectedTransient");
+    const LeakingToken = token<object>("InjectedLeak");
+    const RecursiveToken = token<object>("InjectedRecursive");
+    const container = createContainer();
+
+    container.provide(
+      provide(TransientToken, {
+        scope: "transient",
+        useFactory: () => ({}),
+      }),
+    );
+    container.provide(
+      provide(LeakingToken, {
+        useFactory: () => inject(TransientToken),
+      }),
+    );
+    container.provide(
+      provide(RecursiveToken, {
+        useFactory: () => inject(RecursiveToken),
+      }),
+    );
+
+    expect(() => container.get(LeakingToken)).toThrow(LifetimeLeakError);
+    expect(() => container.get(RecursiveToken)).toThrow(CircularDependencyError);
   });
 
   it("disposes created instances in reverse order and aggregates errors", async () => {

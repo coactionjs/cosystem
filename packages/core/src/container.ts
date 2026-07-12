@@ -65,6 +65,7 @@ class RuntimeContainer implements ContainerImpl {
     const value = this.resolveRecord(record, context);
 
     if (isPromiseLike(value)) {
+      observePromise(value);
       throw new AsyncProviderInSyncResolutionError(record.tokenName);
     }
 
@@ -79,6 +80,7 @@ class RuntimeContainer implements ContainerImpl {
       const value = this.resolveRecord(record, context);
 
       if (isPromiseLike(value)) {
+        observePromise(value);
         throw new AsyncProviderInSyncResolutionError(record.tokenName);
       }
 
@@ -128,6 +130,7 @@ class RuntimeContainer implements ContainerImpl {
     const values = this.resolveDependencies(deps, context);
 
     if (isPromiseLike(values)) {
+      observePromise(values);
       throw new AsyncProviderInSyncResolutionError(target.name);
     }
 
@@ -144,6 +147,10 @@ class RuntimeContainer implements ContainerImpl {
 
   freeze(): void {
     this.frozen = true;
+  }
+
+  runWithResolutionContext<T>(callback: () => T): T {
+    return runWithInjectContext(this.createResolutionContext("sync"), callback);
   }
 
   async dispose(): Promise<void> {
@@ -183,12 +190,34 @@ class RuntimeContainer implements ContainerImpl {
   }
 
   private createResolutionContext(mode: "sync" | "async"): ResolutionContext {
-    return {
+    let context: ResolutionContext;
+
+    context = {
       stack: [],
       resolutionCache: new Map(),
       mode,
       requestContainer: this,
+      resolve: <T>(token: InjectionToken<T>) => this.resolveInjected(token, context) as T,
     };
+
+    return context;
+  }
+
+  private createChildResolutionContext(
+    context: ResolutionContext,
+    record: ProviderRecord,
+  ): ResolutionContext {
+    let childContext: ResolutionContext;
+
+    childContext = {
+      stack: [...context.stack, record],
+      resolutionCache: context.resolutionCache,
+      mode: context.mode,
+      requestContainer: context.requestContainer,
+      resolve: <T>(token: InjectionToken<T>) => this.resolveInjected(token, childContext) as T,
+    };
+
+    return childContext;
   }
 
   private getSingleRecord(token: InjectionToken, optional: false): ProviderRecord;
@@ -241,43 +270,41 @@ class RuntimeContainer implements ContainerImpl {
     record: ProviderRecord,
     context: ResolutionContext,
   ): unknown | Promise<unknown> {
+    this.assertNoCycle(record, context);
+    this.assertLifetimeSafe(record, context);
+
     const cached = this.getCached(record, context);
 
     if (cached.found) {
       return cached.value;
     }
 
-    this.assertNoCycle(record, context);
-    this.assertLifetimeSafe(record, context);
+    const childContext = this.createChildResolutionContext(context, record);
+    const value = this.createValue(record, childContext);
 
-    context.stack.push(record);
-
-    const finalize = (value: unknown): unknown => {
-      context.stack.pop();
-      this.setCached(record, value, context);
-      return value;
-    };
-
-    const fail = (error: unknown): never => {
-      context.stack.pop();
-      throw error;
-    };
-
-    try {
-      const value = this.createValue(record, context);
-
-      if (isPromiseLike(value)) {
-        if (context.mode === "sync") {
-          throw new AsyncProviderInSyncResolutionError(record.tokenName);
-        }
-
-        return Promise.resolve(value).then(finalize, fail);
+    if (isPromiseLike(value)) {
+      if (context.mode === "sync") {
+        observePromise(value);
+        throw new AsyncProviderInSyncResolutionError(record.tokenName);
       }
 
-      return finalize(value);
-    } catch (error) {
-      return fail(error);
+      return this.cachePending(record, value, context);
     }
+
+    this.setCached(record, value, context);
+    return value;
+  }
+
+  private resolveInjected<T>(token: InjectionToken<T>, context: ResolutionContext): T {
+    const record = this.getRequiredRecord(token, context);
+    const value = this.resolveRecord(record, context);
+
+    if (isPromiseLike(value)) {
+      observePromise(value);
+      throw new AsyncProviderInSyncResolutionError(record.tokenName);
+    }
+
+    return value as T;
   }
 
   private createValue(
@@ -427,6 +454,42 @@ class RuntimeContainer implements ContainerImpl {
     }
   }
 
+  private cachePending(
+    record: ProviderRecord,
+    value: PromiseLike<unknown>,
+    context: ResolutionContext,
+  ): Promise<unknown> {
+    const cache = this.cacheFor(record, context);
+
+    if (cache === undefined) {
+      return Promise.resolve(value).then((resolved) => {
+        this.trackCreated(record, resolved, context);
+        return resolved;
+      });
+    }
+
+    let pending: Promise<unknown>;
+    pending = Promise.resolve(value).then(
+      (resolved) => {
+        if (cache.get(record) === pending) {
+          cache.set(record, resolved);
+          this.trackCreated(record, resolved, context);
+        }
+
+        return resolved;
+      },
+      (error: unknown) => {
+        if (cache.get(record) === pending) {
+          cache.delete(record);
+        }
+
+        throw error;
+      },
+    );
+    cache.set(record, pending);
+    return pending;
+  }
+
   private cacheFor(
     record: ProviderRecord,
     context: ResolutionContext,
@@ -495,6 +558,10 @@ function isPromiseLike<T = unknown>(value: unknown): value is PromiseLike<T> {
     "then" in value &&
     typeof value.then === "function"
   );
+}
+
+function observePromise(value: PromiseLike<unknown>): void {
+  void Promise.resolve(value).catch(() => undefined);
 }
 
 function isLifetimeLeak(parentScope: Scope, childScope: Scope): boolean {

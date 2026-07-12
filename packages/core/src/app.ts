@@ -7,7 +7,6 @@ import {
 
 import { createContainer } from "./container.js";
 import { CosystemError, DuplicateProviderError } from "./errors.js";
-import { runWithInjectContext } from "./inject.js";
 import {
   isLazyModule,
   normalizeLazyModuleProviders,
@@ -25,7 +24,6 @@ import type {
   InjectionToken,
   Provider,
   ProviderInput,
-  ResolutionContext,
   ScopeOptions,
 } from "./types.js";
 
@@ -1230,15 +1228,7 @@ class RuntimeApp implements App {
   }
 
   private runWithAppInjectContext<T>(callback: () => T): T {
-    return runWithInjectContext(
-      {
-        mode: "sync",
-        requestContainer: this.#container as ResolutionContext["requestContainer"],
-        resolutionCache: new Map(),
-        stack: [],
-      },
-      callback,
-    );
+    return (this.#container as ContainerImpl).runWithResolutionContext(callback);
   }
 
   private wrapStoreSetState(): void {

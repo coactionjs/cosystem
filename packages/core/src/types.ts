@@ -148,10 +148,11 @@ export interface Container {
 }
 
 export interface ResolutionContext {
-  readonly stack: ProviderRecord[];
+  readonly stack: readonly ProviderRecord[];
   readonly resolutionCache: Map<ProviderRecord, unknown>;
   readonly mode: "sync" | "async";
   readonly requestContainer: ContainerImpl;
+  resolve<T>(token: InjectionToken<T>): T;
 }
 
 export interface ProviderRecord {
@@ -195,6 +196,7 @@ export interface ContainerImpl extends Container {
   readonly root: ContainerImpl;
   findRecords(token: InjectionToken): ProviderRecord[];
   getAllRecordsFromHierarchy(token: InjectionToken): ProviderRecord[];
+  runWithResolutionContext<T>(callback: () => T): T;
 }
 
 export interface DisposableInstance {
