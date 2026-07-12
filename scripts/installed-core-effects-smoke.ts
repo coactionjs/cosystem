@@ -215,8 +215,11 @@ async function verifySyncEffects() {
   );
 
   await app.dispose();
-  counter.increase(1);
-  await app.test.flushEffects();
+  expectThrows(
+    () => counter.increase(1),
+    "Cannot run module actions after app disposal has begun.",
+    "sync retained action is terminal",
+  );
   expectJsonEqual(syncEvents, ["count:0", "count:2"], "sync effect stops on dispose");
 }
 
@@ -241,9 +244,26 @@ async function verifyAsyncEffects() {
   );
 
   await app.dispose();
-  asyncCounter.increase(1);
-  await app.test.flushEffects();
+  expectThrows(
+    () => asyncCounter.increase(1),
+    "Cannot run module actions after app disposal has begun.",
+    "async retained action is terminal",
+  );
   expectJsonEqual(asyncEvents, ["async:0", "async:3"], "async effect stops on dispose");
+}
+
+function expectThrows(callback, expectedMessage, label) {
+  try {
+    callback();
+  } catch (error) {
+    if (error instanceof Error && error.message === expectedMessage) {
+      return;
+    }
+
+    throw new Error(label + ": unexpected error " + String(error));
+  }
+
+  throw new Error(label + ": expected an error");
 }
 
 function expectJsonEqual(actual, expected, label) {

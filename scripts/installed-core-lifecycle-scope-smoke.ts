@@ -308,7 +308,8 @@ const ready = app.ready;
 expectSame(app.ready, ready, "app readiness promise is stable");
 await app.start();
 await ready;
-expectEqual(app.getModule(LifecycleModule).increase(2), 2, "module action returns updated value");
+const lifecycleModule = app.getModule(LifecycleModule);
+expectEqual(lifecycleModule.increase(2), 2, "module action returns updated value");
 expectEqual(app.get(LifecycleModule).value, 2, "module state is mutated through action");
 expectArrayEqual(app.getAll(MultiToken), ["first", "second"], "multi provider order");
 expectEqual(app.get(EagerToken).id, "ready", "eager provider value");
@@ -374,6 +375,17 @@ await firstScope.container.dispose();
 await secondScope.container.dispose();
 await app.stop();
 await app.dispose();
+
+expectThrows(
+  () => lifecycleModule.increase(),
+  "Cannot run module actions after app disposal has begun.",
+  "retained module actions are terminal",
+);
+expectThrows(
+  () => app.getModule(LifecycleModule),
+  "Cannot access modules after app disposal has begun.",
+  "module lookup is terminal",
+);
 
 expectArrayEqual(
   events,
@@ -452,6 +464,20 @@ function expectIncludes(values, expected, label) {
   if (!values.includes(expected)) {
     throw new Error(label + ": missing " + expected + " in " + values.join(", "));
   }
+}
+
+function expectThrows(callback, expectedMessage, label) {
+  try {
+    callback();
+  } catch (error) {
+    if (error instanceof Error && error.message === expectedMessage) {
+      return;
+    }
+
+    throw new Error(label + ": unexpected error " + String(error));
+  }
+
+  throw new Error(label + ": expected an error");
 }
 `;
 }

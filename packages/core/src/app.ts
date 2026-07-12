@@ -599,6 +599,7 @@ class RuntimeApp implements App {
   }
 
   getModule<T>(token: InjectionToken<T>): T {
+    this.assertActive("access modules");
     const moduleBinding = this.moduleByToken.get(token);
 
     if (moduleBinding === undefined) {
@@ -609,6 +610,7 @@ class RuntimeApp implements App {
   }
 
   getModuleByName<T = unknown>(name: string): T {
+    this.assertActive("access modules");
     const moduleBinding = this.moduleByName.get(name);
 
     if (moduleBinding === undefined) {
@@ -1105,6 +1107,8 @@ class RuntimeApp implements App {
     property: PropertyKey,
     value: unknown,
   ): void {
+    this.assertModuleMutationAllowed("write module state");
+
     if (moduleBinding.activeDraft !== undefined) {
       moduleBinding.activeDraft[property] = value;
       return;
@@ -1141,6 +1145,7 @@ class RuntimeApp implements App {
     property: PropertyKey,
     args: readonly unknown[],
   ): unknown {
+    this.assertModuleMutationAllowed("run module actions");
     const action = moduleBinding.originalActions.get(property);
 
     if (action === undefined) {
@@ -1818,7 +1823,7 @@ class RuntimeApp implements App {
   }
 
   private guardStateValue<T>(value: T): T {
-    if (this.devOptions.strictActions !== true || !isGuardableStateValue(value)) {
+    if (!isGuardableStateValue(value)) {
       return value;
     }
 
@@ -1857,7 +1862,13 @@ class RuntimeApp implements App {
   }
 
   private assertDeepMutationAllowed(): void {
-    if (this.draftMutationDepth === 0 && this.internalMutationDepth === 0) {
+    this.assertModuleMutationAllowed("mutate module state");
+
+    if (
+      this.devOptions.strictActions === true &&
+      this.draftMutationDepth === 0 &&
+      this.internalMutationDepth === 0
+    ) {
       throw new CosystemError("Cannot mutate state outside an action.");
     }
   }
@@ -1902,6 +1913,20 @@ class RuntimeApp implements App {
     if (this.isDisposing || this.isDisposed) {
       throw new CosystemError(`Cannot ${operation} after app disposal has begun.`);
     }
+  }
+
+  private assertModuleMutationAllowed(operation: string): void {
+    if (!this.isDisposing && !this.isDisposed) {
+      return;
+    }
+
+    const phase = this.getActiveManagedPhase();
+
+    if (!this.isDisposed && (phase === "onStop" || phase === "onDispose")) {
+      return;
+    }
+
+    throw new CosystemError(`Cannot ${operation} after app disposal has begun.`);
   }
 
   private installModuleState(

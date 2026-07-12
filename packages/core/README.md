@@ -346,6 +346,10 @@ await the phase that is already waiting for it.
 module and cleanup phase; failures are reported together as an `AggregateError`
 after disposal reaches its terminal state.
 
+Module lookup and writes are terminal too: once disposal begins, new
+`getModule()` / `getModuleByName()` calls fail, and a facade retained earlier
+cannot run actions or mutate top-level or nested state after teardown completes.
+
 ## Lazy modules
 
 Lazy modules are explicit and isolated — they do not mutate the root provider

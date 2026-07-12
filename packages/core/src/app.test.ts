@@ -1232,7 +1232,7 @@ describe("app runtime", () => {
     expect(events).toEqual(["async:0", "async:1"]);
   });
 
-  it("disposes module effect subscriptions with the app", async () => {
+  it("disposes module effect subscriptions and rejects retained actions", async () => {
     const events: string[] = [];
 
     class DisposableEffectCounter {
@@ -1262,8 +1262,9 @@ describe("app runtime", () => {
     await app.test.flushEffects();
     await app.dispose();
 
-    counter.increase();
-    await app.test.flushEffects();
+    expect(() => counter.increase()).toThrow(
+      "Cannot run module actions after app disposal has begun.",
+    );
 
     expect(events).toEqual(["count:0"]);
   });
@@ -1817,6 +1818,56 @@ describe("app runtime", () => {
 
     expect(app.started).toBe(false);
     expect(events).toEqual(["module:start", "module:start:done", "module:stop", "module:dispose"]);
+  });
+
+  it("terminates retained module facade writes after app disposal", async () => {
+    class RetainedTerminalModule {
+      count = 0;
+      settings = { nested: { value: 0 } };
+
+      increase(): void {
+        this.count += 1;
+      }
+
+      onDispose(): void {
+        this.increase();
+      }
+    }
+
+    defineModule(RetainedTerminalModule, {
+      actions: ["increase"],
+      name: "retainedTerminalModule",
+      state: ["count", "settings"],
+    });
+
+    const app = createApp({ providers: [RetainedTerminalModule] });
+    const retained = app.getModule(RetainedTerminalModule);
+    const retainedNestedState = retained.settings.nested;
+
+    await app.ready;
+    await app.dispose();
+
+    expect(retained.count).toBe(1);
+    const version = app.state.version;
+
+    expect(() => retained.increase()).toThrow(
+      "Cannot run module actions after app disposal has begun.",
+    );
+    expect(() => {
+      retained.count = 10;
+    }).toThrow("Cannot write module state after app disposal has begun.");
+    expect(() => {
+      retainedNestedState.value = 10;
+    }).toThrow("Cannot mutate module state after app disposal has begun.");
+    expect(() => app.getModule(RetainedTerminalModule)).toThrow(
+      "Cannot access modules after app disposal has begun.",
+    );
+    expect(() => app.getModuleByName("retainedTerminalModule")).toThrow(
+      "Cannot access modules after app disposal has begun.",
+    );
+    expect(retained.count).toBe(1);
+    expect(retainedNestedState.value).toBe(0);
+    expect(app.state.version).toBe(version);
   });
 
   it("continues every disposal phase after teardown failures and stays terminal", async () => {

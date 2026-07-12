@@ -100,9 +100,11 @@ A few consequences worth internalizing:
   the remaining cleanup continues, then re-thrown together as an
   `AggregateError`.
 - **Disposal is terminal.** As soon as disposal begins, provider resolution,
-  watches, explicit action boundaries, lazy loads, and new scopes are rejected.
-  Disposed containers (including descendants of a disposed root) likewise reject
-  further use.
+  module lookup and writes, watches, explicit action boundaries, lazy loads, and
+  new scopes are rejected. A module facade or nested state reference retained
+  before disposal cannot run actions or mutate state after teardown. Disposed
+  containers (including descendants of a disposed root) likewise reject further
+  use.
 
 ## Reading the app
 
