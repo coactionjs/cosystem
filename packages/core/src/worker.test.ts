@@ -1173,9 +1173,19 @@ describe("worker prototype", () => {
       },
       { onError },
     );
+    const synchronousDataTransport = createDataTransportWorkerTransport(
+      {
+        emit() {
+          throw deliveryError;
+        },
+        listen: () => undefined,
+      },
+      { onError },
+    );
 
     expect(() => postMessageTransport.post(message)).not.toThrow();
     expect(() => broadcastTransport.post(message)).not.toThrow();
+    expect(() => synchronousDataTransport.post(message)).not.toThrow();
 
     process.on("unhandledRejection", onUnhandledRejection);
 
@@ -1186,7 +1196,7 @@ describe("worker prototype", () => {
       process.off("unhandledRejection", onUnhandledRejection);
     }
 
-    expect(observedErrors).toEqual([deliveryError, deliveryError, deliveryError]);
+    expect(observedErrors).toEqual([deliveryError, deliveryError, deliveryError, deliveryError]);
     expect(unhandledRejections).toEqual([]);
   });
 

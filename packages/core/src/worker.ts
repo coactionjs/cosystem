@@ -1047,17 +1047,21 @@ export function createDataTransportWorkerTransport(
 
   return {
     post(message) {
-      void dataTransport
-        .emit(
-          {
-            name: message.type,
-            respond: false,
-          },
-          message,
-        )
-        .catch((error: unknown) => {
-          reportWorkerTransportError(options.onError, error, message);
-        });
+      try {
+        void dataTransport
+          .emit(
+            {
+              name: message.type,
+              respond: false,
+            },
+            message,
+          )
+          .catch((error: unknown) => {
+            reportWorkerTransportError(options.onError, error, message);
+          });
+      } catch (error) {
+        reportWorkerTransportError(options.onError, error, message);
+      }
     },
     subscribe(listener) {
       listeners.add(listener);
