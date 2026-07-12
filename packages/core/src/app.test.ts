@@ -1150,6 +1150,56 @@ describe("app runtime", () => {
     expect(app.store.getPureState()).toEqual({ lazyCounter: { count: 1 } });
   });
 
+  it("supports nested strict actions in loaded lazy modules", async () => {
+    class NestedStrictLazyModule {
+      items = [1];
+      settings = { nested: { value: 0 } };
+
+      fail(): never {
+        this.settings.nested.value += 1;
+        this.items.push(3);
+        throw new Error("lazy nested boom");
+      }
+
+      mutate(): void {
+        this.settings.nested.value += 1;
+        this.items.push(2);
+      }
+    }
+
+    defineModule(NestedStrictLazyModule, {
+      actions: ["fail", "mutate"],
+      name: "nestedStrictLazyModule",
+      state: ["items", "settings"],
+    });
+
+    const app = createApp({
+      devOptions: { strictActions: true },
+    });
+    await app.load(lazyModule(() => NestedStrictLazyModule));
+
+    const module = app.getModule(NestedStrictLazyModule);
+    module.mutate();
+
+    expect(module.items).toEqual([1, 2]);
+    expect(module.settings.nested.value).toBe(1);
+    expect(() => module.fail()).toThrow("lazy nested boom");
+    expect(module.items).toEqual([1, 2]);
+    expect(module.settings.nested.value).toBe(1);
+    expect(app.store.getPureState()).toEqual({
+      nestedStrictLazyModule: {
+        items: [1, 2],
+        settings: { nested: { value: 1 } },
+      },
+    });
+
+    const retainedNestedState = module.settings.nested;
+    await app.dispose();
+    expect(() => {
+      retainedNestedState.value = 9;
+    }).toThrow("Cannot mutate module state after app disposal has begun.");
+  });
+
   it("records async actions after their returned promises resolve", async () => {
     class AsyncActionCounter {
       count = 0;

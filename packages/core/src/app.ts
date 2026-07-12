@@ -1224,7 +1224,11 @@ class RuntimeApp implements App {
 
   private readModuleState(moduleBinding: ModuleBinding, property: PropertyKey): unknown {
     if (!moduleBinding.reactiveSlice) {
-      return this.store.getPureState()[moduleBinding.name]?.[property];
+      if (moduleBinding.activeDraft !== undefined) {
+        return this.guardStateValue(moduleBinding.activeDraft[property]);
+      }
+
+      return this.guardStateValue(this.readRawStoreState()[moduleBinding.name]?.[property]);
     }
 
     return this.store.getState()[moduleBinding.name]?.[property];
@@ -1319,13 +1323,13 @@ class RuntimeApp implements App {
           }
         });
       } else {
-        const state = this.store.getPureState();
+        const state = this.readRawStoreState();
         const slice = state[moduleBinding.name];
         const previousDraft = moduleBinding.activeDraft;
-        moduleBinding.activeDraft = slice === undefined ? {} : { ...slice };
+        moduleBinding.activeDraft = slice === undefined ? {} : cloneStateValue(slice);
 
         try {
-          result = callback();
+          result = this.runWithDraftMutation(callback);
           this.store.setState({
             ...state,
             [moduleBinding.name]: moduleBinding.activeDraft,
@@ -2653,6 +2657,44 @@ function isGuardableStateValue(value: unknown): value is Record<PropertyKey, unk
 
   const prototype = Object.getPrototypeOf(value) as unknown;
   return prototype === Object.prototype || prototype === null;
+}
+
+function cloneStateValue<T>(value: T, seen = new WeakMap<object, object>()): T {
+  if (!isGuardableStateValue(value)) {
+    return value;
+  }
+
+  const existing = seen.get(value);
+
+  if (existing !== undefined) {
+    return existing as T;
+  }
+
+  let clone: Record<PropertyKey, unknown> | unknown[];
+
+  if (Array.isArray(value)) {
+    clone = [];
+    clone.length = value.length;
+  } else {
+    clone = Object.create(Object.getPrototypeOf(value));
+  }
+  const stateValue = value as Record<PropertyKey, unknown>;
+  seen.set(value, clone);
+
+  for (const property of Reflect.ownKeys(value)) {
+    if (!Object.prototype.propertyIsEnumerable.call(value, property)) {
+      continue;
+    }
+
+    Object.defineProperty(clone, property, {
+      configurable: true,
+      enumerable: true,
+      value: cloneStateValue(stateValue[property], seen),
+      writable: true,
+    });
+  }
+
+  return clone as T;
 }
 
 async function runCleanupPhase(
