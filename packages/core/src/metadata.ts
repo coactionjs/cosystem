@@ -3,7 +3,7 @@ import type { Constructor, DependencySpec, Scope } from "./types.js";
 export interface ModuleOptions {
   readonly name?: string;
   readonly deps?: readonly DependencySpec[];
-  readonly scope?: Scope;
+  readonly scope?: "singleton";
 }
 
 export interface DefineModuleOptions extends ModuleOptions {
@@ -22,6 +22,12 @@ export interface ModuleMetadata {
   readonly actions: Set<PropertyKey>;
   readonly computed: Set<PropertyKey>;
   readonly effects: Set<PropertyKey>;
+}
+
+interface RuntimeModuleOptions {
+  readonly name?: string;
+  readonly deps?: readonly DependencySpec[];
+  readonly scope?: Scope;
 }
 
 const moduleMetadata = new WeakMap<Function, ModuleMetadata>();
@@ -84,6 +90,10 @@ export function addModuleEffect(target: Function, property: PropertyKey): void {
 }
 
 export function applyModuleOptions(metadata: ModuleMetadata, options: ModuleOptions): void {
+  applyRuntimeModuleOptions(metadata, options);
+}
+
+function applyRuntimeModuleOptions(metadata: ModuleMetadata, options: RuntimeModuleOptions): void {
   if (options.name !== undefined) {
     metadata.name = options.name;
   }
@@ -185,7 +195,7 @@ function mergeModuleMetadata(target: ModuleMetadata, source: ModuleMetadata | un
     return;
   }
 
-  applyModuleOptions(target, source);
+  applyRuntimeModuleOptions(target, source);
   addProperties(target.state, [...source.state]);
   addProperties(target.actions, [...source.actions]);
   addProperties(target.computed, [...source.computed]);

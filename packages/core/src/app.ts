@@ -310,14 +310,17 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
 
   for (const override of options.overrides ?? []) {
     const normalized = normalizeAppProvider(override);
+    const token = providerInputToken(normalized.provider);
+    const replacesModule = moduleTokens.some((moduleToken) => moduleToken === token);
 
-    if (
-      normalized.moduleToken !== undefined &&
-      !moduleTokens.some((moduleToken) => moduleToken === normalized.moduleToken)
-    ) {
+    if (normalized.moduleToken !== undefined && !replacesModule) {
       throw new CosystemError(
         `Cannot add ${tokenName(normalized.moduleToken)} as a new CoSystem module through overrides.`,
       );
+    }
+
+    if (replacesModule) {
+      assertSingletonModuleScope(token, providerInputScope(normalized.provider));
     }
 
     container.override(normalized.provider);
@@ -2409,6 +2412,10 @@ function providerInputToken(provider: ProviderInput): InjectionToken {
 
 function isMultiProvider(provider: ProviderInput): boolean {
   return typeof provider !== "function" && provider.multi === true;
+}
+
+function providerInputScope(provider: ProviderInput): Scope | undefined {
+  return typeof provider === "function" || !("scope" in provider) ? undefined : provider.scope;
 }
 
 function assertSingletonModuleScope(token: InjectionToken, scope: Scope | undefined): void {

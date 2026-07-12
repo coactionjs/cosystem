@@ -341,7 +341,7 @@ describe("app runtime", () => {
 
     defineModule(InvalidLazyScope, {
       name: "invalidLazyScope",
-      scope: "transient",
+      scope: "transient" as never,
       state: ["value"],
     });
 
@@ -1687,7 +1687,7 @@ describe("app runtime", () => {
 
       defineModule(InvalidScopedModule, {
         name: `invalid-${scope}`,
-        scope,
+        scope: scope as never,
       });
 
       expect(() => createApp({ providers: [InvalidScopedModule] })).toThrow(
@@ -1713,6 +1713,29 @@ describe("app runtime", () => {
         ],
       }),
     ).toThrow("must use singleton scope; received resolution");
+  });
+
+  it("rejects non-singleton factory overrides for discovered modules", () => {
+    class FactoryOverriddenModule {
+      value = "module";
+    }
+
+    defineModule(FactoryOverriddenModule, {
+      name: "factoryOverriddenModule",
+      state: ["value"],
+    });
+
+    expect(() =>
+      testApp({
+        overrides: [
+          provide(FactoryOverriddenModule, {
+            scope: "transient",
+            useFactory: () => new FactoryOverriddenModule(),
+          }),
+        ],
+        providers: [FactoryOverriddenModule],
+      }),
+    ).toThrow("must use singleton scope; received transient");
   });
 
   it("keeps non-module class and factory providers lazy by default", () => {
