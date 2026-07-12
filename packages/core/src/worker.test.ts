@@ -702,7 +702,7 @@ describe("worker prototype", () => {
     client.dispose();
   });
 
-  it("rejects worker patches that replace the state root with a non-object", async () => {
+  it("rejects worker patches that replace the state root with a non-record", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const conflicts: WorkerConflictEvent[] = [];
     const client = createWorkerClient({
@@ -732,8 +732,15 @@ describe("worker prototype", () => {
       type: "state",
       version: 1,
     });
+    hostTransport.post({
+      patches: [{ op: "replace", path: "", value: new Date(0) }],
+      sync: "patch",
+      type: "state",
+      version: 1,
+    });
 
     expect(conflicts.map((event) => event.reason)).toEqual([
+      "patch-apply-failed",
       "patch-apply-failed",
       "patch-apply-failed",
     ]);
@@ -1661,10 +1668,16 @@ describe("worker prototype", () => {
       type: "state",
       version: 0,
     });
+    hostTransport.post({
+      state: new Date(0),
+      sync: "snapshot",
+      type: "state",
+      version: 0,
+    });
     await Promise.resolve();
 
     expect(ready).toBe(false);
-    expect(invalidMessages).toHaveLength(2);
+    expect(invalidMessages).toHaveLength(3);
 
     hostTransport.post({
       state: {},

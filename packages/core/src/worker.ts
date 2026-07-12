@@ -713,8 +713,8 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
           ? applyWorkerPatches(snapshot, message.patches ?? [])
           : message.state;
 
-        if (!isRecord(nextSnapshot)) {
-          throw new CosystemError("Worker state root must remain an object.");
+        if (!isWorkerStateRoot(nextSnapshot)) {
+          throw new CosystemError("Worker state root must remain a plain object.");
         }
 
         snapshot = nextSnapshot;
@@ -1611,9 +1611,11 @@ function isWorkerMessage(message: unknown): message is WorkerMessage {
             message.sections.every((section) => typeof section === "string"))) &&
         (message.patches === undefined ||
           (Array.isArray(message.patches) && message.patches.every(isWorkerPatch))) &&
-        (message.state === undefined || isRecord(message.state)) &&
-        (message.sync !== "snapshot" || isRecord(message.state)) &&
-        (message.sync !== "patch" || isRecord(message.state) || message.patches !== undefined)
+        (message.state === undefined || isWorkerStateRoot(message.state)) &&
+        (message.sync !== "snapshot" || isWorkerStateRoot(message.state)) &&
+        (message.sync !== "patch" ||
+          isWorkerStateRoot(message.state) ||
+          message.patches !== undefined)
       );
 
     case "sync":
@@ -1681,6 +1683,15 @@ function assertValidWorkerTimeout(timeout: number, option: string): void {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isWorkerStateRoot(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const prototype = Object.getPrototypeOf(value) as unknown;
+  return prototype === Object.prototype || prototype === null;
 }
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
