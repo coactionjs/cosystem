@@ -2166,6 +2166,45 @@ describe("app runtime", () => {
     ]);
   });
 
+  it("does not start later plugin setup after disposal begins", async () => {
+    const events: string[] = [];
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const app = createApp({
+      plugins: [
+        {
+          setup(_app, context) {
+            events.push(`first:setup:${String(context.signal.aborted)}`);
+            markFirstStarted();
+
+            return new Promise<void>((resolve) => {
+              context.signal.addEventListener(
+                "abort",
+                () => {
+                  events.push("first:abort");
+                  resolve();
+                },
+                { once: true },
+              );
+            });
+          },
+        },
+        {
+          setup(_app, context) {
+            events.push(`second:setup:${String(context.signal.aborted)}`);
+          },
+        },
+      ],
+    });
+
+    await firstStarted;
+    await app.dispose();
+
+    expect(events).toEqual(["first:setup:false", "first:abort"]);
+  });
+
   it("lets plugin context watches stop manually before app disposal", async () => {
     const events: string[] = [];
     let stopWatch: (() => void) | undefined;

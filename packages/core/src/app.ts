@@ -1100,6 +1100,10 @@ class RuntimeApp implements App {
           this.#container,
           "setup",
         );
+
+        if (this.isDisposing || this.isDisposed) {
+          return;
+        }
       }
 
       if (this.isDisposing || this.isDisposed) {
