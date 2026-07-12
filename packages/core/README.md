@@ -206,7 +206,8 @@ createApp({
 Provider shapes (`provide(token, options)`):
 
 - `useClass` — construct a class, resolving `deps` as constructor arguments.
-- `useValue` — use an existing value (always eager, singleton).
+- `useValue` — use an existing value (always eager, singleton, and externally
+  owned unless `autoDispose: true`).
 - `useFactory` — call a factory with resolved `deps`; may be async.
 - `useExisting` — alias one token to another.
 
@@ -299,6 +300,10 @@ A longer-lived provider that depends on a shorter-lived one throws
 `LifetimeLeakError` unless the dependency is marked `leakSafe: true`. Use `multi:
 true` to register several providers under one token and read them with
 `getAll()`. Provide a `dispose(value)` callback to clean up on `app.dispose()`.
+Class/factory values use convention-based disposal by default; disable it with
+`autoDispose: false`. External `useValue` providers default to no automatic
+disposal, while `autoDispose: true` explicitly transfers ownership. A custom
+`dispose(value)` replaces convention disposal, and aliases never own targets.
 
 ## Module lifecycle hooks
 

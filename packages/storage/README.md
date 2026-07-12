@@ -90,6 +90,11 @@ await storage.setMany([
 `StorageService.instance` exposes the underlying localspace instance when you
 need lower-level APIs or performance stats.
 
+`destroyOnDispose` is the sole ownership switch for the supplied storage
+service. It defaults to `true` only when the plugin created the service itself;
+an external `service` or `instance` is retained by default. Setting it explicitly
+to `true` destroys that resource exactly once during app disposal.
+
 ## Legacy StorageLike Adapter
 
 `createStoragePlugin()` is retained for custom string-only backends:

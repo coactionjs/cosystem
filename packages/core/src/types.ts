@@ -39,6 +39,7 @@ export interface ProviderOptionsBase<T> {
   readonly multi?: boolean;
   readonly eager?: boolean;
   readonly leakSafe?: boolean;
+  readonly autoDispose?: boolean;
   readonly dispose?: (value: T) => void | Promise<void>;
 }
 
@@ -51,6 +52,7 @@ export interface ValueProvideOptions<T> {
   readonly useValue: T;
   readonly multi?: boolean;
   readonly leakSafe?: boolean;
+  readonly autoDispose?: boolean;
   readonly dispose?: (value: T) => void | Promise<void>;
 }
 
@@ -76,6 +78,7 @@ export interface ClassProvider<T = unknown> {
   readonly multi?: boolean;
   readonly eager?: boolean;
   readonly leakSafe?: boolean;
+  readonly autoDispose?: boolean;
   readonly dispose?: (value: T) => void | Promise<void>;
 }
 
@@ -84,6 +87,7 @@ export interface ValueProvider<T = unknown> {
   readonly useValue: T;
   readonly multi?: boolean;
   readonly leakSafe?: boolean;
+  readonly autoDispose?: boolean;
   readonly dispose?: (value: T) => void | Promise<void>;
 }
 
@@ -98,6 +102,7 @@ export interface FactoryProvider<
   readonly multi?: boolean;
   readonly eager?: boolean;
   readonly leakSafe?: boolean;
+  readonly autoDispose?: boolean;
   readonly dispose?: (value: T) => void | Promise<void>;
 }
 
@@ -164,6 +169,7 @@ export interface ProviderRecord {
   readonly multi: boolean;
   readonly eager: boolean;
   readonly leakSafe: boolean;
+  readonly autoDispose: boolean;
   readonly dispose?: (value: unknown) => void | Promise<void>;
 }
 

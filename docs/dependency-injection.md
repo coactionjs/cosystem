@@ -72,12 +72,12 @@ createApp({
 
 ### Provider kinds
 
-| Kind     | Shape                                   | Notes                                                   |
-| -------- | --------------------------------------- | ------------------------------------------------------- |
-| Class    | `{ useClass, deps?, scope?, eager? }`   | Constructs the class with resolved `deps` as arguments. |
-| Value    | `{ useValue }`                          | Always singleton and eager.                             |
-| Factory  | `{ useFactory, deps?, scope?, eager? }` | Calls the factory with resolved `deps`; may be async.   |
-| Existing | `{ useExisting }`                       | Aliases one token to another.                           |
+| Kind     | Shape                                                 | Notes                                                   |
+| -------- | ----------------------------------------------------- | ------------------------------------------------------- |
+| Class    | `{ useClass, deps?, scope?, eager?, autoDispose? }`   | Constructs the class with resolved `deps` as arguments. |
+| Value    | `{ useValue, autoDispose? }`                          | Always singleton and eager.                             |
+| Factory  | `{ useFactory, deps?, scope?, eager?, autoDispose? }` | Calls the factory with resolved `deps`; may be async.   |
+| Existing | `{ useExisting }`                                     | Aliases one token to another.                           |
 
 `provide(token, options)` preserves the generic relationship between the token
 and the value: `provide(LoggerToken, { useValue })` constrains `useValue` to a
@@ -260,6 +260,14 @@ provide(Connection, {
   dispose: (conn) => conn.close(),
 });
 ```
+
+Class and factory providers default to `autoDispose: true`: without a custom
+callback, the container looks for `Symbol.asyncDispose`, `Symbol.dispose`,
+`dispose()`, then `destroy()`. Values passed through `useValue` are external and
+default to `autoDispose: false`; opt in only when ownership is intentionally
+transferred. `useExisting` aliases never take ownership of the target. An
+explicit `dispose(value)` callback always runs and replaces convention-based
+disposal rather than running in addition to it.
 
 `app.dispose()` disposes created instances in **reverse creation order**, then
 disposes scopes and the container. Modules can also implement `onDispose()` (see

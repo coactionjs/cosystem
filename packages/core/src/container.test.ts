@@ -531,6 +531,95 @@ describe("DI container", () => {
     expect(disposed).toEqual(["second", "first"]);
   });
 
+  it("does not auto-dispose external values unless explicitly requested", async () => {
+    const ExternalToken = token<{ dispose(): void }>("ExternalResource");
+    const OwnedToken = token<{ dispose(): void }>("OwnedValueResource");
+    const events: string[] = [];
+    const container = createContainer();
+
+    container.provide(
+      provide(ExternalToken, {
+        useValue: {
+          dispose() {
+            events.push("external");
+          },
+        },
+      }),
+    );
+    container.provide(
+      provide(OwnedToken, {
+        autoDispose: true,
+        useValue: {
+          dispose() {
+            events.push("owned");
+          },
+        },
+      }),
+    );
+
+    container.get(ExternalToken);
+    container.get(OwnedToken);
+    await container.dispose();
+
+    expect(events).toEqual(["owned"]);
+  });
+
+  it("lets custom provider disposers override convention-based disposal", async () => {
+    const ResourceToken = token<{ dispose(): void }>("CustomDisposableResource");
+    const RetainedToken = token<{ dispose(): void }>("RetainedFactoryResource");
+    const events: string[] = [];
+    const container = createContainer();
+
+    container.provide(
+      provide(ResourceToken, {
+        dispose() {
+          events.push("custom");
+        },
+        useFactory: () => ({
+          dispose() {
+            events.push("convention");
+          },
+        }),
+      }),
+    );
+    container.provide(
+      provide(RetainedToken, {
+        autoDispose: false,
+        useFactory: () => ({
+          dispose() {
+            events.push("retained-convention");
+          },
+        }),
+      }),
+    );
+
+    container.get(ResourceToken);
+    container.get(RetainedToken);
+    await container.dispose();
+
+    expect(events).toEqual(["custom"]);
+  });
+
+  it("does not transfer resource ownership through existing-provider aliases", async () => {
+    const AliasToken = token<{ dispose(): void }>("DisposableAlias");
+    const events: string[] = [];
+
+    class Resource {
+      dispose(): void {
+        events.push("dispose");
+      }
+    }
+
+    const container = createContainer();
+    container.provide(Resource);
+    container.provide(provide(AliasToken, { useExisting: Resource }));
+
+    expect(container.get(AliasToken)).toBe(container.get(Resource));
+    await container.dispose();
+
+    expect(events).toEqual(["dispose"]);
+  });
+
   it("makes disposal terminal for a container and its descendant scopes", async () => {
     class Service {
       readonly ready = true;

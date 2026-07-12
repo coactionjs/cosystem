@@ -4,6 +4,7 @@ import { createApp, defineModule } from "@cosystem/core";
 
 import {
   StorageToken,
+  createLocalSpaceStorage,
   createLocalSpaceStoragePlugin,
   createStoragePlugin,
   type LocalSpacePlugin,
@@ -283,6 +284,53 @@ describe("localspace storage plugin", () => {
     expect(await storage.keys()).toEqual(["first", "second"]);
 
     await app.dispose();
+  });
+
+  it("honors destroyOnDispose for externally supplied storage services", async () => {
+    const events: string[] = [];
+
+    const createService = (name: string) => {
+      const service = createLocalSpaceStorage({
+        options: createMemoryLocalSpaceOptions(name),
+      });
+      service.destroy = async () => {
+        events.push(name);
+      };
+      return service;
+    };
+
+    const retainedService = createService("retained");
+    const retainedApp = createApp({
+      plugins: [
+        createLocalSpaceStoragePlugin({
+          destroyOnDispose: false,
+          hydrate: false,
+          persist: false,
+          service: retainedService,
+        }),
+      ],
+    });
+    await retainedApp.start();
+    await retainedApp.dispose();
+
+    const ownedService = createService("owned");
+    const ownedApp = createApp({
+      plugins: [
+        createLocalSpaceStoragePlugin({
+          destroyOnDispose: true,
+          hydrate: false,
+          persist: false,
+          service: ownedService,
+        }),
+      ],
+    });
+    await ownedApp.start();
+    await ownedApp.dispose();
+
+    expect(events).toEqual(["owned"]);
+
+    await retainedService.instance.destroy();
+    await ownedService.instance.destroy();
   });
 
   it("runs localspace plugins and destroys owned localspace resources on app disposal", async () => {

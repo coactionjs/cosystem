@@ -78,6 +78,7 @@ export function normalizeProvider(input: ProviderInput): ProviderRecord {
         (input.useClass as { readonly inject?: readonly DependencySpec[] }).inject ??
         [],
       eager: input.eager ?? false,
+      autoDispose: input.autoDispose ?? true,
       ...eraseDispose(input.dispose),
     };
   }
@@ -92,6 +93,7 @@ export function normalizeProvider(input: ProviderInput): ProviderRecord {
       scope: "singleton",
       deps: [],
       eager: true,
+      autoDispose: input.autoDispose ?? false,
       ...eraseDispose(input.dispose),
     };
   }
@@ -106,6 +108,7 @@ export function normalizeProvider(input: ProviderInput): ProviderRecord {
       scope: input.scope ?? "singleton",
       deps: input.deps ?? [],
       eager: input.eager ?? false,
+      autoDispose: input.autoDispose ?? true,
       ...eraseDispose(input.dispose),
     };
   }
@@ -119,6 +122,7 @@ export function normalizeProvider(input: ProviderInput): ProviderRecord {
     scope: "singleton",
     deps: [input.useExisting],
     eager: false,
+    autoDispose: false,
   };
 }
 

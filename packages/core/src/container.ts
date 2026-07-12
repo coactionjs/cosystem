@@ -553,7 +553,14 @@ class RuntimeContainer implements ContainerImpl {
   }
 
   private trackCreated<T>(record: ProviderRecord, value: T, context: ResolutionContext): void {
-    if (value === null || (typeof value !== "object" && typeof value !== "function")) {
+    if (record.dispose === undefined && !record.autoDispose) {
+      return;
+    }
+
+    if (
+      record.dispose === undefined &&
+      (value === null || (typeof value !== "object" && typeof value !== "function"))
+    ) {
       return;
     }
 
@@ -659,6 +666,11 @@ function isLifetimeLeak(parentScope: Scope, childScope: Scope): boolean {
 async function disposeValue(value: unknown, record: ProviderRecord): Promise<void> {
   if (record.dispose !== undefined) {
     await record.dispose(value);
+    return;
+  }
+
+  if (!record.autoDispose) {
+    return;
   }
 
   if (value === null || (typeof value !== "object" && typeof value !== "function")) {
