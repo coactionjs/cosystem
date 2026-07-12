@@ -192,6 +192,7 @@ export type NormalizedProvider =
     };
 
 export interface ContainerImpl extends Container {
+  readonly children: Set<ContainerImpl>;
   readonly disposed: boolean;
   readonly parent: ContainerImpl | undefined;
   readonly pendingResolutions: Set<Promise<unknown>>;

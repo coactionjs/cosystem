@@ -731,6 +731,42 @@ describe("DI container", () => {
     await root.dispose();
   });
 
+  it("disposes descendant scope resources with their parent", async () => {
+    const ChildResource = token<{ dispose(): void }>("ChildResource");
+    const GrandchildResource = token<{ dispose(): void }>("GrandchildResource");
+    const events: string[] = [];
+    const root = createContainer();
+    const child = root.createScope();
+    const grandchild = child.createScope();
+
+    child.provide(
+      provide(ChildResource, {
+        useFactory: () => ({
+          dispose() {
+            events.push("child:dispose");
+          },
+        }),
+      }),
+    );
+    grandchild.provide(
+      provide(GrandchildResource, {
+        useFactory: () => ({
+          dispose() {
+            events.push("grandchild:dispose");
+          },
+        }),
+      }),
+    );
+
+    child.get(ChildResource);
+    grandchild.get(GrandchildResource);
+    await root.dispose();
+
+    expect(events).toEqual(["grandchild:dispose", "child:dispose"]);
+    await expect(child.dispose()).resolves.toBeUndefined();
+    await expect(grandchild.dispose()).resolves.toBeUndefined();
+  });
+
   it("waits for in-flight providers and disposes their resolved resources", async () => {
     const ResourceToken = token<{ destroy(): void }>("PendingResource");
     const events: string[] = [];

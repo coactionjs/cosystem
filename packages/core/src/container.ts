@@ -36,6 +36,7 @@ export function createContainer(options: ContainerOptions = {}): Container {
 
 class RuntimeContainer implements ContainerImpl {
   readonly parent: ContainerImpl | undefined;
+  readonly children = new Set<ContainerImpl>();
   readonly pendingResolutions = new Set<Promise<unknown>>();
   readonly strictScopes: boolean;
   readonly records = new Map<InjectionToken, ProviderRecord[]>();
@@ -51,6 +52,7 @@ class RuntimeContainer implements ContainerImpl {
     this.parent = options.parent as ContainerImpl | undefined;
     this.strictScopes = options.strictScopes ?? this.parent?.strictScopes ?? true;
     this.root = this.parent?.root ?? this;
+    this.parent?.children.add(this);
   }
 
   get<T>(token: InjectionToken<T>): T;
@@ -177,9 +179,19 @@ class RuntimeContainer implements ContainerImpl {
 
   private async disposeContainer(): Promise<void> {
     this.disposed = true;
-    await this.waitForPendingResolutions();
-
     const errors: unknown[] = [];
+
+    for (const child of [...this.children].toReversed()) {
+      try {
+        // eslint-disable-next-line no-await-in-loop -- Child scopes release dependents before parent resources.
+        await child.dispose();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
+    this.children.clear();
+    await this.waitForPendingResolutions();
 
     for (const entry of [...this.created].toReversed()) {
       if (entry.disposed) {
@@ -208,6 +220,8 @@ class RuntimeContainer implements ContainerImpl {
         }
       }
     }
+
+    this.parent?.children.delete(this);
 
     if (errors.length > 0) {
       throw new AggregateError(errors, "One or more providers failed to dispose.");
