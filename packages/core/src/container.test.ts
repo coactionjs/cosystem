@@ -236,6 +236,61 @@ describe("DI container", () => {
     }
   });
 
+  it("retains async singleton resources reached through sync resolution", async () => {
+    const ResourceToken = token<{ dispose(): void }>("SyncReachedAsyncResource");
+    const events: string[] = [];
+    let factoryCalls = 0;
+    const container = createContainer();
+
+    container.provide(
+      provide(ResourceToken, {
+        useFactory: async () => {
+          factoryCalls += 1;
+          await Promise.resolve();
+          events.push("created");
+          return {
+            dispose() {
+              events.push("disposed");
+            },
+          };
+        },
+      }),
+    );
+
+    expect(() => container.get(ResourceToken)).toThrow(AsyncProviderInSyncResolutionError);
+    await expect(container.getAsync(ResourceToken)).resolves.toBeDefined();
+    expect(factoryCalls).toBe(1);
+
+    await container.dispose();
+    expect(events).toEqual(["created", "disposed"]);
+  });
+
+  it("disposes transient async resources reached through sync resolution", async () => {
+    const ResourceToken = token<{ destroy(): void }>("SyncReachedTransientResource");
+    const events: string[] = [];
+    const container = createContainer();
+
+    container.provide(
+      provide(ResourceToken, {
+        scope: "transient",
+        useFactory: async () => {
+          await Promise.resolve();
+          events.push("created");
+          return {
+            destroy() {
+              events.push("destroyed");
+            },
+          };
+        },
+      }),
+    );
+
+    expect(() => container.get(ResourceToken)).toThrow(AsyncProviderInSyncResolutionError);
+    await container.dispose();
+
+    expect(events).toEqual(["created", "destroyed"]);
+  });
+
   it("supports explicit build without registering the class", () => {
     const container = createContainer();
     container.provide(ConsoleLogger);

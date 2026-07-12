@@ -267,6 +267,11 @@ const asyncInstance = await app.createScope().container.buildAsync(ServiceWithAs
 Use the async variants whenever any dependency is backed by an async factory; the
 sync path throws `AsyncProviderInSyncResolutionError`.
 
+If sync resolution discovers an async provider, its in-flight work remains
+owned by the container even though the sync call throws. A later `getAsync()`
+shares a cacheable pending provider, and container disposal waits for and cleans
+up any fulfilled resource, including transient results.
+
 ## Disposal
 
 Provide a `dispose(value)` callback to clean up a provider's instance:

@@ -245,6 +245,10 @@ const asyncInstance = await app.createScope().container.buildAsync(ServiceWithAs
 Use `buildAsync()` when any dependency is backed by an async factory; the sync
 path throws `AsyncProviderInSyncResolutionError`.
 
+When sync resolution discovers async work, the container still tracks that
+pending provider. A later `getAsync()` shares cacheable work, and disposal waits
+for fulfilled resources instead of leaking them.
+
 ## State, actions, computed, and effects
 
 - **State** fields become the module's slice in the store. Reads are tracked.

@@ -329,12 +329,14 @@ class RuntimeContainer implements ContainerImpl {
     const value = this.createValue(record, childContext);
 
     if (isPromiseLike(value)) {
+      const pending = this.cachePending(record, value, context);
+
       if (context.mode === "sync") {
-        observePromise(value);
+        observePromise(pending);
         throw new AsyncProviderInSyncResolutionError(record.tokenName);
       }
 
-      return this.cachePending(record, value, context);
+      return pending;
     }
 
     this.setCached(record, value, context);
