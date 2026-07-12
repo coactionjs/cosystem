@@ -1962,6 +1962,74 @@ describe("app runtime", () => {
     ]);
   });
 
+  it("rolls back attempted startup hooks before a retry", async () => {
+    const events: string[] = [];
+    let failingAttempts = 0;
+
+    class FirstStartedModule {
+      onStart(): void {
+        events.push("first:start");
+      }
+
+      onStop(): void {
+        events.push("first:stop");
+      }
+    }
+
+    class InitiallyFailingStartedModule {
+      onStart(): void {
+        failingAttempts += 1;
+        events.push("failing:start");
+
+        if (failingAttempts === 1) {
+          throw new Error("root start boom");
+        }
+      }
+
+      onStop(): void {
+        events.push("failing:stop");
+      }
+    }
+
+    class LaterStartedModule {
+      onStart(): void {
+        events.push("later:start");
+      }
+
+      onStop(): void {
+        events.push("later:stop");
+      }
+    }
+
+    defineModule(FirstStartedModule, { name: "firstStartedModule" });
+    defineModule(InitiallyFailingStartedModule, { name: "initiallyFailingStartedModule" });
+    defineModule(LaterStartedModule, { name: "laterStartedModule" });
+
+    const app = createApp({
+      providers: [FirstStartedModule, InitiallyFailingStartedModule, LaterStartedModule],
+    });
+
+    await expect(app.start()).rejects.toThrow("root start boom");
+    expect(app.started).toBe(false);
+    expect(events).toEqual(["first:start", "failing:start", "failing:stop", "first:stop"]);
+
+    await app.start();
+    expect(app.started).toBe(true);
+    expect(events).toEqual([
+      "first:start",
+      "failing:start",
+      "failing:stop",
+      "first:stop",
+      "first:start",
+      "failing:start",
+      "later:start",
+    ]);
+
+    await app.stop();
+    expect(events.slice(-3)).toEqual(["later:stop", "failing:stop", "first:stop"]);
+    await app.dispose();
+  });
+
   it("rejects readiness reentry from initialization work", async () => {
     const app = createApp({
       plugins: [

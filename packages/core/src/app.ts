@@ -719,6 +719,8 @@ class RuntimeApp implements App {
   }
 
   private async startApp(): Promise<void> {
+    const startedModules: ModuleBinding[] = [];
+
     if (this.isDisposing || this.isDisposed) {
       throw new CosystemError("Cannot start an app after disposal.");
     }
@@ -730,9 +732,29 @@ class RuntimeApp implements App {
         throw new CosystemError("Cannot start an app after disposal.");
       }
 
-      await this.runLifecycle("onStart");
+      await this.runLifecycle("onStart", false, this.modules, this.#container, (moduleBinding) =>
+        startedModules.push(moduleBinding),
+      );
       this.isStarted = true;
     } catch (error) {
+      const rollbackErrors: unknown[] = [];
+
+      if (startedModules.length > 0) {
+        await runCleanupPhase(rollbackErrors, () =>
+          this.runTeardownLifecycle("onStop", startedModules),
+        );
+      }
+
+      if (rollbackErrors.length > 0) {
+        const aggregate = new AggregateError(
+          [error, ...rollbackErrors],
+          error instanceof Error ? error.message : "App startup and rollback failed.",
+          { cause: error },
+        );
+        this.emitError(aggregate, { phase: "start" });
+        throw aggregate;
+      }
+
       this.emitError(error, { phase: "start" });
       throw error;
     } finally {
