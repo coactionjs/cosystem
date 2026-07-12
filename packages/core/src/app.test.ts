@@ -280,6 +280,191 @@ describe("app runtime", () => {
     expect(app.getModule(LazyCounter).count).toBe(1);
   });
 
+  it("coalesces concurrent lazy loads and keeps modules hidden until initialization commits", async () => {
+    const events: string[] = [];
+    let loaderCalls = 0;
+    let releaseInit!: () => void;
+    const initGate = new Promise<void>((resolve) => {
+      releaseInit = resolve;
+    });
+
+    class TransactionalLazyModule {
+      count = 1;
+
+      async onInit(): Promise<void> {
+        events.push("init:start");
+        await initGate;
+        this.count = 2;
+        events.push("init:done");
+      }
+    }
+
+    defineModule(TransactionalLazyModule, {
+      name: "transactionalLazyModule",
+      state: ["count"],
+    });
+
+    const feature = lazyModule(async () => {
+      loaderCalls += 1;
+      return TransactionalLazyModule;
+    });
+    const app = createApp();
+    const firstLoad = app.load(feature);
+    const concurrentLoad = app.load(feature);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(loaderCalls).toBe(1);
+    expect(events).toEqual(["init:start"]);
+    expect(() => app.getModule(TransactionalLazyModule)).toThrow(CosystemError);
+    expect(app.store.getPureState()).toEqual({});
+
+    releaseInit();
+
+    const [firstResult, concurrentResult] = await Promise.all([firstLoad, concurrentLoad]);
+    expect(concurrentResult).toBe(firstResult);
+    expect(events).toEqual(["init:start", "init:done"]);
+    expect(app.getModule(TransactionalLazyModule).count).toBe(2);
+    expect(app.store.getPureState()).toEqual({ transactionalLazyModule: { count: 2 } });
+  });
+
+  it("rolls back failed lazy initialization and allows a clean retry", async () => {
+    const ResourceToken = token<{ readonly attempt: number }>("LazyRollbackResource");
+    const events: string[] = [];
+    let initAttempts = 0;
+    let loaderCalls = 0;
+
+    class RetriableLazyModule {
+      value = "staged";
+
+      onInit(): void {
+        initAttempts += 1;
+        events.push(`init:${initAttempts}`);
+
+        if (initAttempts === 1) {
+          throw new Error("lazy init boom");
+        }
+      }
+
+      onDispose(): void {
+        events.push(`module:dispose:${initAttempts}`);
+      }
+    }
+
+    defineModule(RetriableLazyModule, {
+      name: "retriableLazyModule",
+      state: ["value"],
+    });
+
+    const feature = lazyModule(() => {
+      loaderCalls += 1;
+      const attempt = loaderCalls;
+
+      return {
+        providers: [
+          RetriableLazyModule,
+          provide(ResourceToken, {
+            dispose(resource) {
+              events.push(`resource:dispose:${resource.attempt}`);
+            },
+            eager: true,
+            useFactory: () => ({ attempt }),
+          }),
+        ],
+      };
+    });
+    const app = createApp();
+
+    await expect(app.load(feature)).rejects.toThrow("lazy init boom");
+
+    expect(() => app.getModule(RetriableLazyModule)).toThrow(CosystemError);
+    expect(app.store.getPureState()).toEqual({});
+    expect(events).toEqual(["init:1", "module:dispose:1", "resource:dispose:1"]);
+
+    const result = await app.load(feature);
+
+    expect(loaderCalls).toBe(2);
+    expect(app.getModule(RetriableLazyModule).value).toBe("staged");
+    expect(result.scope.container.get(ResourceToken)).toEqual({ attempt: 2 });
+    expect(app.store.getPureState()).toEqual({
+      retriableLazyModule: { value: "staged" },
+    });
+  });
+
+  it("rolls back lazy module maps, state, effects, and scope when an effect fails", async () => {
+    const events: string[] = [];
+
+    class BrokenLazyEffect {
+      value = 1;
+
+      explode(): void {
+        events.push("effect");
+        throw new Error("lazy effect boom");
+      }
+    }
+
+    defineModule(BrokenLazyEffect, {
+      effects: ["explode"],
+      name: "brokenLazyEffect",
+      state: ["value"],
+    });
+
+    const app = createApp({
+      plugins: [
+        {
+          onModuleCreated(event) {
+            events.push(`created:${event.name}`);
+          },
+        },
+      ],
+    });
+
+    await expect(app.load(lazyModule(() => BrokenLazyEffect))).rejects.toThrow("lazy effect boom");
+
+    expect(events).toEqual(["effect"]);
+    expect(() => app.getModule(BrokenLazyEffect)).toThrow(CosystemError);
+    expect(app.store.getPureState()).toEqual({});
+  });
+
+  it("rolls back initialized lazy modules when startup fails", async () => {
+    const events: string[] = [];
+
+    class FailingLazyStart {
+      value = 1;
+
+      onInit(): void {
+        events.push("init");
+      }
+
+      onStart(): void {
+        events.push("start");
+        throw new Error("lazy start boom");
+      }
+
+      onStop(): void {
+        events.push("stop");
+      }
+
+      onDispose(): void {
+        events.push("dispose");
+      }
+    }
+
+    defineModule(FailingLazyStart, {
+      name: "failingLazyStart",
+      state: ["value"],
+    });
+
+    const app = createApp();
+    await app.start();
+
+    await expect(app.load(lazyModule(() => FailingLazyStart))).rejects.toThrow("lazy start boom");
+
+    expect(events).toEqual(["init", "start", "stop", "dispose"]);
+    expect(() => app.getModule(FailingLazyStart)).toThrow(CosystemError);
+    expect(app.store.getPureState()).toEqual({});
+  });
+
   it("rejects in-flight lazy loads when the app is disposed before the loader resolves", async () => {
     const events: string[] = [];
     let releaseLoad: (() => void) | undefined;

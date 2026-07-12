@@ -403,6 +403,7 @@ class RuntimeApp implements App {
   private readonly effectDisposers: (() => void)[] = [];
   private readonly pendingEffects = new Set<Promise<void>>();
   private readonly loadedLazyModules = new WeakMap<LazyModule, LazyModuleLoadResult>();
+  private readonly loadingLazyModules = new WeakMap<LazyModule, Promise<LazyModuleLoadResult>>();
   private readonly dynamicScopes: Container[] = [];
   private initPromise: Promise<void> = Promise.resolve();
   private startPromise: Promise<void> | undefined;
@@ -669,7 +670,7 @@ class RuntimeApp implements App {
     this.assertCanLoadLazyModule();
 
     if (module === undefined) {
-      const modules = this.pendingLazyModules.splice(0);
+      const modules = [...this.pendingLazyModules];
       const results: LazyModuleLoadResult[] = [];
 
       for (const pendingModule of modules) {
@@ -680,22 +681,52 @@ class RuntimeApp implements App {
       return results;
     }
 
+    await this.initPromise;
+    this.assertCanLoadLazyModule();
+
     const existing = this.loadedLazyModules.get(module);
 
     if (existing !== undefined) {
       return existing;
     }
 
-    await this.initPromise;
-    this.assertCanLoadLazyModule();
+    const loading = this.loadingLazyModules.get(module);
+
+    if (loading !== undefined) {
+      return await loading;
+    }
+
+    const pending = this.loadLazyModule(module);
+    this.loadingLazyModules.set(module, pending);
 
     try {
-      const providers = normalizeLazyModuleProviders(await module.load());
-      this.assertCanLoadLazyModule();
+      return await pending;
+    } catch (error) {
+      this.emitError(error, { phase: "load" });
+      throw error;
+    } finally {
+      if (this.loadingLazyModules.get(module) === pending) {
+        this.loadingLazyModules.delete(module);
+      }
+    }
+  }
 
-      const scopeContainer = this.#container.createScope();
-      const moduleTokens: InjectionToken[] = [];
+  private async loadLazyModule(module: LazyModule): Promise<LazyModuleLoadResult> {
+    const providers = normalizeLazyModuleProviders(await module.load());
+    this.assertCanLoadLazyModule();
 
+    const scopeContainer = this.#container.createScope();
+    const moduleTokens: InjectionToken[] = [];
+    let loadedModules: ModuleBinding[] = [];
+    let initAttempted = false;
+    let startAttempted = false;
+    let modulesRegistered = false;
+    let metadataAttached = false;
+    let scopeRegistered = false;
+    let stateInstalled = false;
+    let effectStartIndex: number | undefined;
+
+    try {
       for (const provider of providers) {
         const normalized = normalizeAppProvider(provider);
         scopeContainer.provide(normalized.provider);
@@ -706,25 +737,36 @@ class RuntimeApp implements App {
       }
 
       scopeContainer.freeze();
-
-      const loadedModules = instantiateModules(scopeContainer, moduleTokens, false);
+      loadedModules = instantiateModules(scopeContainer, moduleTokens, false);
       this.assertNewModules(loadedModules);
-      this.installModuleState(loadedModules);
-      this.registerModules(loadedModules);
-      this.bindModules(loadedModules);
-      this.attachRuntimeMetadata(loadedModules);
       instantiateEagerProviders(scopeContainer);
-      this.dynamicScopes.push(scopeContainer);
-      this.runModuleCreatedHooks(loadedModules);
-      await this.runLifecycle("onInit", false, loadedModules);
+
+      initAttempted = true;
+      await this.runLifecycle("onInit", false, loadedModules, scopeContainer);
       this.assertCanLoadLazyModule();
 
-      this.startEffects(loadedModules);
-
       if (this.isStarted) {
-        await this.runLifecycle("onStart", false, loadedModules);
+        startAttempted = true;
+        await this.runLifecycle("onStart", false, loadedModules, scopeContainer);
         this.assertCanLoadLazyModule();
       }
+
+      this.assertNewModules(loadedModules);
+      const stagedState = createRootState(loadedModules);
+
+      this.bindModules(loadedModules);
+      metadataAttached = true;
+      this.attachRuntimeMetadata(loadedModules);
+      modulesRegistered = true;
+      this.registerModules(loadedModules);
+      scopeRegistered = true;
+      this.dynamicScopes.push(scopeContainer);
+      stateInstalled = true;
+      this.installModuleState(loadedModules, stagedState);
+
+      effectStartIndex = this.effectDisposers.length;
+      this.startEffects(loadedModules);
+      this.runModuleCreatedHooks(loadedModules);
 
       const result: LazyModuleLoadResult = {
         modules: loadedModules.map(toModuleCreatedEvent),
@@ -734,9 +776,56 @@ class RuntimeApp implements App {
       };
 
       this.loadedLazyModules.set(module, result);
+      this.removePendingLazyModule(module);
       return result;
     } catch (error) {
-      this.emitError(error, { phase: "load" });
+      const rollbackErrors: unknown[] = [];
+
+      const rollbackEffectStartIndex = effectStartIndex;
+
+      if (rollbackEffectStartIndex !== undefined) {
+        await runCleanupPhase(rollbackErrors, () => this.stopEffectsFrom(rollbackEffectStartIndex));
+      }
+
+      if (modulesRegistered) {
+        this.unregisterModules(loadedModules);
+      }
+
+      if (scopeRegistered) {
+        this.unregisterDynamicScope(scopeContainer);
+      }
+
+      if (startAttempted) {
+        await runCleanupPhase(rollbackErrors, () =>
+          this.runTeardownLifecycle("onStop", loadedModules, scopeContainer),
+        );
+      }
+
+      if (initAttempted) {
+        await runCleanupPhase(rollbackErrors, () =>
+          this.runTeardownLifecycle("onDispose", loadedModules, scopeContainer),
+        );
+      }
+
+      if (stateInstalled) {
+        await runCleanupPhase(rollbackErrors, () => this.uninstallModuleState(loadedModules));
+      }
+
+      if (metadataAttached) {
+        this.detachRuntimeMetadata(loadedModules);
+      }
+
+      await runCleanupPhase(rollbackErrors, () => scopeContainer.dispose());
+
+      if (rollbackErrors.length > 0) {
+        // eslint-disable-next-line preserve-caught-error -- AggregateError.errors and cause both retain the load failure.
+        throw new AggregateError(
+          [error, ...rollbackErrors],
+          error instanceof Error ? error.message : "Lazy module load and rollback failed.",
+          { cause: error },
+        );
+      }
+
       throw error;
     }
   }
@@ -752,7 +841,7 @@ class RuntimeApp implements App {
   attachRuntimeMetadata(modules: readonly ModuleBinding[] = this.modules): void {
     for (const moduleBinding of modules) {
       Object.defineProperty(moduleBinding.instance, runtimeModuleMetadataKey, {
-        configurable: false,
+        configurable: true,
         enumerable: false,
         value: {
           app: this,
@@ -1045,19 +1134,21 @@ class RuntimeApp implements App {
     method: keyof LifecycleModule,
     reverse = false,
     modules: readonly ModuleBinding[] = this.modules,
+    container: Container = this.#container,
   ): Promise<void> {
     const orderedModules = reverse ? modules.toReversed() : modules;
 
     for (const moduleBinding of orderedModules) {
       const lifecycle = moduleBinding.instance as LifecycleModule;
       // eslint-disable-next-line no-await-in-loop -- lifecycle hooks run in deterministic module order.
-      await this.runWithAppInjectContext(() => lifecycle[method]?.());
+      await this.runWithAppInjectContext(() => lifecycle[method]?.(), container);
     }
   }
 
   private async runTeardownLifecycle(
     method: "onStop" | "onDispose",
     modules: readonly ModuleBinding[] = this.modules,
+    container: Container = this.#container,
   ): Promise<void> {
     const errors: unknown[] = [];
 
@@ -1066,7 +1157,7 @@ class RuntimeApp implements App {
 
       try {
         // eslint-disable-next-line no-await-in-loop -- teardown hooks run in deterministic module order.
-        await this.runWithAppInjectContext(() => lifecycle[method]?.());
+        await this.runWithAppInjectContext(() => lifecycle[method]?.(), container);
       } catch (error) {
         errors.push(error);
       }
@@ -1111,13 +1202,28 @@ class RuntimeApp implements App {
       }
     });
 
-    run();
-
-    this.effectDisposers.push(() => {
+    const dispose = () => {
       disposed = true;
       unsubscribe();
       tracker.dispose();
-    });
+    };
+
+    try {
+      run();
+    } catch (error) {
+      try {
+        dispose();
+      } catch (disposeError) {
+        // eslint-disable-next-line preserve-caught-error -- AggregateError.errors and cause both retain the startup failure.
+        throw new AggregateError([error, disposeError], "Effect startup and cleanup failed.", {
+          cause: error,
+        });
+      }
+
+      throw error;
+    }
+
+    this.effectDisposers.push(dispose);
   }
 
   private runEffect(
@@ -1148,9 +1254,13 @@ class RuntimeApp implements App {
   }
 
   private stopEffects(): void {
+    this.stopEffectsFrom(0);
+  }
+
+  private stopEffectsFrom(index: number): void {
     const errors: unknown[] = [];
 
-    for (const dispose of this.effectDisposers.splice(0).toReversed()) {
+    for (const dispose of this.effectDisposers.splice(index).toReversed()) {
       try {
         dispose();
       } catch (error) {
@@ -1278,8 +1388,8 @@ class RuntimeApp implements App {
     }
   }
 
-  private runWithAppInjectContext<T>(callback: () => T): T {
-    return (this.#container as ContainerImpl).runWithResolutionContext(callback);
+  private runWithAppInjectContext<T>(callback: () => T, container: Container = this.#container): T {
+    return (container as ContainerImpl).runWithResolutionContext(callback);
   }
 
   private wrapStoreSetState(): void {
@@ -1336,12 +1446,13 @@ class RuntimeApp implements App {
     }
   }
 
-  private installModuleState(modules: readonly ModuleBinding[]): void {
+  private installModuleState(
+    modules: readonly ModuleBinding[],
+    rootState: RootState = createRootState(modules),
+  ): void {
     if (modules.length === 0) {
       return;
     }
-
-    const rootState = createRootState(modules);
 
     this.store.setState({
       ...this.store.getPureState(),
@@ -1354,6 +1465,60 @@ class RuntimeApp implements App {
       this.modules.push(moduleBinding);
       this.moduleByToken.set(moduleBinding.token, moduleBinding);
       this.moduleByName.set(moduleBinding.name, moduleBinding);
+    }
+  }
+
+  private unregisterModules(modules: readonly ModuleBinding[]): void {
+    for (const moduleBinding of modules) {
+      if (this.moduleByToken.get(moduleBinding.token) === moduleBinding) {
+        this.moduleByToken.delete(moduleBinding.token);
+      }
+
+      if (this.moduleByName.get(moduleBinding.name) === moduleBinding) {
+        this.moduleByName.delete(moduleBinding.name);
+      }
+
+      const index = this.modules.indexOf(moduleBinding);
+
+      if (index !== -1) {
+        this.modules.splice(index, 1);
+      }
+    }
+  }
+
+  private detachRuntimeMetadata(modules: readonly ModuleBinding[]): void {
+    for (const moduleBinding of modules) {
+      delete moduleBinding.instance[runtimeModuleMetadataKey];
+    }
+  }
+
+  private uninstallModuleState(modules: readonly ModuleBinding[]): void {
+    if (modules.length === 0) {
+      return;
+    }
+
+    const state = { ...this.store.getPureState() };
+
+    for (const moduleBinding of modules) {
+      delete state[moduleBinding.name];
+    }
+
+    this.store.apply(state);
+  }
+
+  private unregisterDynamicScope(scope: Container): void {
+    const index = this.dynamicScopes.indexOf(scope);
+
+    if (index !== -1) {
+      this.dynamicScopes.splice(index, 1);
+    }
+  }
+
+  private removePendingLazyModule(module: LazyModule): void {
+    const index = this.pendingLazyModules.indexOf(module);
+
+    if (index !== -1) {
+      this.pendingLazyModules.splice(index, 1);
     }
   }
 }

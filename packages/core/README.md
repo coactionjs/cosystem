@@ -349,7 +349,10 @@ Passing `lazyModule(...)` to `createApp({ providers })` records the entry withou
 loading it. Call `await app.load()` to load all pending lazy modules, or
 `await app.load(module)` to load one. Loaders may return a provider, a provider
 array, or a module-namespace object (`{ default }` / `{ providers }`), which
-makes dynamic `import()` ergonomic.
+makes dynamic `import()` ergonomic. Concurrent calls for the same entry share
+one in-flight load. Lifecycle work runs in a temporary scope; state, facades,
+effects, and module lookups are committed only after initialization/startup
+succeeds. Failed loads dispose and roll back the scope so a later call can retry.
 
 ## Plugins
 

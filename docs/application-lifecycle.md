@@ -144,6 +144,13 @@ app.getModule(AdminCounter).increase();
 - `await app.load()` loads **all** pending lazy modules, in registration order.
 - `await app.load(module)` loads **one** specific lazy module (idempotent — a
   second call returns the same result).
+- Concurrent loads of the same `LazyModule` share one loader and initialization
+  promise.
+- Providers and modules are staged in a temporary child scope. The module state,
+  facades, metadata, effects, and lookup maps become visible only after
+  `onInit` and (for a started app) `onStart` succeed.
+- A failed load disposes the temporary scope and rolls back all staged runtime
+  state. A later call retries from a fresh scope.
 - Once app disposal begins, lazy loads reject instead of installing new modules.
 - A loader may return a provider, a provider array, or a module-namespace object
   (`{ default }` / `{ providers }`), which makes dynamic `import()` ergonomic:

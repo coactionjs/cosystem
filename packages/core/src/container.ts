@@ -197,6 +197,12 @@ class RuntimeContainer implements ContainerImpl {
 
     if (this.root === this) {
       this.singletonCache.clear();
+    } else {
+      for (const records of this.records.values()) {
+        for (const record of records) {
+          this.root.singletonCache.delete(record);
+        }
+      }
     }
 
     if (errors.length > 0) {
@@ -570,7 +576,23 @@ class RuntimeContainer implements ContainerImpl {
   }
 
   private ownerFor(record: ProviderRecord, context: ResolutionContext): ContainerImpl {
-    return record.scope === "singleton" ? this.root : context.requestContainer;
+    if (record.scope !== "singleton") {
+      return context.requestContainer;
+    }
+
+    let owner: ContainerImpl | undefined = context.requestContainer;
+
+    while (owner !== undefined) {
+      for (const records of owner.records.values()) {
+        if (records.includes(record)) {
+          return owner;
+        }
+      }
+
+      owner = owner.parent;
+    }
+
+    return this.root;
   }
 
   private assertNoCycle(record: ProviderRecord, context: ResolutionContext): void {
