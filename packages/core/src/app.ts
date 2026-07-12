@@ -513,6 +513,7 @@ class RuntimeApp implements App {
   private readonly strictStateSnapshotCache = new WeakMap<object, object>();
   private readonly loadedLazyModules = new WeakMap<LazyModule, LazyModuleLoadResult>();
   private readonly loadingLazyModules = new WeakMap<LazyModule, Promise<LazyModuleLoadResult>>();
+  private readonly stagedLazyLoads = new Set<Promise<void>>();
   private readonly dynamicScopes: Container[] = [];
   private initPromise: Promise<void> = Promise.resolve();
   private startPromise: Promise<void> | undefined;
@@ -805,6 +806,7 @@ class RuntimeApp implements App {
       // should still release any resources registered before the failure.
     }
 
+    await this.waitForStagedLazyLoads();
     await runCleanupPhase(errors, () => this.stop());
     await runCleanupPhase(errors, () => this.stopEffects());
     await runCleanupPhase(errors, () => this.waitForPendingEffects());
@@ -889,6 +891,11 @@ class RuntimeApp implements App {
     this.assertCanLoadLazyModule();
 
     const scopeContainer = this.#container.createScope();
+    let finishStagedLoad: (() => void) | undefined;
+    const stagedLoad = new Promise<void>((resolve) => {
+      finishStagedLoad = resolve;
+    });
+    this.stagedLazyLoads.add(stagedLoad);
     const moduleTokens: InjectionToken[] = [];
     let loadedModules: ModuleBinding[] = [];
     let initAttempted = false;
@@ -1050,6 +1057,9 @@ class RuntimeApp implements App {
       }
 
       throw error;
+    } finally {
+      this.stagedLazyLoads.delete(stagedLoad);
+      finishStagedLoad?.();
     }
   }
 
@@ -1624,6 +1634,13 @@ class RuntimeApp implements App {
 
     if (errors.length > 0) {
       throw new AggregateError(errors, "One or more pending effects failed while disposing.");
+    }
+  }
+
+  private async waitForStagedLazyLoads(): Promise<void> {
+    while (this.stagedLazyLoads.size > 0) {
+      // eslint-disable-next-line no-await-in-loop -- staged loads may finish while another load is cleaning up.
+      await Promise.all(this.stagedLazyLoads);
     }
   }
 

@@ -639,6 +639,94 @@ describe("app runtime", () => {
     expect(() => app.getModule(LazyAfterDispose)).toThrow(CosystemError);
   });
 
+  it("waits for staged lazy scopes before disposal completes", async () => {
+    const ResourceToken = token<object>("StagedLazyResource");
+    const events: string[] = [];
+    let markInitStarted: (() => void) | undefined;
+    let releaseInit: (() => void) | undefined;
+    const initStarted = new Promise<void>((resolve) => {
+      markInitStarted = resolve;
+    });
+    const initGate = new Promise<void>((resolve) => {
+      releaseInit = resolve;
+    });
+
+    class StagedLazyModule {
+      async onInit(): Promise<void> {
+        events.push("init:start");
+        markInitStarted?.();
+        await initGate;
+        events.push("init:resume");
+      }
+
+      onDispose(): void {
+        events.push("module:dispose");
+      }
+    }
+
+    defineModule(StagedLazyModule, {
+      name: "stagedLazyModule",
+    });
+
+    const app = createApp();
+    await app.start();
+
+    const feature = lazyModule(() => ({
+      providers: [
+        StagedLazyModule,
+        provide(ResourceToken, {
+          dispose() {
+            events.push("resource:dispose");
+          },
+          eager: true,
+          useFactory: () => {
+            events.push("resource:create");
+            return {};
+          },
+        }),
+      ],
+    }));
+    const loadResult = app.load(feature).then(
+      () => ({ status: "fulfilled" as const }),
+      (error: unknown) => ({ error, status: "rejected" as const }),
+    );
+
+    await initStarted;
+
+    let disposalSettled = false;
+    const disposal = app.dispose().then(() => {
+      disposalSettled = true;
+      events.push("app:disposed");
+      return undefined;
+    });
+
+    await Promise.resolve();
+
+    expect(disposalSettled).toBe(false);
+    expect(events).toEqual(["resource:create", "init:start"]);
+
+    releaseInit?.();
+
+    const result = await loadResult;
+    expect(result).toMatchObject({
+      error: {
+        message: "Cannot load a lazy module after app disposal.",
+      },
+      status: "rejected",
+    });
+
+    await disposal;
+
+    expect(events).toEqual([
+      "resource:create",
+      "init:start",
+      "init:resume",
+      "module:dispose",
+      "resource:dispose",
+      "app:disposed",
+    ]);
+  });
+
   it("runs lazy module lifecycle hooks when loaded after app start", async () => {
     const events: string[] = [];
 
