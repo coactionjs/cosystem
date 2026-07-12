@@ -115,7 +115,9 @@ const app = createApp({
 With strict actions on, top-level assignments, nested object/array mutations,
 and direct `app.store.setState()` / `app.store.apply()` calls outside an action
 throw before state changes. State views returned through modules and
-`store.getState()` carry the same deep guard.
+`store.getState()` carry the same deep guard. `store.getPureState()` returns a
+detached, serializable snapshot whose plain object and array tree is recursively
+frozen, so mutating the raw snapshot cannot bypass the action boundary.
 
 Async actions need care. Synchronous writes **before the first `await`** are part
 of the action's transaction. Writes **after an `await`** are no longer inside the

@@ -498,6 +498,7 @@ class RuntimeApp implements App {
   private readonly effectDisposers: (() => void)[] = [];
   private readonly pendingEffects = new Set<Promise<void>>();
   private readonly stateProxyCache = new WeakMap<object, object>();
+  private readonly strictStateSnapshotCache = new WeakMap<object, object>();
   private readonly loadedLazyModules = new WeakMap<LazyModule, LazyModuleLoadResult>();
   private readonly loadingLazyModules = new WeakMap<LazyModule, Promise<LazyModuleLoadResult>>();
   private readonly dynamicScopes: Container[] = [];
@@ -1767,6 +1768,7 @@ class RuntimeApp implements App {
     ) => unknown;
     const originalApply = this.store.apply.bind(this.store) as StoreApply;
     const originalGetState = this.store.getState.bind(this.store);
+    const originalGetPureState = this.store.getPureState.bind(this.store);
 
     this.store.setState = ((...args: Parameters<StoreSetState>) => {
       this.assertStoreMutationAllowed("setState");
@@ -1790,6 +1792,10 @@ class RuntimeApp implements App {
 
     this.store.getState = (() =>
       this.guardStateValue(originalGetState())) as Store<RootState>["getState"];
+    this.store.getPureState = (() => {
+      const state = originalGetPureState();
+      return this.devOptions.strictActions === true ? this.createStrictStateSnapshot(state) : state;
+    }) as Store<RootState>["getPureState"];
   }
 
   private assertStoreMutationAllowed(operation: "apply" | "setState"): void {
@@ -1859,6 +1865,43 @@ class RuntimeApp implements App {
     });
     this.stateProxyCache.set(value, proxy);
     return proxy as T;
+  }
+
+  private createStrictStateSnapshot<T>(value: T): T {
+    if (!isGuardableStateValue(value)) {
+      return value;
+    }
+
+    const existing = this.strictStateSnapshotCache.get(value);
+
+    if (existing !== undefined) {
+      return existing as T;
+    }
+
+    let snapshot: Record<PropertyKey, unknown> | unknown[];
+
+    if (Array.isArray(value)) {
+      snapshot = [];
+      snapshot.length = value.length;
+    } else {
+      snapshot = Object.create(Object.getPrototypeOf(value));
+    }
+    const stateValue = value as Record<PropertyKey, unknown>;
+    this.strictStateSnapshotCache.set(value, snapshot);
+
+    for (const property of Reflect.ownKeys(value)) {
+      if (Object.prototype.propertyIsEnumerable.call(value, property)) {
+        Object.defineProperty(snapshot, property, {
+          configurable: true,
+          enumerable: true,
+          value: this.createStrictStateSnapshot(stateValue[property]),
+          writable: true,
+        });
+      }
+    }
+
+    Object.freeze(snapshot);
+    return snapshot as T;
   }
 
   private assertDeepMutationAllowed(): void {

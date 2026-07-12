@@ -254,7 +254,8 @@ for fulfilled resources instead of leaking them.
 - **State** fields become the module's slice in the store. Reads are tracked.
 - **Actions** wrap writes in a transaction. In `strictActions` mode, writes
   outside an action throw, including deep object/array mutations and direct
-  `store.setState()` / `store.apply()` calls.
+  `store.setState()` / `store.apply()` calls; plain snapshots from
+  `store.getPureState()` are detached and recursively frozen.
 - **Computed** getters are memoized and recomputed only when tracked state
   changes.
 - **Effects** run once after init and re-run when their tracked state changes.

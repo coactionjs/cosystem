@@ -286,6 +286,16 @@ const app = createApp({
 const counter = app.getModule(ActionCounter);
 const writer = app.getModule(PostAwaitWriter);
 const failing = app.getModule(AsyncFailingAction);
+const pureState = app.store.getPureState();
+
+expectThrowsInstance(
+  () => {
+    pureState.actionCounter.count = 99;
+  },
+  TypeError,
+  "strict pure state snapshot rejects writes",
+);
+expectEqual(counter.count, 0, "strict pure state write leaves module unchanged");
 
 expectThrowsInstance(
   () => {

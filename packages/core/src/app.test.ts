@@ -686,6 +686,25 @@ describe("app runtime", () => {
       "Cannot call store.apply() outside an action",
     );
 
+    const pureState = app.store.getPureState() as {
+      nestedStrictModule: {
+        items: number[];
+        settings: { nested: { value: number } };
+      };
+    };
+
+    expect(Object.isFrozen(pureState)).toBe(true);
+    expect(Object.isFrozen(pureState.nestedStrictModule!.settings)).toBe(true);
+    expect(structuredClone(pureState)).toEqual(pureState);
+    expect(() => {
+      pureState.nestedStrictModule!.settings.nested.value = 9;
+    }).toThrow(TypeError);
+    expect(() => {
+      pureState.nestedStrictModule!.items.push(9);
+    }).toThrow(TypeError);
+    expect(module.settings.nested.value).toBe(0);
+    expect(module.items).toEqual([1]);
+
     module.mutate();
 
     expect(module.settings.nested.value).toBe(1);
