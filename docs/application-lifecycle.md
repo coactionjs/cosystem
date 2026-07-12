@@ -55,6 +55,7 @@ app.start()
   - mark the app started
 
 app.stop()
+  - wait for staged lazy loads to roll back
   - run module onStop() hooks in reverse order
   - mark the app stopped
 
@@ -180,6 +181,8 @@ app.getModule(AdminCounter).increase();
   publication, restores local module bindings for teardown, disposes the
   temporary scope, and rolls back all staged runtime state. A later call retries
   from a fresh scope.
+- `app.stop()` waits for loads already in the staging phase to roll back. New
+  loads reject while stopping and may be retried after the stop completes.
 - Once app disposal begins, lazy loads reject instead of installing new modules.
 - A loader may return a provider, a provider array, or a module-namespace object
   (`{ default }` / `{ providers }`), which makes dynamic `import()` ergonomic:
