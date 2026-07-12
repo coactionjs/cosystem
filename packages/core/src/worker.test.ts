@@ -693,6 +693,54 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("isolates worker state observers from protocol handling", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const observedVersions: number[] = [];
+    const observedCounts: number[] = [];
+    const client = createWorkerClient({ transport: clientTransport });
+
+    client.subscribe(() => {
+      throw new Error("subscriber boom");
+    });
+    client.subscribe((message) => {
+      observedVersions.push(message.version);
+    });
+    client.watch(
+      () => {
+        throw new Error("selector boom");
+      },
+      () => undefined,
+    );
+    client.watch(
+      selectWorkerCount,
+      () => {
+        throw new Error("watch boom");
+      },
+      { immediate: true },
+    );
+    client.watch(
+      selectWorkerCount,
+      (value) => {
+        observedCounts.push(value);
+      },
+      { immediate: true },
+    );
+
+    const host = createWorkerApp({
+      providers: [WorkerCounter],
+      transport: hostTransport,
+    });
+
+    await expect(Promise.all([client.ready, host.ready])).resolves.toEqual([undefined, undefined]);
+    await expect(client.module<WorkerCounter>("workerCounter").increase(1)).resolves.toBe(1);
+
+    expect(observedVersions).toEqual([0, 1]);
+    expect(observedCounts).toEqual([0, 1]);
+
+    client.dispose();
+    await host.dispose();
+  });
+
   it("rejects delegated calls when the remote method is missing", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const client = createWorkerClient({

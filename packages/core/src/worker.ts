@@ -513,7 +513,7 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
         watcher.previous = value;
 
         if (watcher.immediate) {
-          listener(value, value);
+          runWorkerObserver(() => listener(value, value));
         }
       }
 
@@ -592,27 +592,31 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
     }
 
     for (const watcher of selectorWatchers) {
-      const value = watcher.selector(snapshot, client);
+      try {
+        const value = watcher.selector(snapshot, client);
 
-      if (!watcher.initialized) {
-        watcher.initialized = true;
-        watcher.previous = value;
+        if (!watcher.initialized) {
+          watcher.initialized = true;
+          watcher.previous = value;
 
-        if (watcher.immediate) {
-          watcher.listener(value, value);
+          if (watcher.immediate) {
+            watcher.listener(value, value);
+          }
+
+          continue;
         }
 
-        continue;
+        const previous = watcher.previous as never;
+
+        if (watcher.equals(value, previous)) {
+          continue;
+        }
+
+        watcher.previous = value;
+        watcher.listener(value, previous as never);
+      } catch {
+        // A selector observer must not interrupt state publication or pending RPC settlement.
       }
-
-      const previous = watcher.previous as never;
-
-      if (watcher.equals(value, previous)) {
-        continue;
-      }
-
-      watcher.previous = value;
-      watcher.listener(value, previous as never);
     }
   };
 
@@ -686,7 +690,7 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
       }
 
       for (const listener of listeners) {
-        listener(message);
+        runWorkerObserver(() => listener(message));
       }
 
       publishSelectorWatchers();
@@ -731,6 +735,14 @@ function reportWorkerConflict(
     onConflict?.(event);
   } catch {
     // Conflict observers cannot repair protocol state and must not interrupt message handling.
+  }
+}
+
+function runWorkerObserver(callback: () => void): void {
+  try {
+    callback();
+  } catch {
+    // Worker observers cannot alter protocol state and must not interrupt message handling.
   }
 }
 
