@@ -198,10 +198,13 @@ interface ModuleBinding {
   readonly token: InjectionToken;
   readonly instance: Record<PropertyKey, unknown>;
   readonly metadata: ModuleMetadata;
+  readonly boundProperties: Set<PropertyKey>;
   readonly originalActions: Map<PropertyKey, (...args: unknown[]) => unknown>;
   readonly originalComputed: Map<PropertyKey, () => unknown>;
+  readonly originalPropertyDescriptors: Map<PropertyKey, PropertyDescriptor | undefined>;
   readonly computedAccessors: Map<PropertyKey, () => unknown>;
   readonly reactiveSlice: boolean;
+  runtimeMetadataAttached: boolean;
   activeDraft: Record<PropertyKey, unknown> | undefined;
   actionDepth: number;
 }
@@ -966,6 +969,7 @@ class RuntimeApp implements App {
     let stateInstalled = false;
     let effectStartIndex: number | undefined;
     let pendingEffectsBeforeStart: ReadonlySet<Promise<void>> | undefined;
+    let stagedState: RootState | undefined;
 
     try {
       for (const provider of providers) {
@@ -994,7 +998,7 @@ class RuntimeApp implements App {
       }
 
       this.assertNewModules(loadedModules);
-      const stagedState = createRootState(loadedModules);
+      stagedState = createRootState(loadedModules);
 
       this.bindModules(loadedModules);
       metadataAttached = true;
@@ -1088,6 +1092,13 @@ class RuntimeApp implements App {
         );
       }
 
+      if (stagedState !== undefined) {
+        const rollbackState = stagedState;
+        await runCleanupPhase(rollbackErrors, () =>
+          this.restoreModuleBindingsForRollback(loadedModules, rollbackState),
+        );
+      }
+
       if (modulesRegistered) {
         this.unregisterModules(loadedModules);
       }
@@ -1113,7 +1124,7 @@ class RuntimeApp implements App {
       }
 
       if (metadataAttached) {
-        this.detachRuntimeMetadata(loadedModules);
+        await runCleanupPhase(rollbackErrors, () => this.detachRuntimeMetadata(loadedModules));
       }
 
       await runCleanupPhase(rollbackErrors, () => scopeContainer.dispose());
@@ -1153,6 +1164,7 @@ class RuntimeApp implements App {
           token: moduleBinding.token,
         } satisfies RuntimeModuleMetadata,
       });
+      moduleBinding.runtimeMetadataAttached = true;
     }
   }
 
@@ -1211,7 +1223,7 @@ class RuntimeApp implements App {
 
   private bindState(moduleBinding: ModuleBinding): void {
     for (const property of moduleBinding.metadata.state) {
-      Object.defineProperty(moduleBinding.instance, property, {
+      this.defineModuleProperty(moduleBinding, property, {
         configurable: true,
         enumerable: true,
         get: () => this.readModuleState(moduleBinding, property),
@@ -1225,7 +1237,7 @@ class RuntimeApp implements App {
       const action = getMethod(moduleBinding.instance, property);
       moduleBinding.originalActions.set(property, action);
 
-      Object.defineProperty(moduleBinding.instance, property, {
+      this.defineModuleProperty(moduleBinding, property, {
         configurable: true,
         value: (...args: unknown[]) => this.runAction(moduleBinding, property, args),
       });
@@ -1239,7 +1251,7 @@ class RuntimeApp implements App {
       moduleBinding.originalComputed.set(property, getter);
       moduleBinding.computedAccessors.set(property, accessor);
 
-      Object.defineProperty(moduleBinding.instance, property, {
+      this.defineModuleProperty(moduleBinding, property, {
         configurable: true,
         enumerable: true,
         get: () => {
@@ -1251,6 +1263,22 @@ class RuntimeApp implements App {
         },
       });
     }
+  }
+
+  private defineModuleProperty(
+    moduleBinding: ModuleBinding,
+    property: PropertyKey,
+    descriptor: PropertyDescriptor,
+  ): void {
+    if (!moduleBinding.originalPropertyDescriptors.has(property)) {
+      moduleBinding.originalPropertyDescriptors.set(
+        property,
+        Object.getOwnPropertyDescriptor(moduleBinding.instance, property),
+      );
+    }
+
+    Object.defineProperty(moduleBinding.instance, property, descriptor);
+    moduleBinding.boundProperties.add(property);
   }
 
   private readModuleState(moduleBinding: ModuleBinding, property: PropertyKey): unknown {
@@ -2338,7 +2366,12 @@ class RuntimeApp implements App {
 
   private detachRuntimeMetadata(modules: readonly ModuleBinding[]): void {
     for (const moduleBinding of modules) {
+      if (!moduleBinding.runtimeMetadataAttached) {
+        continue;
+      }
+
       delete moduleBinding.instance[runtimeModuleMetadataKey];
+      moduleBinding.runtimeMetadataAttached = false;
     }
   }
 
@@ -2349,42 +2382,26 @@ class RuntimeApp implements App {
     for (const moduleBinding of modules) {
       const slice = rootState[moduleBinding.name] ?? {};
 
-      for (const property of moduleBinding.metadata.state) {
-        delete moduleBinding.instance[property];
+      for (const property of moduleBinding.boundProperties) {
+        const originalDescriptor = moduleBinding.originalPropertyDescriptors.get(property);
 
-        if (!Reflect.set(moduleBinding.instance, property, slice[property])) {
+        if (originalDescriptor === undefined) {
+          delete moduleBinding.instance[property];
+        } else {
           Object.defineProperty(moduleBinding.instance, property, {
-            configurable: true,
-            enumerable: true,
-            value: slice[property],
-            writable: true,
+            ...originalDescriptor,
+            ...(moduleBinding.metadata.state.has(property) && "value" in originalDescriptor
+              ? { value: slice[property] }
+              : {}),
           });
         }
       }
 
-      for (const property of moduleBinding.metadata.computed) {
-        const getter = moduleBinding.originalComputed.get(property);
-
-        if (getter !== undefined) {
-          Object.defineProperty(moduleBinding.instance, property, {
-            configurable: true,
-            enumerable: true,
-            get: () => getter.call(moduleBinding.instance),
-          });
-        }
-      }
-
-      for (const property of moduleBinding.metadata.actions) {
-        const action = moduleBinding.originalActions.get(property);
-
-        if (action !== undefined) {
-          Object.defineProperty(moduleBinding.instance, property, {
-            configurable: true,
-            value: action,
-            writable: true,
-          });
-        }
-      }
+      moduleBinding.boundProperties.clear();
+      moduleBinding.originalPropertyDescriptors.clear();
+      moduleBinding.originalActions.clear();
+      moduleBinding.originalComputed.clear();
+      moduleBinding.computedAccessors.clear();
     }
   }
 
@@ -2550,13 +2567,16 @@ function instantiateModules(
     modules.push({
       actionDepth: 0,
       activeDraft: undefined,
+      boundProperties: new Set(),
       computedAccessors: new Map(),
       instance,
       metadata,
       name,
       originalActions: new Map(),
       originalComputed: new Map(),
+      originalPropertyDescriptors: new Map(),
       reactiveSlice,
+      runtimeMetadataAttached: false,
       token: moduleToken,
     });
   }

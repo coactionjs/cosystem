@@ -520,6 +520,48 @@ describe("app runtime", () => {
     });
   });
 
+  it("restores partially bound lazy instances after load failure", async () => {
+    const events: string[] = [];
+    const retainedInstances: PartiallyBoundLazyModule[] = [];
+
+    class PartiallyBoundLazyModule {
+      value = 1;
+
+      constructor() {
+        retainedInstances.push(this);
+      }
+
+      onDispose(): void {
+        events.push(`dispose:${String(this.value)}`);
+      }
+    }
+
+    defineModule(PartiallyBoundLazyModule, {
+      actions: ["missingAction"],
+      name: "partiallyBoundLazyModule",
+      state: ["value"],
+    });
+
+    const app = createApp();
+
+    await expect(app.load(lazyModule(() => PartiallyBoundLazyModule))).rejects.toThrow(
+      "missingAction is not a method.",
+    );
+
+    const retained = retainedInstances[0];
+
+    if (retained === undefined) {
+      throw new Error("Expected the failed lazy module instance to be retained.");
+    }
+
+    expect(events).toEqual(["dispose:1"]);
+    expect(retained.value).toBe(1);
+    retained.value = 2;
+    expect(retained.value).toBe(2);
+    expect(app.store.getPureState()).toEqual({});
+    await app.dispose();
+  });
+
   it("rolls back lazy module maps, state, effects, and scope when an effect fails", async () => {
     const events: string[] = [];
     const patchEvents: unknown[] = [];
