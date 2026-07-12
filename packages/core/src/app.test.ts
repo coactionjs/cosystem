@@ -1301,6 +1301,57 @@ describe("app runtime", () => {
     }).toThrow("Cannot mutate module state after app disposal has begun.");
   });
 
+  it("composes nested and cross-module lazy actions", async () => {
+    let sibling!: SiblingLazyModule;
+
+    class ComposedLazyModule {
+      count = 0;
+      total = 0;
+
+      inner(): void {
+        this.count += 2;
+      }
+
+      outer(): void {
+        this.count = 1;
+        this.inner();
+        sibling.increase();
+        this.total = this.count;
+      }
+    }
+
+    class SiblingLazyModule {
+      count = 0;
+
+      increase(): void {
+        this.count += 1;
+      }
+    }
+
+    defineModule(ComposedLazyModule, {
+      actions: ["inner", "outer"],
+      name: "composedLazyModule",
+      state: ["count", "total"],
+    });
+    defineModule(SiblingLazyModule, {
+      actions: ["increase"],
+      name: "siblingLazyModule",
+      state: ["count"],
+    });
+
+    const app = createApp({ devOptions: { strictActions: true } });
+    await app.load(lazyModule(() => [ComposedLazyModule, SiblingLazyModule]));
+    sibling = app.getModule(SiblingLazyModule);
+
+    app.getModule(ComposedLazyModule).outer();
+
+    expect(app.store.getPureState()).toEqual({
+      composedLazyModule: { count: 3, total: 3 },
+      siblingLazyModule: { count: 1 },
+    });
+    await app.dispose();
+  });
+
   it("records async actions after their returned promises resolve", async () => {
     class AsyncActionCounter {
       count = 0;

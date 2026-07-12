@@ -1385,16 +1385,21 @@ class RuntimeApp implements App {
         const state = this.readRawStoreState();
         const slice = state[moduleBinding.name];
         const previousDraft = moduleBinding.activeDraft;
-        moduleBinding.activeDraft = slice === undefined ? {} : cloneStateValue(slice);
 
-        try {
-          result = this.runWithDraftMutation(callback);
-          this.store.setState({
-            ...state,
-            [moduleBinding.name]: moduleBinding.activeDraft,
-          });
-        } finally {
-          moduleBinding.activeDraft = previousDraft;
+        if (previousDraft !== undefined) {
+          result = callback();
+        } else {
+          moduleBinding.activeDraft = slice === undefined ? {} : cloneStateValue(slice);
+
+          try {
+            result = this.runWithDraftMutation(callback);
+            this.store.setState({
+              ...this.readRawStoreState(),
+              [moduleBinding.name]: moduleBinding.activeDraft,
+            });
+          } finally {
+            moduleBinding.activeDraft = undefined;
+          }
         }
       }
     } catch (caught) {
