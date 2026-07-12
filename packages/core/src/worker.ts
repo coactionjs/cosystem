@@ -302,25 +302,33 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
   });
 
   ready.catch(() => undefined);
-  const unsubscribeTransport = transport.subscribe((message) => {
-    if (!isWorkerMessage(message)) {
-      reportInvalidWorkerMessage(onInvalidMessage, message);
-      return;
-    }
+  let unsubscribeTransport = noop;
 
-    if (disposed) {
-      return;
-    }
+  try {
+    unsubscribeTransport = transport.subscribe((message) => {
+      if (!isWorkerMessage(message)) {
+        reportInvalidWorkerMessage(onInvalidMessage, message);
+        return;
+      }
 
-    if (message.type === "sync") {
-      void handleSync(app, transport, message, ready, stateSections, () => stateSyncVersion);
-      return;
-    }
+      if (disposed) {
+        return;
+      }
 
-    if (message.type === "call") {
-      void handleCall(app, transport, message, ready, () => stateSyncVersion);
-    }
-  });
+      if (message.type === "sync") {
+        void handleSync(app, transport, message, ready, stateSections, () => stateSyncVersion);
+        return;
+      }
+
+      if (message.type === "call") {
+        void handleCall(app, transport, message, ready, () => stateSyncVersion);
+      }
+    });
+  } catch (error) {
+    disposed = true;
+    void app.dispose().catch(() => undefined);
+    throw error;
+  }
 
   return {
     app,

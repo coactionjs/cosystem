@@ -70,6 +70,34 @@ defineModule(WorkerHidden, {
 });
 
 describe("worker prototype", () => {
+  it("disposes the worker app when transport subscription fails", async () => {
+    const subscribeError = new Error("host subscribe failed");
+    const events: string[] = [];
+
+    class SubscriptionFailureModule {
+      onDispose(): void {
+        events.push("dispose");
+      }
+    }
+
+    defineModule(SubscriptionFailureModule, { name: "subscriptionFailureModule" });
+
+    expect(() =>
+      createWorkerApp({
+        providers: [SubscriptionFailureModule],
+        transport: {
+          post() {},
+          subscribe() {
+            throw subscribeError;
+          },
+        },
+      }),
+    ).toThrow(subscribeError);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(events).toEqual(["dispose"]);
+  });
+
   it("delegates module method calls and syncs app state snapshots", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const client = createWorkerClient({
