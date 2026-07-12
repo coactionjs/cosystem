@@ -2551,11 +2551,21 @@ function instantiateModules(
   const modules: ModuleBinding[] = [];
 
   for (const moduleToken of moduleTokens) {
-    const instance = container.get(moduleToken) as Record<PropertyKey, unknown>;
+    const resolved = container.get(moduleToken) as unknown;
+
+    if (resolved === null || (typeof resolved !== "object" && typeof resolved !== "function")) {
+      throw new CosystemError(
+        `${tokenName(moduleToken)} resolved to a value that is not a CoSystem module.`,
+      );
+    }
+
+    const instance = resolved as Record<PropertyKey, unknown>;
     const metadata = getModuleMetadata(instance.constructor);
 
     if (metadata === undefined) {
-      continue;
+      throw new CosystemError(
+        `${tokenName(moduleToken)} resolved to a value that is not a CoSystem module.`,
+      );
     }
 
     const name = metadata.name ?? stableModuleName(moduleToken);

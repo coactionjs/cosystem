@@ -1919,6 +1919,28 @@ describe("app runtime", () => {
     ).toThrow("must use singleton scope; received transient");
   });
 
+  it("rejects overrides that replace a discovered module with a non-module value", () => {
+    class FactoryOverriddenModule {
+      value = "module";
+    }
+
+    defineModule(FactoryOverriddenModule, {
+      name: "factoryOverriddenModule",
+      state: ["value"],
+    });
+
+    expect(() =>
+      testApp({
+        overrides: [
+          provide(FactoryOverriddenModule, {
+            useFactory: () => ({ value: "plain object" }) as FactoryOverriddenModule,
+          }),
+        ],
+        providers: [FactoryOverriddenModule],
+      }),
+    ).toThrow("FactoryOverriddenModule resolved to a value that is not a CoSystem module.");
+  });
+
   it("keeps non-module class and factory providers lazy by default", () => {
     const ServiceToken = token<{ readonly value: string }>("LazyService");
     const events: string[] = [];
