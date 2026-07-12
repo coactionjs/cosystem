@@ -130,6 +130,28 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("isolates memory worker messages with structured cloning", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({ transport: clientTransport });
+    const host = createWorkerApp({
+      providers: [WorkerCounter],
+      transport: hostTransport,
+    });
+
+    await client.ready;
+    const clientState = client.getState() as {
+      workerCounter: { count: number };
+    };
+    clientState.workerCounter.count = 99;
+
+    expect(host.app.getModule(WorkerCounter).count).toBe(0);
+    await expect(client.module<WorkerCounter>("workerCounter").increase(1)).resolves.toBe(1);
+    expect(client.getState()).toEqual({ workerCounter: { count: 1 } });
+
+    client.dispose();
+    await host.dispose();
+  });
+
   it("exposes only actions declared in module metadata to remote calls", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const client = createWorkerClient({ transport: clientTransport });

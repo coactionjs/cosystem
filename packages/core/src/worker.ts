@@ -1390,8 +1390,10 @@ function createMemoryWorkerTransport(
 ): WorkerTransport {
   return {
     post(message) {
+      const clonedMessage = structuredClone(message);
+
       for (const listener of outbox) {
-        listener(message);
+        listener(clonedMessage);
       }
     },
     subscribe(listener) {
@@ -1443,7 +1445,7 @@ class MemoryBroadcastChannel implements BroadcastChannelLike {
         continue;
       }
 
-      channel.dispatch({ data: message });
+      channel.dispatch({ data: structuredClone(message) });
     }
   }
 
