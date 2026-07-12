@@ -225,9 +225,11 @@ provide(Service, {
 });
 ```
 
-`inject()` throws `InjectContextError` outside of an active resolution. Plugin
-`setup` and module lifecycle hooks also provide an injection context for their
-full async execution, including after an `await`.
+`inject()` throws `InjectContextError` outside of an active resolution. In async
+plugin setup, use `PluginContext.inject()` after an `await`; module hooks receive
+a `ModuleLifecycleContext` with the same explicit resolver. This keeps
+concurrently initializing browser apps isolated without relying on a global
+async context.
 
 ### Container access
 
@@ -323,17 +325,17 @@ Modules may implement any of these optional methods, called by the runtime:
 
 ```ts
 class Service {
-  onInit(): void | Promise<void> {} // after the module graph is created
-  onStart(): void | Promise<void> {} // during app.start()
-  onStop(): void | Promise<void> {} // during app.stop()
-  onDispose(): void | Promise<void> {} // during app.dispose()
+  onInit(context: ModuleLifecycleContext): void | Promise<void> {} // after graph creation
+  onStart(context: ModuleLifecycleContext): void | Promise<void> {} // during app.start()
+  onStop(context: ModuleLifecycleContext): void | Promise<void> {} // during app.stop()
+  onDispose(context: ModuleLifecycleContext): void | Promise<void> {} // during app.dispose()
 }
 ```
 
-Lifecycle hooks may call `inject()` before or after an `await`. Do not call
-`app.start()` from plugin setup or a module lifecycle hook: the runtime rejects
-that reentry to preserve phase ordering. Call `start()` from the application
-bootstrap instead.
+Lifecycle hooks may use `context.inject()` before or after an `await`. Do not
+call `app.start()` from plugin setup or a module lifecycle hook: the runtime
+rejects that reentry to preserve phase ordering. Call `start()` from the
+application bootstrap instead.
 
 `onStop`/`onDispose` run in reverse order. Teardown is best-effort across every
 module and cleanup phase; failures are reported together as an `AggregateError`

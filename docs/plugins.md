@@ -115,7 +115,10 @@ const plugin: Plugin = {
 
 `context.watch()` is `app.watch()` plus automatic cleanup. `context.onDispose()`
 registers any other teardown callback. `context.signal` is aborted before context
-disposers run, so long-running async work can stop early.
+disposers run, so long-running async work can stop early. During `setup`,
+`context.inject(token)` resolves from that plugin's app even after an `await`;
+unlike a process-global fallback, it remains safe when browser apps initialize
+concurrently.
 
 Observer hook errors do not interrupt app actions or state updates. They are
 reported to `onError` with a phase like `plugin:metrics.onActionEnd`. Errors from

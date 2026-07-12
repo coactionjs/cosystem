@@ -22,6 +22,7 @@ export {
   type EngineOptions,
   type ErrorContext,
   type LazyModuleLoadResult,
+  type ModuleLifecycleContext,
   type ModuleCreatedEvent,
   type PatchEvent,
   type Plugin,

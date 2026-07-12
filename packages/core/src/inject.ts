@@ -26,6 +26,10 @@ export function runWithInjectContext<T>(
     return asyncResolutionContext.run(context, () => runWithSynchronousContext(context, callback));
   }
 
+  if (preserveAsync) {
+    return runWithSynchronousContext(context, callback);
+  }
+
   activeResolutionContexts.push(context);
 
   const removeContext = () => {
@@ -38,10 +42,6 @@ export function runWithInjectContext<T>(
 
   try {
     const result = callback();
-
-    if (preserveAsync && isPromiseLike(result)) {
-      return Promise.resolve(result).finally(removeContext) as T;
-    }
 
     removeContext();
     return result;
@@ -63,13 +63,4 @@ function runWithSynchronousContext<T>(context: ResolutionContext, callback: () =
       activeResolutionContexts.splice(index, 1);
     }
   }
-}
-
-function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
-  return (
-    (typeof value === "object" || typeof value === "function") &&
-    value !== null &&
-    "then" in value &&
-    typeof value.then === "function"
-  );
 }

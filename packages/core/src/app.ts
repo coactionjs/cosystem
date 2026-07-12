@@ -7,7 +7,7 @@ import {
 
 import { createRuntimeAsyncContext } from "./async-context.js";
 import { createContainer } from "./container.js";
-import { CosystemError, DuplicateProviderError } from "./errors.js";
+import { CosystemError, DuplicateProviderError, InjectContextError } from "./errors.js";
 import {
   isLazyModule,
   normalizeLazyModuleProviders,
@@ -25,8 +25,10 @@ import type {
   InjectionToken,
   Provider,
   ProviderInput,
+  ResolutionContext,
   Scope,
   ScopeOptions,
+  TokenValue,
 } from "./types.js";
 
 export interface EngineOptions {
@@ -115,12 +117,18 @@ export interface PluginContext {
   readonly name: string;
   readonly signal: AbortSignal;
   emitError(error: unknown, phase?: string): void;
+  inject<TToken extends InjectionToken>(token: TToken): TokenValue<TToken>;
   onDispose(disposer: () => void | Promise<void>): void;
   watch<T>(
     read: () => T,
     listener: (value: T, previous: T) => void,
     options?: WatchOptions<T>,
   ): () => void;
+}
+
+export interface ModuleLifecycleContext {
+  readonly app: App;
+  inject<TToken extends InjectionToken>(token: TToken): TokenValue<TToken>;
 }
 
 export interface ModuleCreatedEvent {
@@ -208,10 +216,10 @@ interface PluginRecord {
 }
 
 interface LifecycleModule {
-  onInit?(): void | Promise<void>;
-  onStart?(): void | Promise<void>;
-  onStop?(): void | Promise<void>;
-  onDispose?(): void | Promise<void>;
+  onInit?(context: ModuleLifecycleContext): void | Promise<void>;
+  onStart?(context: ModuleLifecycleContext): void | Promise<void>;
+  onStop?(context: ModuleLifecycleContext): void | Promise<void>;
+  onDispose?(context: ModuleLifecycleContext): void | Promise<void>;
 }
 
 const runtimeModuleMetadataKey = Symbol.for("@cosystem/core/runtimeModule");
@@ -325,6 +333,7 @@ class RuntimePluginContext implements PluginContext {
   readonly #abortController = new AbortController();
   readonly #disposers: (() => void | Promise<void>)[] = [];
   readonly #emitError: (error: unknown, context: ErrorContext) => void;
+  #resolve: ModuleLifecycleContext["inject"] | undefined;
 
   constructor(options: {
     readonly app: App;
@@ -344,12 +353,45 @@ class RuntimePluginContext implements PluginContext {
     this.#emitError(error, { phase });
   }
 
+  inject<TToken extends InjectionToken>(token: TToken): TokenValue<TToken> {
+    if (this.#resolve === undefined) {
+      throw new InjectContextError(tokenName(token));
+    }
+
+    return this.#resolve(token) as TokenValue<TToken>;
+  }
+
   onDispose(disposer: () => void | Promise<void>): void {
     this.#disposers.push(disposer);
   }
 
   abort(): void {
     this.#abortController.abort();
+  }
+
+  runWithResolver<T>(resolve: ModuleLifecycleContext["inject"], callback: () => T): T {
+    const previous = this.#resolve;
+    this.#resolve = resolve;
+
+    const restore = () => {
+      if (this.#resolve === resolve) {
+        this.#resolve = previous;
+      }
+    };
+
+    try {
+      const result = callback();
+
+      if (isPromiseLike(result)) {
+        return Promise.resolve(result).finally(restore) as T;
+      }
+
+      restore();
+      return result;
+    } catch (error) {
+      restore();
+      throw error;
+    }
   }
 
   watch<T>(
@@ -907,7 +949,11 @@ class RuntimeApp implements App {
     try {
       for (const record of this.pluginRecords) {
         // eslint-disable-next-line no-await-in-loop -- setup order is deterministic and preserves async inject context.
-        await this.runWithAppLifecycleContext(() => record.plugin.setup?.(this, record.context));
+        await this.runWithAppLifecycleContext((lifecycleContext) =>
+          record.context.runWithResolver(lifecycleContext.inject, () =>
+            record.plugin.setup?.(this, record.context),
+          ),
+        );
       }
 
       if (this.isDisposing || this.isDisposed) {
@@ -1219,7 +1265,7 @@ class RuntimeApp implements App {
     for (const moduleBinding of orderedModules) {
       const lifecycle = moduleBinding.instance as LifecycleModule;
       // eslint-disable-next-line no-await-in-loop -- lifecycle hooks run in deterministic module order.
-      await this.runWithAppLifecycleContext(() => lifecycle[method]?.(), container);
+      await this.runWithAppLifecycleContext((context) => lifecycle[method]?.(context), container);
     }
   }
 
@@ -1235,7 +1281,7 @@ class RuntimeApp implements App {
 
       try {
         // eslint-disable-next-line no-await-in-loop -- teardown hooks run in deterministic module order.
-        await this.runWithAppLifecycleContext(() => lifecycle[method]?.(), container);
+        await this.runWithAppLifecycleContext((context) => lifecycle[method]?.(context), container);
       } catch (error) {
         errors.push(error);
       }
@@ -1489,12 +1535,44 @@ class RuntimeApp implements App {
   }
 
   private runWithAppLifecycleContext<T>(
-    callback: () => T,
+    callback: (context: ModuleLifecycleContext) => T,
     container: Container = this.#container,
   ): T {
+    const run = (resolutionContext: ResolutionContext): T => {
+      let active = true;
+      const context: ModuleLifecycleContext = {
+        app: this,
+        inject: <TToken extends InjectionToken>(token: TToken) => {
+          if (!active) {
+            throw new InjectContextError(tokenName(token));
+          }
+
+          return resolutionContext.resolve(token) as TokenValue<TToken>;
+        },
+      };
+
+      const close = () => {
+        active = false;
+      };
+
+      try {
+        const result = callback(context);
+
+        if (isPromiseLike(result)) {
+          return Promise.resolve(result).finally(close) as T;
+        }
+
+        close();
+        return result;
+      } catch (error) {
+        close();
+        throw error;
+      }
+    };
+
     if (lifecycleExecutionContext !== undefined) {
       return lifecycleExecutionContext.run(this.lifecycleContext, () =>
-        (container as ContainerImpl).runWithResolutionContext(callback, true),
+        (container as ContainerImpl).runWithResolutionContext(run, true),
       );
     }
 
@@ -1505,7 +1583,7 @@ class RuntimeApp implements App {
     };
 
     try {
-      const result = (container as ContainerImpl).runWithResolutionContext(callback, true);
+      const result = (container as ContainerImpl).runWithResolutionContext(run, true);
 
       if (isPromiseLike(result)) {
         return Promise.resolve(result).finally(finish) as T;

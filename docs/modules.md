@@ -156,10 +156,10 @@ them at the right phase:
 
 ```ts
 class Service {
-  onInit(): void | Promise<void> {} // after the module graph is created
-  onStart(): void | Promise<void> {} // during app.start()
-  onStop(): void | Promise<void> {} // during app.stop()
-  onDispose(): void | Promise<void> {} // during app.dispose()
+  onInit(context: ModuleLifecycleContext): void | Promise<void> {} // after graph creation
+  onStart(context: ModuleLifecycleContext): void | Promise<void> {} // during app.start()
+  onStop(context: ModuleLifecycleContext): void | Promise<void> {} // during app.stop()
+  onDispose(context: ModuleLifecycleContext): void | Promise<void> {} // during app.dispose()
 }
 ```
 
@@ -169,8 +169,9 @@ class Service {
   or fetching initial data.
 - `onStop` and `onDispose` run in reverse order. Teardown is best-effort: hook
   failures are collected while the remaining modules still run.
-- Every lifecycle hook may call `inject()` after an `await`. Calling
-  `app.start()` from a lifecycle hook is rejected to prevent phase reentry.
+- Every lifecycle hook receives a context whose `inject()` remains valid after
+  an `await` and stays isolated across concurrent apps. Calling `app.start()`
+  from a lifecycle hook is rejected to prevent phase reentry.
 
 See [Application Lifecycle](./application-lifecycle.md) for the exact ordering
 relative to plugins and effects.

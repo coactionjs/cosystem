@@ -90,8 +90,9 @@ A few consequences worth internalizing:
 - **Lifecycle reentry is rejected.** Calling `app.start()` from plugin `setup`
   or a module lifecycle hook would create a phase cycle, so it returns an
   internally observed rejection. Call `start()` from application bootstrap.
-- **Lifecycle injection survives `await`.** `inject()` remains scoped to the
-  current app throughout async plugin setup and module lifecycle hooks.
+- **Lifecycle injection survives `await`.** Use `PluginContext.inject()` in
+  plugin setup and the `ModuleLifecycleContext` hook argument in modules. Their
+  explicit resolvers remain app-scoped even when browser hooks overlap.
 - **Teardown hooks run in reverse order and best-effort.** Errors from module
   hooks, effects, scopes, plugins, providers, and the store are collected while
   the remaining cleanup continues, then re-thrown together as an

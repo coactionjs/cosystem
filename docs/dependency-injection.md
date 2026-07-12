@@ -209,10 +209,22 @@ provide(Service, {
 });
 ```
 
-`inject()` only works while a provider is being resolved, during plugin `setup`,
-or inside a module lifecycle hook. The lifecycle context spans the hook's full
-async execution, so `inject()` still works after an `await`. Outside those
-windows it throws `InjectContextError`.
+`inject()` only works while a provider is being resolved or during the
+synchronous part of an app hook. For portable async hooks, resolve after an
+`await` through the explicit lifecycle context instead:
+
+```ts
+async onInit(context: ModuleLifecycleContext): Promise<void> {
+  await loadConfiguration();
+  context.inject(Logger).info("ready");
+}
+```
+
+Plugin setup uses `PluginContext.inject()` the same way. These explicit
+resolvers remain isolated when several apps initialize concurrently in a
+browser. Bare `inject()` also follows async execution in runtimes that provide
+native async context, but portable code should not depend on that capability.
+Outside an active resolution window it throws `InjectContextError`.
 
 ## The container
 

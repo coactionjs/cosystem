@@ -140,8 +140,9 @@ const app: App = createApp({
   plugins: [
     {
       name: "typePlugin",
-      setup(instance: App): void {
+      setup(instance: App, context): void {
         void instance;
+        void context.inject(TypeModule);
       },
     } satisfies Plugin,
   ],
@@ -176,7 +177,6 @@ function createRuntimeConsumerSource() {
   createApp,
   createContainer,
   defineModule,
-  inject,
   provide,
   token,
 } from "@cosystem/core";
@@ -195,24 +195,24 @@ class LifecycleModule {
     return this.value;
   }
 
-  async onInit() {
+  async onInit(context) {
     await Promise.resolve();
-    inject(LifecycleEventToken)("module:init");
+    context.inject(LifecycleEventToken)("module:init");
   }
 
-  async onStart() {
+  async onStart(context) {
     await Promise.resolve();
-    inject(LifecycleEventToken)("module:start");
+    context.inject(LifecycleEventToken)("module:start");
   }
 
-  async onStop() {
+  async onStop(context) {
     await Promise.resolve();
-    inject(LifecycleEventToken)("module:stop");
+    context.inject(LifecycleEventToken)("module:stop");
   }
 
-  async onDispose() {
+  async onDispose(context) {
     await Promise.resolve();
-    inject(LifecycleEventToken)("module:dispose");
+    context.inject(LifecycleEventToken)("module:dispose");
   }
 }
 
@@ -257,7 +257,7 @@ const app = createApp({
       async setup(runtimeApp, context) {
         events.push("plugin:setup:" + context.name);
         await Promise.resolve();
-        inject(LifecycleEventToken)("plugin:inject");
+        context.inject(LifecycleEventToken)("plugin:inject");
         await runtimeApp.start().catch((error) => {
           events.push("plugin:start-rejected:" + error.message);
         });

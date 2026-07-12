@@ -204,7 +204,10 @@ export interface ContainerImpl extends Container {
   readonly root: ContainerImpl;
   findRecords(token: InjectionToken): ProviderRecord[];
   getAllRecordsFromHierarchy(token: InjectionToken): ProviderRecord[];
-  runWithResolutionContext<T>(callback: () => T, preserveAsync?: boolean): T;
+  runWithResolutionContext<T>(
+    callback: (context: ResolutionContext) => T,
+    preserveAsync?: boolean,
+  ): T;
 }
 
 export interface DisposableInstance {
