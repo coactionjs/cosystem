@@ -410,7 +410,7 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
-  it("rejects invalid array indices in worker state patches", async () => {
+  it("rejects invalid and out-of-range array indices in worker state patches", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const conflicts: WorkerConflictEvent[] = [];
     const invalidMessages: unknown[] = [];
@@ -450,11 +450,44 @@ describe("worker prototype", () => {
       type: "state",
       version: 1,
     });
+    hostTransport.post({
+      patches: [{ op: "replace", path: ["items", 2], value: 3 }],
+      sync: "patch",
+      type: "state",
+      version: 1,
+    });
+    hostTransport.post({
+      patches: [{ op: "remove", path: ["items", 2] }],
+      sync: "patch",
+      type: "state",
+      version: 1,
+    });
+    hostTransport.post({
+      patches: [{ op: "add", path: ["items", 3], value: 3 }],
+      sync: "patch",
+      type: "state",
+      version: 1,
+    });
 
     expect(invalidMessages).toHaveLength(2);
-    expect(conflicts.map((event) => event.reason)).toEqual(["patch-apply-failed"]);
+    expect(conflicts.map((event) => event.reason)).toEqual([
+      "patch-apply-failed",
+      "patch-apply-failed",
+      "patch-apply-failed",
+      "patch-apply-failed",
+    ]);
     expect(client.getState()).toEqual({ items: [1, 2] });
     expect(client.state.version).toBe(0);
+
+    hostTransport.post({
+      patches: [{ op: "add", path: ["items", 2], value: 3 }],
+      sync: "patch",
+      type: "state",
+      version: 1,
+    });
+
+    expect(client.getState()).toEqual({ items: [1, 2, 3] });
+    expect(client.state.version).toBe(1);
 
     client.dispose();
   });

@@ -258,6 +258,8 @@ interface PendingWorkerResult {
   readonly stateVersion?: number;
 }
 
+const maximumArrayIndex = 2 ** 32 - 2;
+
 export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost {
   const { onInvalidMessage, stateSections, sync = "snapshot", transport, ...appOptions } = options;
   let stateSyncVersion = 0;
@@ -1186,7 +1188,7 @@ function applyPatchAtPath(
       return container;
     }
 
-    setPatchValue(container, segment, patch.value);
+    setPatchValue(container, segment, patch.value, patch.op);
     return container;
   }
 
@@ -1194,6 +1196,7 @@ function applyPatchAtPath(
     container,
     segment,
     applyPatchAtPath(getPatchValue(container, segment), rest, patch),
+    "replace",
   );
 
   return container;
@@ -1219,9 +1222,29 @@ function getPatchValue(container: PatchContainer, segment: PatchPathSegment): un
   return container[String(segment)];
 }
 
-function setPatchValue(container: PatchContainer, segment: PatchPathSegment, value: unknown): void {
+function setPatchValue(
+  container: PatchContainer,
+  segment: PatchPathSegment,
+  value: unknown,
+  operation: "add" | "replace",
+): void {
   if (Array.isArray(container)) {
-    container[toArrayIndex(segment)] = value;
+    const index = toArrayIndex(segment);
+
+    if (operation === "add") {
+      if (index > container.length) {
+        throw new CosystemError("Worker state patch array index is out of range.");
+      }
+
+      container.splice(index, 0, value);
+      return;
+    }
+
+    if (index >= container.length) {
+      throw new CosystemError("Worker state patch array index is out of range.");
+    }
+
+    container[index] = value;
     return;
   }
 
@@ -1230,7 +1253,13 @@ function setPatchValue(container: PatchContainer, segment: PatchPathSegment, val
 
 function removePatchValue(container: PatchContainer, segment: PatchPathSegment): void {
   if (Array.isArray(container)) {
-    container.splice(toArrayIndex(segment), 1);
+    const index = toArrayIndex(segment);
+
+    if (index >= container.length) {
+      throw new CosystemError("Worker state patch array index is out of range.");
+    }
+
+    container.splice(index, 1);
     return;
   }
 
@@ -1244,7 +1273,7 @@ function toArrayIndex(segment: PatchPathSegment): number {
 
   const index = typeof segment === "number" ? segment : Number(segment);
 
-  if (!Number.isSafeInteger(index) || index < 0) {
+  if (!Number.isSafeInteger(index) || index < 0 || index > maximumArrayIndex) {
     throw new CosystemError("Worker state patch array index is invalid.");
   }
 
@@ -1273,7 +1302,12 @@ function normalizePatchPath(path: unknown): readonly PatchPathSegment[] {
 }
 
 function normalizePatchPathSegment(segment: unknown): PatchPathSegment {
-  if (typeof segment === "number" && Number.isSafeInteger(segment) && segment >= 0) {
+  if (
+    typeof segment === "number" &&
+    Number.isSafeInteger(segment) &&
+    segment >= 0 &&
+    segment <= maximumArrayIndex
+  ) {
     return segment;
   }
 
