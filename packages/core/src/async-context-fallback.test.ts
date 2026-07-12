@@ -16,6 +16,26 @@ import {
 } from "./index.js";
 
 describe("async context fallback", () => {
+  it("rejects raw app lifecycle reentry after an await", async () => {
+    let app!: ReturnType<typeof createApp>;
+
+    class RawAppLifecycle {
+      async onInit(): Promise<void> {
+        await Promise.resolve();
+        await app.dispose();
+      }
+    }
+
+    defineModule(RawAppLifecycle, {
+      name: "rawAppLifecycle",
+    });
+
+    app = createApp({ providers: [RawAppLifecycle] });
+
+    await expect(app.ready).rejects.toThrow("Cannot call dispose() from app-managed onInit work.");
+    await expect(app.dispose()).resolves.toBeUndefined();
+  });
+
   it("keeps concurrent app lifecycle injection explicit and isolated", async () => {
     const Service = token<string>("FallbackService");
     let markFirstStarted!: () => void;

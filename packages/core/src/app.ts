@@ -523,6 +523,7 @@ class RuntimeApp implements App {
   private isDisposing = false;
   private isDisposed = false;
   private readonly fallbackManagedExecutions: AppManagedExecution[] = [];
+  private readonly synchronousFallbackManagedExecutions: AppManagedExecution[] = [];
   private actionDepth = 0;
   private internalMutationDepth = 0;
   private draftMutationContext:
@@ -582,7 +583,10 @@ class RuntimeApp implements App {
   }
 
   get ready(): Promise<void> {
-    const phase = this.getActiveManagedPhase();
+    // A suspended fallback execution cannot be attributed to the current
+    // caller without native async context. Only use the synchronous fallback
+    // stack here so external callers can still wait for initialization.
+    const phase = this.getActiveManagedPhase(false);
 
     if (phase === "setup" || phase === "onInit" || (phase === "effect" && !this.isInitialized)) {
       return this.rejectManagedReentry("await app.ready", phase, "init");
@@ -1756,6 +1760,7 @@ class RuntimeApp implements App {
     }
 
     this.fallbackManagedExecutions.push(execution);
+    this.synchronousFallbackManagedExecutions.push(execution);
 
     const finish = () => {
       const index = this.fallbackManagedExecutions.lastIndexOf(execution);
@@ -1764,12 +1769,26 @@ class RuntimeApp implements App {
         this.fallbackManagedExecutions.splice(index, 1);
       }
     };
+    const finishSynchronous = () => {
+      const index = this.synchronousFallbackManagedExecutions.lastIndexOf(execution);
+
+      if (index !== -1) {
+        this.synchronousFallbackManagedExecutions.splice(index, 1);
+      }
+    };
 
     try {
       const result = callback();
+      finishSynchronous();
+
+      if (isPromiseLike(result)) {
+        return Promise.resolve(result).finally(finish) as T;
+      }
+
       finish();
       return result;
     } catch (error) {
+      finishSynchronous();
       finish();
       throw error;
     }
@@ -1816,13 +1835,16 @@ class RuntimeApp implements App {
     });
   }
 
-  private getActiveManagedPhase(): AppManagedPhase | undefined {
+  private getActiveManagedPhase(includeSuspendedFallback = true): AppManagedPhase | undefined {
     if (appManagedExecutionContext !== undefined) {
       const execution = appManagedExecutionContext.getStore();
       return execution?.app === this ? execution.phase : undefined;
     }
 
-    return this.fallbackManagedExecutions.at(-1)?.phase;
+    const executions = includeSuspendedFallback
+      ? this.fallbackManagedExecutions
+      : this.synchronousFallbackManagedExecutions;
+    return executions.at(-1)?.phase;
   }
 
   private rejectManagedReentry(
