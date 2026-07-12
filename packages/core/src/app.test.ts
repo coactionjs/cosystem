@@ -3807,6 +3807,49 @@ describe("app runtime", () => {
     expect(logger.messages).toEqual(["count:1"]);
   });
 
+  it("disposes child apps before their parent app", async () => {
+    const events: string[] = [];
+
+    class ParentLifecycleModule {
+      onDispose(): void {
+        events.push("parent:dispose");
+      }
+
+      onStop(): void {
+        events.push("parent:stop");
+      }
+    }
+
+    class ChildLifecycleModule {
+      onDispose(): void {
+        events.push("child:dispose");
+      }
+
+      onStop(): void {
+        events.push("child:stop");
+      }
+    }
+
+    defineModule(ParentLifecycleModule, { name: "parentLifecycleModule" });
+    defineModule(ChildLifecycleModule, { name: "childLifecycleModule" });
+
+    const parent = createApp({ providers: [ParentLifecycleModule] });
+    const child = createApp({ parent, providers: [ChildLifecycleModule] });
+    await parent.start();
+    await child.start();
+
+    await parent.dispose();
+
+    expect(events).toEqual(["child:stop", "child:dispose", "parent:stop", "parent:dispose"]);
+    expect(() => child.getModule(ChildLifecycleModule)).toThrow(
+      "Cannot access modules after app disposal has begun.",
+    );
+    expect(() => createApp({ parent })).toThrow(
+      "Cannot create child apps after app disposal has begun.",
+    );
+    await expect(child.dispose()).resolves.toBeUndefined();
+  });
+
   it("allows hook-managed app views to parent child apps", async () => {
     const ParentService = token<string>("ManagedParentService");
     let child: ReturnType<typeof createApp> | undefined;

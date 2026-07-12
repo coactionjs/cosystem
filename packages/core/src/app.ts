@@ -257,6 +257,7 @@ interface DetachedDraftContext {
 
 const runtimeModuleMetadataKey = Symbol.for("@cosystem/core/runtimeModule");
 const appContainerMap = new WeakMap<App, Container>();
+const appRuntimeMap = new WeakMap<App, RuntimeApp>();
 const appManagedExecutionContext = createRuntimeAsyncContext<AppManagedExecution>();
 
 export function createApp(options: CreateAppOptions = {}): App {
@@ -274,6 +275,7 @@ export function runInAction<T>(module: object, callback: () => T, options?: RunI
 }
 
 export function createAppInternal(options: InternalCreateAppOptions = {}): App {
+  const parentApp = isApp(options.parent) ? appRuntimeMap.get(options.parent) : undefined;
   const parent = isApp(options.parent) ? getAppContainer(options.parent) : options.parent;
   const container = parent === undefined ? createContainer() : createContainer({ parent });
   const moduleTokens: InjectionToken[] = [];
@@ -363,6 +365,8 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
     app.runModuleCreatedHooks();
     app.init();
     appContainerMap.set(app, container);
+    appRuntimeMap.set(app, app);
+    parentApp?.registerChildApp(app);
 
     return app;
   } catch (error) {
@@ -574,6 +578,8 @@ class RuntimeApp implements App {
   private readonly loadingLazyModules = new WeakMap<LazyModule, Promise<LazyModuleLoadResult>>();
   private readonly stagedLazyLoads = new Set<Promise<void>>();
   private readonly dynamicScopes: Container[] = [];
+  private readonly childApps: RuntimeApp[] = [];
+  private parentApp: RuntimeApp | undefined;
   private initPromise: Promise<void> = Promise.resolve();
   private startPromise: Promise<void> | undefined;
   private stopPromise: Promise<void> | undefined;
@@ -925,6 +931,7 @@ class RuntimeApp implements App {
     }
 
     await this.waitForStagedLazyLoads();
+    await runCleanupPhase(errors, () => this.disposeChildApps());
     await runCleanupPhase(errors, () => this.stop());
     await runCleanupPhase(errors, () => this.stopEffects());
     await runCleanupPhase(errors, () => this.waitForPendingEffects());
@@ -942,6 +949,8 @@ class RuntimeApp implements App {
     this.isStarted = false;
     this.isDisposed = true;
     this.isDisposing = false;
+    this.parentApp?.unregisterChildApp(this);
+    this.parentApp = undefined;
 
     if (errors.length > 0) {
       const error = new AggregateError(errors, "One or more app resources failed to dispose.");
@@ -955,6 +964,48 @@ class RuntimeApp implements App {
     return {
       container: this.#container.createScope(options),
     };
+  }
+
+  registerChildApp(child: RuntimeApp): void {
+    this.assertActive("create child apps");
+    this.childApps.push(child);
+    child.parentApp = this;
+  }
+
+  getContainerForChildApp(): Container {
+    this.assertActive("create child apps");
+    return this.#container;
+  }
+
+  private unregisterChildApp(child: RuntimeApp): void {
+    const index = this.childApps.indexOf(child);
+
+    if (index !== -1) {
+      this.childApps.splice(index, 1);
+    }
+  }
+
+  private async disposeChildApps(): Promise<void> {
+    const errors: unknown[] = [];
+
+    while (this.childApps.length > 0) {
+      const child = this.childApps.pop();
+
+      if (child === undefined) {
+        continue;
+      }
+
+      try {
+        // eslint-disable-next-line no-await-in-loop -- Child apps release dependents before the parent app.
+        await child.dispose();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "One or more child apps failed to dispose.");
+    }
   }
 
   async load(module: LazyModule): Promise<LazyModuleLoadResult>;
@@ -2102,6 +2153,7 @@ class RuntimeApp implements App {
       },
     });
     appContainerMap.set(view, this.#container);
+    appRuntimeMap.set(view, this);
     return view;
   }
 
@@ -2980,6 +3032,12 @@ function createObservedRejection(error: unknown): Promise<never> {
 /* eslint-enable promise/no-promise-in-callback */
 
 function getAppContainer(app: App): Container {
+  const runtime = appRuntimeMap.get(app);
+
+  if (runtime !== undefined) {
+    return runtime.getContainerForChildApp();
+  }
+
   const container = appContainerMap.get(app);
 
   if (container === undefined) {

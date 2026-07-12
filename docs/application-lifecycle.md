@@ -62,6 +62,7 @@ app.dispose()
   - if init is still in flight, abort plugin contexts, wait for setup to settle,
     and skip any remaining init work
   - if start is still in flight, wait for onStart hooks before stopping
+  - dispose child apps in reverse creation order
   - stop() if still running
   - stop and drain effects
   - run module onDispose() hooks in reverse order
@@ -217,6 +218,9 @@ the parent's providers:
 ```ts
 const child = createApp({ parent: app, providers: [FeatureModule] });
 ```
+
+Disposing a parent app disposes its child apps first, in reverse creation order.
+Once parent disposal begins, creating another child app is rejected.
 
 ## Next
 
