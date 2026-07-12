@@ -981,7 +981,15 @@ export function createDataTransportWorkerTransport(
         }
       }
     } catch (error) {
-      stop();
+      try {
+        stop();
+      } catch (cleanupError) {
+        // eslint-disable-next-line preserve-caught-error -- Both subscription and rollback failures are actionable.
+        throw new AggregateError([error, cleanupError], "Data transport subscription failed.", {
+          cause: error,
+        });
+      }
+
       throw error;
     }
   };
@@ -992,9 +1000,22 @@ export function createDataTransportWorkerTransport(
     }
 
     listening = false;
+    const errors: unknown[] = [];
 
     for (const dispose of disposers.splice(0)) {
-      dispose();
+      try {
+        dispose();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
+    if (errors.length === 1) {
+      throw errors[0];
+    }
+
+    if (errors.length > 1) {
+      throw new AggregateError(errors, "Data transport listeners failed to unsubscribe.");
     }
   };
 

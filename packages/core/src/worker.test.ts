@@ -888,6 +888,27 @@ describe("worker prototype", () => {
     unsubscribe();
   });
 
+  it("unsubscribes every data-transport listener after a disposer fails", () => {
+    const disposeError = new Error("data disposer failed");
+    const disposedTypes: WorkerMessage["type"][] = [];
+    const transport = createDataTransportWorkerTransport({
+      emit: async () => undefined,
+      listen(name) {
+        return () => {
+          disposedTypes.push(name);
+
+          if (name === "call") {
+            throw disposeError;
+          }
+        };
+      },
+    });
+    const unsubscribe = transport.subscribe(() => undefined);
+
+    expect(() => unsubscribe()).toThrow(disposeError);
+    expect(disposedTypes).toEqual(["call", "result", "state", "sync", "ready"]);
+  });
+
   it("adapts postMessage endpoints for worker clients and hosts", async () => {
     const [hostEndpoint, clientEndpoint] = createPostMessageEndpointPair();
     const ignoredMessages: unknown[] = [];
