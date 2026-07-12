@@ -333,34 +333,66 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
     container.override(normalized.provider);
   }
 
-  container.freeze();
+  let app: RuntimeApp | undefined;
+  let store: Store<RootState> | undefined;
 
-  const modules = instantiateModules(container, moduleTokens);
-  const rootState = createRootState(modules);
-  const store = createCoactionStore(
-    rootState,
-    createStoreOptions(options.engine, shouldEnablePatches(options)) as never,
-  );
-  const state: { version: number } = { version: 0 };
-  const app = new RuntimeApp({
-    container,
-    devOptions: options.devOptions ?? {},
-    lazyModules,
-    modules,
-    plugins: options.plugins ?? [],
-    state,
-    store,
-    ...(options.testInspector === undefined ? {} : { testInspector: options.testInspector }),
-  });
+  try {
+    container.freeze();
 
-  app.bindModules();
-  app.attachRuntimeMetadata();
-  instantiateEagerProviders(container);
-  app.runModuleCreatedHooks();
-  app.init();
-  appContainerMap.set(app, container);
+    const modules = instantiateModules(container, moduleTokens);
+    const rootState = createRootState(modules);
+    store = createCoactionStore(
+      rootState,
+      createStoreOptions(options.engine, shouldEnablePatches(options)) as never,
+    );
+    const state: { version: number } = { version: 0 };
+    app = new RuntimeApp({
+      container,
+      devOptions: options.devOptions ?? {},
+      lazyModules,
+      modules,
+      plugins: options.plugins ?? [],
+      state,
+      store,
+      ...(options.testInspector === undefined ? {} : { testInspector: options.testInspector }),
+    });
 
-  return app;
+    app.bindModules();
+    app.attachRuntimeMetadata();
+    instantiateEagerProviders(container);
+    app.runModuleCreatedHooks();
+    app.init();
+    appContainerMap.set(app, container);
+
+    return app;
+  } catch (error) {
+    const rollbackErrors: unknown[] = [];
+
+    if (app !== undefined) {
+      const failedApp = app;
+      runSyncCleanupPhase(rollbackErrors, () => failedApp.rollbackFailedCreation());
+    } else if (store !== undefined) {
+      const failedStore = store;
+      runSyncCleanupPhase(rollbackErrors, () => failedStore.destroy());
+    }
+
+    try {
+      void container.dispose().catch(() => undefined);
+    } catch (cleanupError) {
+      rollbackErrors.push(cleanupError);
+    }
+
+    if (rollbackErrors.length > 0) {
+      // eslint-disable-next-line preserve-caught-error -- AggregateError.errors and cause both retain the creation failure.
+      throw new AggregateError(
+        [error, ...rollbackErrors],
+        error instanceof Error ? error.message : "App creation and rollback failed.",
+        { cause: error },
+      );
+    }
+
+    throw error;
+  }
 }
 
 class RuntimePluginContext implements PluginContext {
@@ -1171,6 +1203,19 @@ class RuntimeApp implements App {
         } satisfies RuntimeModuleMetadata,
       });
       moduleBinding.runtimeMetadataAttached = true;
+    }
+  }
+
+  rollbackFailedCreation(): void {
+    const errors: unknown[] = [];
+    const state = this.readRawStoreState();
+
+    runSyncCleanupPhase(errors, () => this.restoreModuleBindingsForRollback(this.modules, state));
+    runSyncCleanupPhase(errors, () => this.detachRuntimeMetadata(this.modules));
+    runSyncCleanupPhase(errors, () => this.store.destroy());
+
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "One or more app creation rollback steps failed.");
     }
   }
 

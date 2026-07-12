@@ -2258,6 +2258,47 @@ describe("app runtime", () => {
     }
   });
 
+  it("restores and disposes modules after synchronous app creation failure", async () => {
+    const events: string[] = [];
+    const instances: InvalidCreationModule[] = [];
+
+    class InvalidCreationModule {
+      value = 1;
+
+      constructor() {
+        instances.push(this);
+      }
+
+      dispose(): void {
+        events.push(`dispose:${String(this.value)}`);
+      }
+    }
+
+    defineModule(InvalidCreationModule, {
+      actions: ["missingAction"],
+      name: "invalidCreationModule",
+      state: ["value"],
+    });
+
+    expect(() => createApp({ providers: [InvalidCreationModule] })).toThrow(
+      "missingAction is not a method.",
+    );
+
+    const instance = instances[0];
+
+    if (instance === undefined) {
+      throw new Error("Expected the failed root module instance to be retained.");
+    }
+
+    expect(Object.getOwnPropertyDescriptor(instance, "value")).toMatchObject({
+      value: 1,
+      writable: true,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(events).toEqual(["dispose:1"]);
+  });
+
   it("keeps non-module class and factory providers lazy by default", () => {
     const ServiceToken = token<{ readonly value: string }>("LazyService");
     const events: string[] = [];
