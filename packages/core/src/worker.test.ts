@@ -814,6 +814,16 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("does not expose worker module proxies as thenables", async () => {
+    const [, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({ transport: clientTransport });
+    const module = client.module<WorkerCounter>("workerCounter");
+
+    expect((module as unknown as { readonly then?: unknown }).then).toBeUndefined();
+    await expect(Promise.resolve(module)).resolves.toBe(module);
+    client.dispose();
+  });
+
   it("adapts data-transport style listen and emit endpoints", async () => {
     const [hostDataTransport, clientDataTransport] = createDataTransportPair();
     const client = createWorkerClient({
