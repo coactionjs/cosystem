@@ -1232,11 +1232,17 @@ function removePatchValue(container: PatchContainer, segment: PatchPathSegment):
 }
 
 function toArrayIndex(segment: PatchPathSegment): number {
-  if (typeof segment === "number") {
-    return segment;
+  if (typeof segment === "string" && !/^(?:0|[1-9]\d*)$/.test(segment)) {
+    throw new CosystemError("Worker state patch array index is invalid.");
   }
 
-  return Number(segment);
+  const index = typeof segment === "number" ? segment : Number(segment);
+
+  if (!Number.isSafeInteger(index) || index < 0) {
+    throw new CosystemError("Worker state patch array index is invalid.");
+  }
+
+  return index;
 }
 
 function normalizePatchPath(path: unknown): readonly PatchPathSegment[] {
@@ -1261,10 +1267,11 @@ function normalizePatchPath(path: unknown): readonly PatchPathSegment[] {
 }
 
 function normalizePatchPathSegment(segment: unknown): PatchPathSegment {
-  if (
-    (typeof segment === "number" || typeof segment === "string") &&
-    !isUnsafeWorkerPathSegment(segment)
-  ) {
+  if (typeof segment === "number" && Number.isSafeInteger(segment) && segment >= 0) {
+    return segment;
+  }
+
+  if (typeof segment === "string" && !isUnsafeWorkerPathSegment(segment)) {
     return segment;
   }
 

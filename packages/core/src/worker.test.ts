@@ -304,6 +304,55 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("rejects invalid array indices in worker state patches", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const conflicts: WorkerConflictEvent[] = [];
+    const invalidMessages: unknown[] = [];
+    const client = createWorkerClient({
+      onConflict(event) {
+        conflicts.push(event);
+      },
+      onInvalidMessage(message) {
+        invalidMessages.push(message);
+      },
+      transport: clientTransport,
+    });
+
+    hostTransport.post({
+      state: { items: [1, 2] },
+      sync: "snapshot",
+      type: "state",
+      version: 0,
+    });
+    await client.ready;
+
+    hostTransport.post({
+      patches: [{ op: "remove", path: ["items", -1] }],
+      sync: "patch",
+      type: "state",
+      version: 1,
+    });
+    hostTransport.post({
+      patches: [{ op: "remove", path: ["items", 1.5] }],
+      sync: "patch",
+      type: "state",
+      version: 1,
+    });
+    hostTransport.post({
+      patches: [{ op: "remove", path: ["items", "-1"] }],
+      sync: "patch",
+      type: "state",
+      version: 1,
+    });
+
+    expect(invalidMessages).toHaveLength(2);
+    expect(conflicts.map((event) => event.reason)).toEqual(["patch-apply-failed"]);
+    expect(client.getState()).toEqual({ items: [1, 2] });
+    expect(client.state.version).toBe(0);
+
+    client.dispose();
+  });
+
   it("isolates worker state sync to configured state sections", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const client = createWorkerClient({
