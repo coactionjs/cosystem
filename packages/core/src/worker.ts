@@ -935,21 +935,26 @@ export function createDataTransportWorkerTransport(
 
     listening = true;
 
-    for (const type of workerMessageTypes) {
-      const dispose = dataTransport.listen(type, (message) => {
-        if (!isWorkerMessage(message) || message.type !== type) {
-          reportInvalidWorkerMessage(options.onInvalidMessage, message);
-          return;
-        }
+    try {
+      for (const type of workerMessageTypes) {
+        const dispose = dataTransport.listen(type, (message) => {
+          if (!isWorkerMessage(message) || message.type !== type) {
+            reportInvalidWorkerMessage(options.onInvalidMessage, message);
+            return;
+          }
 
-        for (const listener of listeners) {
-          listener(message);
-        }
-      });
+          for (const listener of listeners) {
+            listener(message);
+          }
+        });
 
-      if (typeof dispose === "function") {
-        disposers.push(dispose);
+        if (typeof dispose === "function") {
+          disposers.push(dispose);
+        }
       }
+    } catch (error) {
+      stop();
+      throw error;
     }
   };
 
@@ -980,8 +985,14 @@ export function createDataTransportWorkerTransport(
         });
     },
     subscribe(listener) {
-      start();
       listeners.add(listener);
+
+      try {
+        start();
+      } catch (error) {
+        listeners.delete(listener);
+        throw error;
+      }
 
       return () => {
         listeners.delete(listener);

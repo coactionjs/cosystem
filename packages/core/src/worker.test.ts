@@ -838,6 +838,24 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("preserves data-transport messages replayed during subscription", () => {
+    const messages: WorkerMessage[] = [];
+    const transport = createDataTransportWorkerTransport({
+      emit: async () => undefined,
+      listen(name, listener) {
+        if (name === "ready") {
+          listener({ type: "ready" });
+        }
+      },
+    });
+    const unsubscribe = transport.subscribe((message) => {
+      messages.push(message);
+    });
+
+    expect(messages).toEqual([{ type: "ready" }]);
+    unsubscribe();
+  });
+
   it("adapts postMessage endpoints for worker clients and hosts", async () => {
     const [hostEndpoint, clientEndpoint] = createPostMessageEndpointPair();
     const ignoredMessages: unknown[] = [];
