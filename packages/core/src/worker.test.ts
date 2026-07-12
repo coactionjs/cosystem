@@ -893,6 +893,61 @@ describe("worker prototype", () => {
     unsubscribe();
   });
 
+  it("isolates throwing worker transport error observers", async () => {
+    const deliveryError = new Error("delivery failed");
+    const observedErrors: unknown[] = [];
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (error: unknown) => {
+      unhandledRejections.push(error);
+    };
+    const onError = (error: unknown) => {
+      observedErrors.push(error);
+      throw new Error("observer failed");
+    };
+    const message = { type: "ready" } as const;
+    const endpoint = new MockPostMessageEndpoint();
+    const postMessageTransport = createPostMessageWorkerTransport(endpoint, {
+      onError,
+      target: {
+        postMessage() {
+          throw deliveryError;
+        },
+      },
+    });
+    const broadcastTransport = createBroadcastWorkerTransport(
+      {
+        addEventListener() {},
+        postMessage() {
+          throw deliveryError;
+        },
+        removeEventListener() {},
+      },
+      { onError },
+    );
+    const dataTransport = createDataTransportWorkerTransport(
+      {
+        emit: () => Promise.reject(deliveryError),
+        listen: () => undefined,
+      },
+      { onError },
+    );
+
+    expect(() => postMessageTransport.post(message)).not.toThrow();
+    expect(() => broadcastTransport.post(message)).not.toThrow();
+
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    try {
+      dataTransport.post(message);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
+
+    expect(observedErrors).toEqual([deliveryError, deliveryError, deliveryError]);
+    expect(unhandledRejections).toEqual([]);
+  });
+
   it("requires matching broadcast capability tokens when configured", () => {
     const channel = "worker-broadcast-auth";
     const receiverChannel = createMemoryBroadcastChannel(channel);

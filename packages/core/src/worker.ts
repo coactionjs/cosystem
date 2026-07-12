@@ -738,6 +738,18 @@ function reportWorkerConflict(
   }
 }
 
+function reportWorkerTransportError(
+  onError: ((error: unknown, message: WorkerMessage) => void) | undefined,
+  error: unknown,
+  message: WorkerMessage,
+): void {
+  try {
+    onError?.(error, message);
+  } catch {
+    // Transport error observers must not rethrow delivery failures or create rejected tasks.
+  }
+}
+
 function runWorkerObserver(callback: () => void): void {
   try {
     callback();
@@ -784,7 +796,7 @@ export function createPostMessageWorkerTransport(
           (target as PostMessageOriginTarget).postMessage(message, options.targetOrigin);
         }
       } catch (error) {
-        options.onError?.(error, message);
+        reportWorkerTransportError(options.onError, error, message);
       }
     },
     subscribe(listener) {
@@ -844,7 +856,7 @@ export function createBroadcastWorkerTransport(
         // eslint-disable-next-line unicorn/require-post-message-target-origin -- BroadcastChannel-style endpoints do not accept targetOrigin.
         broadcast.postMessage(envelope);
       } catch (error) {
-        options.onError?.(error, message);
+        reportWorkerTransportError(options.onError, error, message);
       }
     },
     subscribe(listener) {
@@ -958,7 +970,7 @@ export function createDataTransportWorkerTransport(
           message,
         )
         .catch((error: unknown) => {
-          options.onError?.(error, message);
+          reportWorkerTransportError(options.onError, error, message);
         });
     },
     subscribe(listener) {
