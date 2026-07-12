@@ -704,7 +704,7 @@ class RuntimeApp implements App {
   }
 
   start(): Promise<void> {
-    const phase = this.getActiveManagedPhase();
+    const phase = this.getActiveManagedPhase(false);
 
     if (phase !== undefined) {
       return this.rejectManagedReentry("call start()", phase, "start");
@@ -741,7 +741,7 @@ class RuntimeApp implements App {
   }
 
   stop(): Promise<void> {
-    const phase = this.getActiveManagedPhase();
+    const phase = this.getActiveManagedPhase(false);
 
     if (phase !== undefined) {
       return this.rejectManagedReentry("call stop()", phase, "stop");
@@ -768,7 +768,7 @@ class RuntimeApp implements App {
   }
 
   dispose(): Promise<void> {
-    const phase = this.getActiveManagedPhase();
+    const phase = this.getActiveManagedPhase(false);
 
     if (phase !== undefined) {
       return this.rejectManagedReentry("call dispose()", phase, "dispose");

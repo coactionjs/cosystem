@@ -341,7 +341,9 @@ Lifecycle hooks may use `context.inject()` before or after an `await`.
 App-managed setup, effects, and lifecycle hooks cannot call `app.start()`,
 `app.stop()`, or `app.dispose()`; setup and `onInit` work also cannot await
 `app.ready`. Drive lifecycle phases from application bootstrap so a hook cannot
-await the phase that is already waiting for it.
+await the phase that is already waiting for it. After an `await`, use the app
+supplied to `setup` or `ModuleLifecycleContext.app` for portable enforcement;
+browser fallback keeps unrelated external lifecycle controls available.
 
 `onStop`/`onDispose` run in reverse order. Teardown is best-effort across every
 module and cleanup phase; failures are reported together as an `AggregateError`

@@ -92,6 +92,9 @@ A few consequences worth internalizing:
   operations from a phase they control can create a self-dependency. Setup and
   `onInit` work likewise cannot await `app.ready`. These calls return internally
   observed rejections; invoke lifecycle controls from application bootstrap.
+  For portable enforcement after an `await`, use the app supplied to `setup` or
+  `ModuleLifecycleContext.app`; browser fallback does not treat unrelated
+  external controls as hook reentry.
 - **Lifecycle injection survives `await`.** Use `PluginContext.inject()` in
   plugin setup and the `ModuleLifecycleContext` hook argument in modules. Their
   explicit resolvers remain app-scoped even when browser hooks overlap.

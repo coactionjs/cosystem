@@ -16,24 +16,56 @@ import {
 } from "./index.js";
 
 describe("async context fallback", () => {
-  it("rejects raw app lifecycle reentry after an await", async () => {
-    let app!: ReturnType<typeof createApp>;
-
-    class RawAppLifecycle {
-      async onInit(): Promise<void> {
+  it("rejects managed app lifecycle reentry after an await", async () => {
+    class ManagedAppLifecycle {
+      async onInit(context: ModuleLifecycleContext): Promise<void> {
         await Promise.resolve();
-        await app.dispose();
+        await context.app.dispose();
       }
     }
 
-    defineModule(RawAppLifecycle, {
-      name: "rawAppLifecycle",
+    defineModule(ManagedAppLifecycle, {
+      name: "managedAppLifecycle",
     });
 
-    app = createApp({ providers: [RawAppLifecycle] });
+    const app = createApp({ providers: [ManagedAppLifecycle] });
 
     await expect(app.ready).rejects.toThrow("Cannot call dispose() from app-managed onInit work.");
     await expect(app.dispose()).resolves.toBeUndefined();
+  });
+
+  it("allows external disposal while fallback setup is suspended", async () => {
+    const events: string[] = [];
+    let markSetupStarted!: () => void;
+    const setupStarted = new Promise<void>((resolve) => {
+      markSetupStarted = resolve;
+    });
+    const app = createApp({
+      plugins: [
+        {
+          setup(_app, context) {
+            events.push("setup");
+
+            return new Promise<void>((resolve) => {
+              context.signal.addEventListener(
+                "abort",
+                () => {
+                  events.push("abort");
+                  resolve();
+                },
+                { once: true },
+              );
+              markSetupStarted();
+            });
+          },
+        },
+      ],
+    });
+
+    await setupStarted;
+    await expect(app.dispose()).resolves.toBeUndefined();
+
+    expect(events).toEqual(["setup", "abort"]);
   });
 
   it("keeps concurrent app lifecycle injection explicit and isolated", async () => {
