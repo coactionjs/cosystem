@@ -532,6 +532,20 @@ describe("DI container", () => {
     expect(first).toBe(second);
   });
 
+  it("resolves inject() from class provider constructors", () => {
+    const DependencyToken = token<{ readonly value: string }>("ConstructorDependency");
+
+    class ConstructorConsumer {
+      readonly dependency = inject(DependencyToken);
+    }
+
+    const container = createContainer();
+    container.provide(provide(DependencyToken, { useValue: { value: "injected" } }));
+    container.provide(ConstructorConsumer);
+
+    expect(container.get(ConstructorConsumer).dependency).toEqual({ value: "injected" });
+  });
+
   it("applies lifetime and circular checks to inject()", () => {
     const TransientToken = token<object>("InjectedTransient");
     const LeakingToken = token<object>("InjectedLeak");

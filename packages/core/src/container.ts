@@ -391,11 +391,11 @@ class RuntimeContainer implements ContainerImpl {
 
         if (isPromiseLike(deps)) {
           return Promise.resolve(deps).then((values) =>
-            Reflect.construct(provider.useClass, values),
+            runWithInjectContext(context, () => Reflect.construct(provider.useClass, values)),
           );
         }
 
-        return Reflect.construct(provider.useClass, deps);
+        return runWithInjectContext(context, () => Reflect.construct(provider.useClass, deps));
       }
 
       case "value":
