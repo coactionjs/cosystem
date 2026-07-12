@@ -25,6 +25,10 @@ class WorkerCounter {
     this.count += step;
     return this.count;
   }
+
+  readCount(): number {
+    return this.count;
+  }
 }
 
 defineModule(WorkerCounter, {
@@ -120,6 +124,25 @@ describe("worker prototype", () => {
       },
     ]);
     expect(patchMessages.every((message) => (message.patches?.length ?? 0) > 0)).toBe(true);
+
+    client.dispose();
+    await host.dispose();
+  });
+
+  it("exposes only actions declared in module metadata to remote calls", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({ transport: clientTransport });
+    const host = createWorkerApp({
+      providers: [WorkerCounter],
+      transport: hostTransport,
+    });
+
+    await client.ready;
+
+    await expect(client.call("workerCounter", "readCount")).rejects.toThrow(
+      "workerCounter.readCount is not exposed as a remote action",
+    );
+    await expect(client.call("workerCounter", "increase", 1)).resolves.toBe(1);
 
     client.dispose();
     await host.dispose();
@@ -337,9 +360,13 @@ describe("worker prototype", () => {
   it("reports worker state conflicts and keeps the current snapshot", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const conflicts: WorkerConflictEvent[] = [];
+    const invalidMessages: unknown[] = [];
     const client = createWorkerClient({
       onConflict: (event) => {
         conflicts.push(event);
+      },
+      onInvalidMessage: (message) => {
+        invalidMessages.push(message);
       },
       transport: clientTransport,
     });
@@ -407,9 +434,9 @@ describe("worker prototype", () => {
     expect(conflicts.map((event) => event.reason)).toEqual([
       "missing-snapshot",
       "stale-message",
-      "patch-apply-failed",
       "version-gap",
     ]);
+    expect(invalidMessages).toHaveLength(1);
     expect(client.getState()).toEqual({
       workerCounter: {
         count: 1,
@@ -526,6 +553,112 @@ describe("worker prototype", () => {
 
     client.dispose();
     await host.dispose();
+  });
+
+  it("filters postMessage origin/source, validates payloads, and uses targetOrigin", () => {
+    const endpoint = new MockPostMessageEndpoint();
+    const expectedSource = {};
+    const invalidMessages: unknown[] = [];
+    const messages: WorkerMessage[] = [];
+    const postedOrigins: Array<string | undefined> = [];
+    const transport = createPostMessageWorkerTransport(endpoint, {
+      allowedOrigins: ["https://trusted.example"],
+      expectedSource,
+      onInvalidMessage(message) {
+        invalidMessages.push(message);
+      },
+      source: endpoint,
+      target: {
+        postMessage(_message, targetOrigin) {
+          postedOrigins.push(targetOrigin);
+        },
+      },
+      targetOrigin: "https://trusted.example",
+    });
+    const unsubscribe = transport.subscribe((message) => {
+      messages.push(message);
+    });
+
+    endpoint.dispatch({
+      data: { type: "ready" },
+      origin: "https://untrusted.example",
+      source: expectedSource,
+    });
+    endpoint.dispatch({
+      data: { type: "ready" },
+      origin: "https://trusted.example",
+      source: {},
+    });
+    endpoint.dispatch({
+      data: { id: 1, method: "increase", module: "workerCounter", type: "call" },
+      origin: "https://trusted.example",
+      source: expectedSource,
+    });
+    endpoint.dispatch({
+      data: {
+        patches: [{ op: "replace", path: "/__proto__/polluted", value: true }],
+        sync: "patch",
+        type: "state",
+        version: 1,
+      },
+      origin: "https://trusted.example",
+      source: expectedSource,
+    });
+    endpoint.dispatch({
+      data: { type: "ready" },
+      origin: "https://trusted.example",
+      source: expectedSource,
+    });
+    transport.post({ type: "ready" });
+
+    expect(messages).toEqual([{ type: "ready" }]);
+    expect(invalidMessages).toHaveLength(2);
+    expect(postedOrigins).toEqual(["https://trusted.example"]);
+
+    unsubscribe();
+  });
+
+  it("requires matching broadcast capability tokens when configured", () => {
+    const channel = "worker-broadcast-auth";
+    const receiverChannel = createMemoryBroadcastChannel(channel);
+    const trustedChannel = createMemoryBroadcastChannel(channel);
+    const untrustedChannel = createMemoryBroadcastChannel(channel);
+    const messages: WorkerMessage[] = [];
+    const receiver = createBroadcastWorkerTransport(receiverChannel, {
+      authToken: "shared-secret",
+      peerId: "receiver",
+    });
+    const trusted = createBroadcastWorkerTransport(trustedChannel, {
+      authToken: "shared-secret",
+      peerId: "trusted",
+      targetPeerId: "receiver",
+    });
+    const untrusted = createBroadcastWorkerTransport(untrustedChannel, {
+      authToken: "wrong-secret",
+      peerId: "untrusted",
+      targetPeerId: "receiver",
+    });
+    const unsubscribe = receiver.subscribe((message) => {
+      messages.push(message);
+    });
+    const call: WorkerMessage = {
+      args: [1],
+      id: 1,
+      method: "increase",
+      module: "workerCounter",
+      type: "call",
+    };
+
+    untrusted.post(call);
+    trusted.post(call);
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ method: "increase", module: "workerCounter" });
+
+    unsubscribe();
+    receiverChannel.close?.();
+    trustedChannel.close?.();
+    untrustedChannel.close?.();
   });
 
   it("coordinates shared tab clients over a broadcast channel", async () => {
@@ -707,6 +840,34 @@ describe("worker prototype", () => {
     );
     await expect(counter.increase(1)).rejects.toThrow("Worker client has been disposed.");
     expect(posted).toBe(0);
+  });
+
+  it("times out and aborts worker calls that do not receive a response", async () => {
+    const [, timeoutTransport] = createMemoryWorkerTransportPair();
+    const timeoutClient = createWorkerClient({
+      requestTimeout: 10,
+      transport: timeoutTransport,
+    });
+
+    await expect(timeoutClient.call("workerCounter", "increase", 1)).rejects.toThrow(
+      "Worker call timed out after 10ms.",
+    );
+    timeoutClient.dispose();
+
+    const [, abortTransport] = createMemoryWorkerTransportPair();
+    const abortClient = createWorkerClient({
+      requestTimeout: 0,
+      transport: abortTransport,
+    });
+    const abortController = new AbortController();
+    const pending = abortClient.callWithOptions("workerCounter", "increase", [1], {
+      signal: abortController.signal,
+    });
+
+    abortController.abort();
+
+    await expect(pending).rejects.toThrow("Worker call aborted.");
+    abortClient.dispose();
   });
 
   it("resolves client readiness after the initial state snapshot arrives", async () => {

@@ -262,9 +262,13 @@ async function verifyStateSections() {
 async function verifyConflicts() {
   const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
   const conflicts = [];
+  const invalidMessages = [];
   const client = createWorkerClient({
     onConflict(event) {
       conflicts.push(event);
+    },
+    onInvalidMessage(message) {
+      invalidMessages.push(message);
     },
     transport: clientTransport,
   });
@@ -331,7 +335,7 @@ async function verifyConflicts() {
 
   expectJsonEqual(
     conflicts.map((event) => event.reason),
-    ["missing-snapshot", "stale-message", "patch-apply-failed", "version-gap"],
+    ["missing-snapshot", "stale-message", "version-gap"],
     "worker conflict reasons",
   );
   expectJsonEqual(
@@ -339,11 +343,11 @@ async function verifyConflicts() {
     [
       [0, 1],
       [1, 1],
-      [1, 2],
       [1, 3],
     ],
     "worker conflict versions",
   );
+  expectEqual(invalidMessages.length, 1, "invalid worker patch messages");
   expectJsonEqual(client.getState(), { visibleCounter: { count: 1 } }, "conflicts keep current snapshot");
 
   client.dispose();

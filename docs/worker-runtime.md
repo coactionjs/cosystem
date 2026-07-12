@@ -62,6 +62,7 @@ interface WorkerClient {
   select<T>(selector): T; // read derived state synchronously
   watch<T>(selector, listener, opts?): () => void; // subscribe (equals/immediate)
   call(module, method, ...args): Promise<unknown>;
+  callWithOptions(module, method, args, { timeout, signal }): Promise<unknown>;
   module<T>(name): AsyncMethodProxy<T>; // typed async method proxy
   subscribe(listener): () => void; // low-level state-message subscription
   dispose(): void;
@@ -82,6 +83,36 @@ startup to settle; this prevents initialization/disposal deadlocks. Repeated
 host disposal shares one promise. `client.dispose()` rejects pending calls and
 all later `call()` / module-proxy requests immediately instead of posting work
 that can no longer receive a response.
+
+RPC calls default to a 30-second timeout (`requestTimeout` on
+`createWorkerClient`; `0` disables it). Use `callWithOptions()` for a per-call
+timeout or `AbortSignal`. Remote invocation is restricted to methods explicitly
+listed in the module's `actions` metadata; ordinary methods, lifecycle hooks,
+computed properties, and arbitrary callable fields are not remotely exposed.
+
+## Trust boundary
+
+Every inbound protocol envelope is runtime-validated: call IDs, module/method
+names, argument arrays, result errors, state versions/sections, sync fields, and
+patch operations/paths must match the complete message schema. Malformed input
+is dropped and can be observed with `onInvalidMessage`. Unsafe patch path
+segments such as `__proto__` are rejected.
+
+Schema validation and the action allowlist limit capabilities, but a bare
+`WorkerTransport` does not authenticate its peer. Connect bare/custom and
+data-transport adapters only to trusted endpoints, or enforce authentication in
+the underlying channel. For cross-origin/ambient channels, use the adapter
+controls below:
+
+- `createPostMessageWorkerTransport`: set `targetOrigin`, `allowedOrigins`, and
+  `expectedSource` for iframe/window messaging. Omitting them is appropriate
+  only for dedicated `Worker`/`MessagePort` endpoints already held as trusted
+  capabilities.
+- `createBroadcastWorkerTransport`: set the same unpredictable `authToken` on
+  host and clients. Messages with a different token are ignored. A
+  `BroadcastChannel` peer can observe traffic, so this is a routing capability,
+  not cryptographic authentication; use it only among trusted same-origin code
+  or put the protocol over an authenticated custom transport.
 
 ## Transports
 
@@ -114,6 +145,19 @@ const client = createWorkerClient({
 await client.ready;
 ```
 
+For an iframe, bind both directions explicitly instead of using wildcard
+origins:
+
+```ts
+const transport = createPostMessageWorkerTransport(window as any, {
+  source: window as any,
+  target: iframe.contentWindow as any,
+  targetOrigin: "https://trusted.example",
+  allowedOrigins: ["https://trusted.example"],
+  expectedSource: iframe.contentWindow,
+});
+```
+
 ### Shared tabs (BroadcastChannel)
 
 The client should subscribe before the host starts so it receives the initial
@@ -122,6 +166,7 @@ snapshot. Identify peers with `peerId` / `targetPeerId`:
 ```ts
 const client = createWorkerClient({
   transport: createBroadcastWorkerTransport(new BroadcastChannel("counter"), {
+    authToken: sharedRandomCapability,
     peerId: "tab:client",
     targetPeerId: "tab:host",
   }),
@@ -131,6 +176,7 @@ const host = createWorkerApp({
   providers: [Counter],
   sync: "patch",
   transport: createBroadcastWorkerTransport(new BroadcastChannel("counter"), {
+    authToken: sharedRandomCapability,
     peerId: "tab:host",
   }),
 });

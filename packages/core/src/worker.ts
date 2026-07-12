@@ -1,5 +1,7 @@
 import { CosystemError } from "./errors.js";
 import { createApp, type App, type CreateAppOptions, type Plugin } from "./app.js";
+import { getModuleMetadata } from "./metadata.js";
+import type { Constructor } from "./types.js";
 
 export interface WorkerTransport {
   post(message: WorkerMessage): void;
@@ -26,14 +28,21 @@ export interface DataTransportLike {
 
 export interface DataTransportWorkerTransportOptions {
   readonly onError?: (error: unknown, message: WorkerMessage) => void;
+  readonly onInvalidMessage?: (message: unknown) => void;
 }
 
 export interface PostMessageTarget {
   postMessage(message: WorkerMessage): void;
 }
 
+export interface PostMessageOriginTarget {
+  postMessage(message: WorkerMessage, targetOrigin: string): void;
+}
+
 export interface PostMessageEventLike {
   readonly data?: unknown;
+  readonly origin?: string;
+  readonly source?: unknown;
 }
 
 export interface PostMessageSource {
@@ -45,8 +54,12 @@ export interface PostMessageEndpoint extends PostMessageTarget, PostMessageSourc
 
 export interface PostMessageWorkerTransportOptions {
   readonly source?: PostMessageSource;
-  readonly target?: PostMessageTarget;
+  readonly target?: PostMessageTarget | PostMessageOriginTarget;
+  readonly targetOrigin?: string;
+  readonly allowedOrigins?: readonly string[];
+  readonly expectedSource?: unknown;
   readonly onError?: (error: unknown, message: WorkerMessage) => void;
+  readonly onInvalidMessage?: (message: unknown) => void;
 }
 
 export interface BroadcastMessageEventLike {
@@ -64,7 +77,9 @@ export interface BroadcastWorkerTransportOptions {
   readonly channel?: string;
   readonly peerId?: string;
   readonly targetPeerId?: string;
+  readonly authToken?: string;
   readonly onError?: (error: unknown, message: WorkerMessage) => void;
+  readonly onInvalidMessage?: (message: unknown) => void;
 }
 
 export interface BroadcastWorkerMessageEnvelope {
@@ -72,6 +87,7 @@ export interface BroadcastWorkerMessageEnvelope {
   readonly channel: string;
   readonly source: string;
   readonly target?: string;
+  readonly auth?: string;
   readonly message: WorkerMessage;
 }
 
@@ -128,6 +144,7 @@ export interface CreateWorkerAppOptions extends CreateAppOptions {
   readonly transport: WorkerTransport;
   readonly sync?: WorkerStateSyncMode;
   readonly stateSections?: readonly WorkerStateSection[];
+  readonly onInvalidMessage?: (message: unknown) => void;
 }
 
 export type WorkerStateSyncMode = "snapshot" | "patch";
@@ -142,6 +159,14 @@ export interface WorkerAppHost {
 export interface CreateWorkerClientOptions {
   readonly transport: WorkerTransport;
   readonly onConflict?: (event: WorkerConflictEvent) => void;
+  readonly onInvalidMessage?: (message: unknown) => void;
+  readonly requestTimeout?: number;
+  readonly signal?: AbortSignal;
+}
+
+export interface WorkerCallOptions {
+  readonly signal?: AbortSignal;
+  readonly timeout?: number;
 }
 
 export type WorkerConflictReason =
@@ -186,6 +211,12 @@ export interface WorkerClient {
     options?: WorkerWatchOptions<T>,
   ): () => void;
   call(module: string, method: string, ...args: readonly unknown[]): Promise<unknown>;
+  callWithOptions(
+    module: string,
+    method: string,
+    args: readonly unknown[],
+    options?: WorkerCallOptions,
+  ): Promise<unknown>;
   module<T extends object>(name: string): AsyncMethodProxy<T>;
   subscribe(listener: (message: WorkerStateMessage) => void): () => void;
   dispose(): void;
@@ -217,6 +248,7 @@ interface WorkerPatch {
 interface PendingWorkerCall {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: unknown) => void;
+  readonly cleanup: () => void;
   result?: PendingWorkerResult;
 }
 
@@ -227,7 +259,7 @@ interface PendingWorkerResult {
 }
 
 export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost {
-  const { stateSections, sync = "snapshot", transport, ...appOptions } = options;
+  const { onInvalidMessage, stateSections, sync = "snapshot", transport, ...appOptions } = options;
   let stateSyncVersion = 0;
   let publishPatches = false;
   const patchPlugin: Plugin = {
@@ -269,6 +301,11 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
 
   ready.catch(() => undefined);
   const unsubscribeTransport = transport.subscribe((message) => {
+    if (!isWorkerMessage(message)) {
+      reportInvalidWorkerMessage(onInvalidMessage, message);
+      return;
+    }
+
     if (disposed) {
       return;
     }
@@ -306,7 +343,14 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
 }
 
 export function createWorkerClient(options: CreateWorkerClientOptions): WorkerClient {
-  const { onConflict, transport } = options;
+  const {
+    onConflict,
+    onInvalidMessage,
+    requestTimeout = defaultWorkerRequestTimeout,
+    signal: defaultSignal,
+    transport,
+  } = options;
+  assertValidWorkerTimeout(requestTimeout, "requestTimeout");
   const listeners = new Set<(message: WorkerStateMessage) => void>();
   const selectorWatchers = new Set<WorkerSelectorWatcher<unknown>>();
   const pending = new Map<number, PendingWorkerCall>();
@@ -331,22 +375,68 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
     ready,
     state,
     call(module, method, ...args) {
+      return client.callWithOptions(module, method, args);
+    },
+    callWithOptions(module, method, args, callOptions = {}) {
       if (disposed) {
         return Promise.reject(new CosystemError("Worker client has been disposed."));
       }
 
+      const timeout = callOptions.timeout ?? requestTimeout;
+      const signal = callOptions.signal ?? defaultSignal;
+      assertValidWorkerTimeout(timeout, "timeout");
       const id = nextId;
       nextId += 1;
 
       return new Promise((resolve, reject) => {
-        pending.set(id, { reject, resolve });
-        transport.post({
-          args,
-          id,
-          method,
-          module,
-          type: "call",
-        });
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        const abort = () => {
+          fail(new CosystemError("Worker call aborted."));
+        };
+        const cleanup = () => {
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+          }
+
+          signal?.removeEventListener("abort", abort);
+        };
+        const entry: PendingWorkerCall = { cleanup, reject, resolve };
+        const fail = (error: unknown) => {
+          if (pending.get(id) !== entry) {
+            return;
+          }
+
+          pending.delete(id);
+          cleanup();
+          reject(error);
+        };
+
+        pending.set(id, entry);
+
+        if (signal?.aborted === true) {
+          abort();
+          return;
+        }
+
+        signal?.addEventListener("abort", abort, { once: true });
+
+        if (timeout > 0) {
+          timeoutId = setTimeout(() => {
+            fail(new CosystemError(`Worker call timed out after ${timeout}ms.`));
+          }, timeout);
+        }
+
+        try {
+          transport.post({
+            args,
+            id,
+            method,
+            module,
+            type: "call",
+          });
+        } catch (error) {
+          fail(error);
+        }
       });
     },
     dispose() {
@@ -363,6 +453,7 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
       }
 
       for (const entry of pending.values()) {
+        entry.cleanup();
         entry.reject(new CosystemError("Worker client disposed before response."));
       }
 
@@ -438,6 +529,7 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
     result: PendingWorkerResult,
   ): void => {
     pending.delete(id);
+    entry.cleanup();
 
     if (result.error !== undefined) {
       entry.reject(createRemoteError(result.error));
@@ -517,6 +609,11 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
   };
 
   unsubscribe = transport.subscribe((message) => {
+    if (!isWorkerMessage(message)) {
+      reportInvalidWorkerMessage(onInvalidMessage, message);
+      return;
+    }
+
     if (message.type === "state") {
       if (readySettled && message.version <= state.version) {
         if (message.version <= syncedStaleVersion) {
@@ -624,7 +721,22 @@ function reportWorkerConflict(
   onConflict: ((event: WorkerConflictEvent) => void) | undefined,
   event: WorkerConflictEvent,
 ): void {
-  onConflict?.(event);
+  try {
+    onConflict?.(event);
+  } catch {
+    // Conflict observers cannot repair protocol state and must not interrupt message handling.
+  }
+}
+
+function reportInvalidWorkerMessage(
+  onInvalidMessage: ((message: unknown) => void) | undefined,
+  message: unknown,
+): void {
+  try {
+    onInvalidMessage?.(message);
+  } catch {
+    // Invalid-message observers must not make malformed input executable control flow.
+  }
 }
 
 export function createMemoryWorkerTransportPair(): readonly [WorkerTransport, WorkerTransport] {
@@ -647,15 +759,32 @@ export function createPostMessageWorkerTransport(
   return {
     post(message) {
       try {
-        // eslint-disable-next-line unicorn/require-post-message-target-origin -- Worker and MessagePort endpoints do not consistently accept targetOrigin.
-        target.postMessage(message);
+        if (options.targetOrigin === undefined) {
+          // eslint-disable-next-line unicorn/require-post-message-target-origin -- Worker and MessagePort endpoints do not accept a targetOrigin.
+          (target as PostMessageTarget).postMessage(message);
+        } else {
+          (target as PostMessageOriginTarget).postMessage(message, options.targetOrigin);
+        }
       } catch (error) {
         options.onError?.(error, message);
       }
     },
     subscribe(listener) {
       const handleMessage = (event: PostMessageEventLike) => {
+        if (options.expectedSource !== undefined && event.source !== options.expectedSource) {
+          return;
+        }
+
+        if (
+          options.allowedOrigins !== undefined &&
+          (typeof event.origin !== "string" ||
+            !isAllowedPostMessageOrigin(event.origin, options.allowedOrigins))
+        ) {
+          return;
+        }
+
         if (!isWorkerMessage(event.data)) {
+          reportInvalidWorkerMessage(options.onInvalidMessage, event.data);
           return;
         }
 
@@ -690,6 +819,7 @@ export function createBroadcastWorkerTransport(
           message: routed.message,
           source: peerId,
           type: "cosystem:worker",
+          ...(options.authToken === undefined ? {} : { auth: options.authToken }),
           ...(target === undefined ? {} : { target }),
         };
 
@@ -704,11 +834,21 @@ export function createBroadcastWorkerTransport(
         const envelope = event.data;
 
         if (
-          !isBroadcastWorkerMessageEnvelope(envelope) ||
+          !isRecord(envelope) ||
+          envelope.type !== "cosystem:worker" ||
           envelope.channel !== channel ||
           envelope.source === peerId ||
           (envelope.target !== undefined && envelope.target !== peerId)
         ) {
+          return;
+        }
+
+        if (!isBroadcastWorkerMessageEnvelope(envelope)) {
+          reportInvalidWorkerMessage(options.onInvalidMessage, envelope);
+          return;
+        }
+
+        if (options.authToken !== undefined && envelope.auth !== options.authToken) {
           return;
         }
 
@@ -761,7 +901,8 @@ export function createDataTransportWorkerTransport(
 
     for (const type of workerMessageTypes) {
       const dispose = dataTransport.listen(type, (message) => {
-        if (!isWorkerMessage(message)) {
+        if (!isWorkerMessage(message) || message.type !== type) {
+          reportInvalidWorkerMessage(options.onInvalidMessage, message);
           return;
         }
 
@@ -875,6 +1016,14 @@ async function handleCall(
   try {
     await ready;
     const module = app.getModuleByName<Record<string, unknown>>(message.module);
+    const metadata = getModuleMetadata(module.constructor as Constructor);
+
+    if (metadata?.actions.has(message.method) !== true) {
+      throw new CosystemError(
+        `${message.module}.${message.method} is not exposed as a remote action.`,
+      );
+    }
+
     const method = module[message.method];
 
     if (typeof method !== "function") {
@@ -1114,7 +1263,10 @@ function normalizePatchPath(path: unknown): readonly PatchPathSegment[] {
 }
 
 function normalizePatchPathSegment(segment: unknown): PatchPathSegment {
-  if (typeof segment === "number" || typeof segment === "string") {
+  if (
+    (typeof segment === "number" || typeof segment === "string") &&
+    !isUnsafeWorkerPathSegment(segment)
+  ) {
     return segment;
   }
 
@@ -1126,10 +1278,24 @@ function isWorkerPatch(value: unknown): value is WorkerPatch {
     return false;
   }
 
-  return (
-    (value.op === "add" || value.op === "replace" || value.op === "remove") &&
-    (Array.isArray(value.path) || typeof value.path === "string")
-  );
+  if (value.op !== "add" && value.op !== "replace" && value.op !== "remove") {
+    return false;
+  }
+
+  if (value.op !== "remove" && !("value" in value)) {
+    return false;
+  }
+
+  if (typeof value.path === "string" && value.path !== "" && !value.path.startsWith("/")) {
+    return false;
+  }
+
+  try {
+    normalizePatchPath(value.path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function createMemoryWorkerTransport(
@@ -1152,6 +1318,7 @@ function createMemoryWorkerTransport(
 }
 
 const workerMessageTypes = ["call", "result", "state", "sync", "ready"] as const;
+const defaultWorkerRequestTimeout = 30_000;
 const defaultBroadcastWorkerChannel = "cosystem:worker";
 const memoryBroadcastChannels = new Map<string, Set<MemoryBroadcastChannel>>();
 let nextWorkerPeerId = 1;
@@ -1242,13 +1409,51 @@ function createWorkerPeerId(): string {
 }
 
 function isWorkerMessage(message: unknown): message is WorkerMessage {
-  if (typeof message !== "object" || message === null || !("type" in message)) {
+  if (!isRecord(message)) {
     return false;
   }
 
-  return workerMessageTypes.includes(
-    (message as { readonly type?: unknown }).type as WorkerMessage["type"],
-  );
+  switch (message.type) {
+    case "call":
+      return (
+        isWorkerMessageId(message.id) &&
+        typeof message.module === "string" &&
+        message.module.length > 0 &&
+        typeof message.method === "string" &&
+        message.method.length > 0 &&
+        Array.isArray(message.args)
+      );
+
+    case "result":
+      return (
+        isWorkerMessageId(message.id) &&
+        isOptionalWorkerStateVersion(message.stateVersion) &&
+        (message.error === undefined || isSerializedWorkerError(message.error))
+      );
+
+    case "state":
+      return (
+        isWorkerStateVersion(message.version) &&
+        (message.sync === "patch" || message.sync === "snapshot") &&
+        (message.syncId === undefined || isWorkerMessageId(message.syncId)) &&
+        (message.sections === undefined ||
+          (Array.isArray(message.sections) &&
+            message.sections.every((section) => typeof section === "string"))) &&
+        (message.patches === undefined ||
+          (Array.isArray(message.patches) && message.patches.every(isWorkerPatch))) &&
+        (message.sync !== "snapshot" || "state" in message) &&
+        (message.sync !== "patch" || "state" in message || message.patches !== undefined)
+      );
+
+    case "sync":
+      return isWorkerMessageId(message.id) && isOptionalWorkerStateVersion(message.stateVersion);
+
+    case "ready":
+      return true;
+
+    default:
+      return false;
+  }
 }
 
 function isBroadcastWorkerMessageEnvelope(
@@ -1263,8 +1468,44 @@ function isBroadcastWorkerMessageEnvelope(
     typeof message.channel === "string" &&
     typeof message.source === "string" &&
     (message.target === undefined || typeof message.target === "string") &&
+    (message.auth === undefined || typeof message.auth === "string") &&
     isWorkerMessage(message.message)
   );
+}
+
+function isWorkerMessageId(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isWorkerStateVersion(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isOptionalWorkerStateVersion(value: unknown): boolean {
+  return value === undefined || isWorkerStateVersion(value);
+}
+
+function isSerializedWorkerError(value: unknown): value is SerializedWorkerError {
+  return (
+    isRecord(value) &&
+    typeof value.name === "string" &&
+    typeof value.message === "string" &&
+    (value.stack === undefined || typeof value.stack === "string")
+  );
+}
+
+function isUnsafeWorkerPathSegment(segment: PatchPathSegment): boolean {
+  return segment === "__proto__" || segment === "constructor" || segment === "prototype";
+}
+
+function isAllowedPostMessageOrigin(origin: string, allowedOrigins: readonly string[]): boolean {
+  return allowedOrigins.includes("*") || allowedOrigins.includes(origin);
+}
+
+function assertValidWorkerTimeout(timeout: number, option: string): void {
+  if (!Number.isFinite(timeout) || timeout < 0) {
+    throw new CosystemError(`${option} must be a finite, non-negative number.`);
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
