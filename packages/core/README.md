@@ -424,6 +424,10 @@ const stop = app.watch(
 stop();
 ```
 
+Watch selectors run once per committed store mutation. Listener exceptions and
+async rejections are isolated from actions and reported to plugin `onError`
+hooks with phase `"watch"`.
+
 ## Testing
 
 `testApp()` wraps `createApp()` with an inspector and override support. See

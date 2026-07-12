@@ -116,6 +116,8 @@ disposers run, so long-running async work can stop early.
 
 Observer hook errors do not interrupt app actions or state updates. They are
 reported to `onError` with a phase like `plugin:metrics.onActionEnd`. Errors from
+`app.watch()` / `context.watch()` listeners use the `watch` phase and are
+isolated the same way, including asynchronous listener rejections. Errors from
 `setup()` still fail app init, and errors during `dispose()` are aggregated and
 re-thrown after teardown has been attempted.
 

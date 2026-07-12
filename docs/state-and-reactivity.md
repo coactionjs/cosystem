@@ -69,6 +69,12 @@ const stop = app.watch(
 stop(); // unsubscribe
 ```
 
+Each committed store mutation is one notification source. A selector that
+returns a fresh object is therefore evaluated and delivered at most once for
+that mutation (subject to `equals`). Listener exceptions and rejected listener
+promises are observer failures: they are reported to plugin `onError` hooks with
+phase `"watch"` and never turn an already-committed action into a failure.
+
 `watch` is the primitive every UI adapter builds on — React's `useSelector`,
 Vue's `useSelector`, Svelte's `selectorStore`, Solid's `useComputed`, and
 Angular's `injectSignal` all wrap it with the framework's native reactivity.

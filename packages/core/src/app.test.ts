@@ -224,6 +224,60 @@ describe("app runtime", () => {
     unwatch();
   });
 
+  it("notifies object-returning watch selectors once per store mutation", () => {
+    const app = createApp({
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+    const counter = app.getModule(Counter);
+    const values: number[] = [];
+    const stop = app.watch(
+      () => ({ count: counter.count }),
+      (value) => {
+        values.push(value.count);
+      },
+    );
+
+    counter.increase();
+
+    expect(values).toEqual([1]);
+    stop();
+  });
+
+  it("isolates synchronous and asynchronous watch listener failures from actions", async () => {
+    const errors: string[] = [];
+    const app = createApp({
+      plugins: [
+        {
+          onError(error, context) {
+            errors.push(`${context.phase}:${error instanceof Error ? error.message : error}`);
+          },
+        },
+      ],
+      providers: [Counter, provide(Logger, { useValue: new MemoryLogger() })],
+    });
+    const counter = app.getModule(Counter);
+
+    app.watch(
+      () => counter.count,
+      () => {
+        throw new Error("sync watch boom");
+      },
+    );
+    app.watch(
+      () => counter.count,
+      async () => {
+        throw new Error("async watch boom");
+      },
+    );
+
+    expect(() => counter.increase()).not.toThrow();
+    expect(counter.count).toBe(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(errors).toEqual(["watch:sync watch boom", "watch:async watch boom"]);
+  });
+
   it("loads lazy modules into the app runtime through an explicit child scope", async () => {
     const created: string[] = [];
     const app = createApp({

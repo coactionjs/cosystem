@@ -520,33 +520,32 @@ class RuntimeApp implements App {
   ): () => void {
     this.assertActive("watch state");
     const equals = options.equals ?? Object.is;
-    const tracker = createReactiveTracker();
-    let previous = tracker.track(read);
+    let previous = read();
 
     if (options.immediate === true) {
-      listener(previous, previous);
+      this.notifyWatchListener(listener, previous, previous);
     }
 
     const publish = () => {
-      const next = tracker.track(read);
+      let next: T;
 
-      if (equals(next, previous)) {
+      try {
+        next = read();
+
+        if (equals(next, previous)) {
+          return;
+        }
+      } catch (error) {
+        this.emitError(error, { phase: "watch" });
         return;
       }
 
       const last = previous;
       previous = next;
-      listener(next, last);
+      this.notifyWatchListener(listener, next, last);
     };
 
-    const unsubscribeStore = this.store.subscribe(publish);
-    const unsubscribeTracker = tracker.subscribe(publish);
-
-    return () => {
-      unsubscribeStore();
-      unsubscribeTracker();
-      tracker.dispose();
-    };
+    return this.store.subscribe(publish);
   }
 
   runInAction<T>(callback: () => T, options?: RunInActionOptions): T;
@@ -1379,6 +1378,24 @@ class RuntimeApp implements App {
 
     if (errors.length > 0) {
       throw new AggregateError(errors, "One or more pending effects failed while disposing.");
+    }
+  }
+
+  private notifyWatchListener<T>(
+    listener: (value: T, previous: T) => void,
+    value: T,
+    previous: T,
+  ): void {
+    try {
+      const result = (listener as (value: T, previous: T) => unknown)(value, previous);
+
+      if (isPromiseLike(result)) {
+        void Promise.resolve(result).catch((error: unknown) => {
+          this.emitError(error, { phase: "watch" });
+        });
+      }
+    } catch (error) {
+      this.emitError(error, { phase: "watch" });
     }
   }
 
