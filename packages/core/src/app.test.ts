@@ -408,6 +408,55 @@ describe("app runtime", () => {
     unsubscribe();
   });
 
+  it("keeps a committed lazy publication when a store subscriber throws", async () => {
+    const errors: string[] = [];
+    const snapshots: unknown[] = [];
+
+    class SubscriberFailureLazyModule {
+      value = "committed";
+    }
+
+    defineModule(SubscriberFailureLazyModule, {
+      name: "subscriberFailureLazyModule",
+      state: ["value"],
+    });
+
+    const app = createApp({
+      plugins: [
+        {
+          onError(error, context) {
+            errors.push(`${context.phase}:${error instanceof Error ? error.message : error}`);
+          },
+        },
+      ],
+    });
+    await app.ready;
+    const version = app.state.version;
+    const unsubscribeFailing = app.store.subscribe(() => {
+      throw new Error("subscriber boom");
+    });
+    const unsubscribeFollowing = app.store.subscribe(() => {
+      snapshots.push(structuredClone(app.store.getPureState()));
+    });
+
+    await expect(app.load(lazyModule(() => SubscriberFailureLazyModule))).resolves.toBeDefined();
+
+    unsubscribeFailing();
+    unsubscribeFollowing();
+
+    expect(app.getModule(SubscriberFailureLazyModule).value).toBe("committed");
+    expect(app.store.getPureState()).toEqual({
+      subscriberFailureLazyModule: { value: "committed" },
+    });
+    expect(app.state.version).toBe(version + 1);
+    expect(snapshots).toEqual([
+      {
+        subscriberFailureLazyModule: { value: "committed" },
+      },
+    ]);
+    expect(errors).toEqual(["store:subscribe:subscriber boom"]);
+  });
+
   it("rolls back failed lazy initialization and allows a clean retry", async () => {
     const ResourceToken = token<{ readonly attempt: number }>("LazyRollbackResource");
     const events: string[] = [];

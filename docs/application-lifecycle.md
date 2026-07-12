@@ -169,7 +169,9 @@ app.getModule(AdminCounter).increase();
   and (for a started app) `onStart` succeed, the runtime installs the state and
   performs each effect's initial synchronous run as one publication
   transaction. State subscribers, watches, patches, and the app state version
-  observe only the committed result.
+  observe only the committed result. A throwing store subscriber is reported to
+  plugin `onError` hooks with phase `"store:subscribe"`; it does not roll back
+  the committed load or prevent later subscribers from observing it.
 - A failed load, including a synchronous effect-startup failure, discards that
   publication, restores local module bindings for teardown, disposes the
   temporary scope, and rolls back all staged runtime state. A later call retries

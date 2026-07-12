@@ -1994,7 +1994,11 @@ class RuntimeApp implements App {
 
         if (publish) {
           for (const listener of publication.listeners) {
-            listener();
+            try {
+              listener();
+            } catch (error) {
+              this.emitError(error, { phase: "store:subscribe" });
+            }
           }
 
           for (const result of publication.mutationResults) {
