@@ -1329,11 +1329,10 @@ class RuntimeApp implements App {
     }
 
     if (!moduleBinding.reactiveSlice) {
-      const state = this.store.getPureState();
+      const state = this.readRawStoreState();
       const slice = state[moduleBinding.name] ?? {};
 
       this.store.setState({
-        ...state,
         [moduleBinding.name]: {
           ...slice,
           [property]: value,
@@ -1431,7 +1430,6 @@ class RuntimeApp implements App {
           try {
             result = this.runWithDraftMutation(callback);
             this.store.setState({
-              ...this.readRawStoreState(),
               [moduleBinding.name]: moduleBinding.activeDraft,
             });
           } finally {
@@ -2104,7 +2102,7 @@ class RuntimeApp implements App {
         this.recordMutationResult(result);
 
         if (detachedDrafts !== undefined && detachedDrafts.size > 0) {
-          const nextState = { ...this.readRawStoreState() };
+          const nextState: RootState = {};
 
           for (const [moduleBinding, draft] of detachedDrafts) {
             nextState[moduleBinding.name] = draft;
@@ -2433,10 +2431,7 @@ class RuntimeApp implements App {
     }
 
     this.runWithInternalMutation(() => {
-      this.store.setState({
-        ...this.store.getPureState(),
-        ...rootState,
-      });
+      this.store.setState(rootState);
     });
   }
 
@@ -2512,13 +2507,12 @@ class RuntimeApp implements App {
       return;
     }
 
-    const state = { ...this.store.getPureState() };
+    const state = this.readRawStoreState();
+    this.strictStateSnapshotCache.delete(state);
 
     for (const moduleBinding of modules) {
       delete state[moduleBinding.name];
     }
-
-    this.runWithInternalMutation(() => this.store.apply(state));
   }
 
   private unregisterDynamicScope(scope: Container): void {

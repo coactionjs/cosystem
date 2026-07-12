@@ -1302,6 +1302,93 @@ describe("app runtime", () => {
     }).toThrow("Cannot mutate module state after app disposal has begun.");
   });
 
+  it("avoids replacing existing strict slices during lazy state writes", async () => {
+    class StableStrictModule {
+      value = 1;
+    }
+
+    class WritableStrictLazyModule {
+      value = 0;
+    }
+
+    class SnapshotReadingFailingLazyModule {
+      value = 0;
+
+      explode(): void {
+        app.store.getPureState();
+        throw new Error("strict lazy effect boom");
+      }
+    }
+
+    defineModule(StableStrictModule, {
+      name: "stableStrictModule",
+      state: ["value"],
+    });
+    defineModule(WritableStrictLazyModule, {
+      name: "writableStrictLazyModule",
+      state: ["value"],
+    });
+    defineModule(SnapshotReadingFailingLazyModule, {
+      effects: ["explode"],
+      name: "snapshotReadingFailingLazyModule",
+      state: ["value"],
+    });
+
+    const patchEvents: PatchEvent[] = [];
+    const app = createApp({
+      devOptions: { strictActions: true },
+      plugins: [
+        {
+          onPatch(event) {
+            patchEvents.push(event);
+          },
+        },
+      ],
+      providers: [StableStrictModule],
+    });
+    await app.ready;
+    patchEvents.length = 0;
+
+    await app.load(lazyModule(() => WritableStrictLazyModule));
+
+    expect(app.store.getPureState().stableStrictModule).toEqual({ value: 1 });
+    expect(patchEvents).toHaveLength(1);
+    expect(patchEvents[0]?.patches).toEqual([
+      {
+        op: "add",
+        path: ["writableStrictLazyModule"],
+        value: { value: 0 },
+      },
+    ]);
+
+    patchEvents.length = 0;
+    app.runInAction(() => {
+      app.getModule(WritableStrictLazyModule).value = 2;
+    });
+
+    expect(app.store.getPureState().stableStrictModule).toEqual({ value: 1 });
+    expect(patchEvents).toHaveLength(1);
+    expect(
+      patchEvents[0]?.patches.every(
+        (patch) =>
+          (patch as { readonly path?: readonly unknown[] }).path?.[0] ===
+          "writableStrictLazyModule",
+      ),
+    ).toBe(true);
+
+    patchEvents.length = 0;
+    const committedVersion = app.state.version;
+    await expect(app.load(lazyModule(() => SnapshotReadingFailingLazyModule))).rejects.toThrow(
+      "strict lazy effect boom",
+    );
+
+    expect(app.store.getPureState()).not.toHaveProperty("snapshotReadingFailingLazyModule");
+    expect(app.store.getPureState().stableStrictModule).toEqual({ value: 1 });
+    expect(app.state.version).toBe(committedVersion);
+    expect(patchEvents).toEqual([]);
+    await app.dispose();
+  });
+
   it("composes nested and cross-module lazy actions", async () => {
     let sibling!: SiblingLazyModule;
 
