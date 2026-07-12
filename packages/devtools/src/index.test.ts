@@ -131,6 +131,41 @@ describe("devtools plugin", () => {
     expect(devtools.getTimeline().map((event) => event.type)).toEqual(["patch", "action:end"]);
   });
 
+  it("isolates synchronous and asynchronous timeline subscriber failures", async () => {
+    const devtools = createDevtoolsPlugin({ now: () => 1 });
+    const events: string[] = [];
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (error: unknown) => {
+      unhandledRejections.push(error);
+    };
+
+    devtools.subscribe(() => {
+      throw new Error("sync timeline boom");
+    });
+    devtools.subscribe(async () => {
+      await Promise.resolve();
+      throw new Error("async timeline boom");
+    });
+    devtools.subscribe((event) => {
+      events.push(event.type);
+    });
+
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    try {
+      const app = createApp({ plugins: [devtools], providers: [Counter] });
+      await app.ready;
+      app.getModule(Counter).increase();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await app.dispose();
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
+
+    expect(events).toEqual(["module", "setup", "action:start", "state", "patch", "action:end"]);
+    expect(unhandledRejections).toEqual([]);
+  });
+
   it("records runtime errors", async () => {
     const devtools = createDevtoolsPlugin({
       now: () => 1,

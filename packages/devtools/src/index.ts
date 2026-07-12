@@ -68,7 +68,15 @@ export function createDevtoolsPlugin(options: DevtoolsOptions = {}): DevtoolsPlu
     }
 
     for (const listener of listeners) {
-      listener(event);
+      try {
+        const result = (listener as (event: DevtoolsTimelineEvent) => unknown)(event);
+
+        if (isPromiseLike(result)) {
+          void Promise.resolve(result).catch(() => undefined);
+        }
+      } catch {
+        // Timeline observers must not interrupt app hooks or later subscribers.
+      }
     }
   };
 
@@ -138,4 +146,13 @@ export function createDevtoolsPlugin(options: DevtoolsOptions = {}): DevtoolsPlu
       });
     },
   };
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    (typeof value === "object" || typeof value === "function") &&
+    value !== null &&
+    "then" in value &&
+    typeof value.then === "function"
+  );
 }
