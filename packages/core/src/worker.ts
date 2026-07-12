@@ -1417,9 +1417,13 @@ function normalizePatchPath(path: unknown): readonly PatchPathSegment[] {
     return path
       .split("/")
       .slice(1)
-      .map((segment) =>
-        normalizePatchPathSegment(segment.replaceAll("~1", "/").replaceAll("~0", "~")),
-      );
+      .map((segment) => {
+        if (/~(?![01])/u.test(segment)) {
+          throw new CosystemError("Worker state patch path escape is invalid.");
+        }
+
+        return normalizePatchPathSegment(segment.replaceAll("~1", "/").replaceAll("~0", "~"));
+      });
   }
 
   throw new CosystemError("Worker state patch path is invalid.");

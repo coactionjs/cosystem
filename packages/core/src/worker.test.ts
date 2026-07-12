@@ -654,8 +654,14 @@ describe("worker prototype", () => {
       type: "state",
       version: 1,
     });
+    hostTransport.post({
+      patches: [{ op: "add", path: "/items/~2", value: 3 }],
+      sync: "patch",
+      type: "state",
+      version: 1,
+    });
 
-    expect(invalidMessages).toHaveLength(2);
+    expect(invalidMessages).toHaveLength(3);
     expect(conflicts.map((event) => event.reason)).toEqual([
       "patch-apply-failed",
       "patch-apply-failed",
