@@ -1352,6 +1352,58 @@ describe("app runtime", () => {
     await app.dispose();
   });
 
+  it("composes nested actions across eager modules", async () => {
+    let eagerSibling!: EagerSiblingModule;
+
+    class ComposedEagerModule {
+      count = 0;
+      total = 0;
+
+      inner(): void {
+        this.count += 2;
+      }
+
+      outer(): void {
+        this.count = 1;
+        this.inner();
+        eagerSibling.increase();
+        this.total = this.count;
+      }
+    }
+
+    class EagerSiblingModule {
+      count = 0;
+
+      increase(): void {
+        this.count += 1;
+      }
+    }
+
+    defineModule(ComposedEagerModule, {
+      actions: ["inner", "outer"],
+      name: "composedEagerModule",
+      state: ["count", "total"],
+    });
+    defineModule(EagerSiblingModule, {
+      actions: ["increase"],
+      name: "eagerSiblingModule",
+      state: ["count"],
+    });
+    const app = createApp({
+      devOptions: { strictActions: true },
+      providers: [ComposedEagerModule, EagerSiblingModule],
+    });
+    eagerSibling = app.getModule(EagerSiblingModule);
+
+    app.getModule(ComposedEagerModule).outer();
+
+    expect(app.store.getPureState()).toEqual({
+      composedEagerModule: { count: 3, total: 3 },
+      eagerSiblingModule: { count: 1 },
+    });
+    await app.dispose();
+  });
+
   it("records async actions after their returned promises resolve", async () => {
     class AsyncActionCounter {
       count = 0;

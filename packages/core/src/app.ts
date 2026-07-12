@@ -535,6 +535,7 @@ class RuntimeApp implements App {
   private readonly synchronousFallbackManagedExecutions: AppManagedExecution[] = [];
   private actionDepth = 0;
   private internalMutationDepth = 0;
+  private activeRootDraft: RootState | undefined;
   private draftMutationContext:
     | {
         readonly proxyCache: WeakMap<object, object>;
@@ -1370,17 +1371,29 @@ class RuntimeApp implements App {
       moduleBinding.actionDepth += 1;
       this.actionDepth += 1;
       if (moduleBinding.reactiveSlice) {
-        this.store.setState((draft) => {
+        if (this.activeRootDraft !== undefined) {
           const previousDraft = moduleBinding.activeDraft;
-          moduleBinding.activeDraft = draft[moduleBinding.name] ?? {};
-          draft[moduleBinding.name] = moduleBinding.activeDraft;
+          moduleBinding.activeDraft = this.activeRootDraft[moduleBinding.name] ?? {};
+          this.activeRootDraft[moduleBinding.name] = moduleBinding.activeDraft;
 
           try {
             result = callback();
           } finally {
             moduleBinding.activeDraft = previousDraft;
           }
-        });
+        } else {
+          this.store.setState((draft) => {
+            const previousDraft = moduleBinding.activeDraft;
+            moduleBinding.activeDraft = draft[moduleBinding.name] ?? {};
+            draft[moduleBinding.name] = moduleBinding.activeDraft;
+
+            try {
+              result = callback();
+            } finally {
+              moduleBinding.activeDraft = previousDraft;
+            }
+          });
+        }
       } else {
         const state = this.readRawStoreState();
         const slice = state[moduleBinding.name];
@@ -2027,7 +2040,9 @@ class RuntimeApp implements App {
 
       if (typeof update === "function") {
         guardedArgs[0] = ((draft: Parameters<typeof update>[0]) =>
-          this.runWithDraftMutation(() => update(draft))) as typeof update;
+          this.runWithDraftMutation(() =>
+            this.runWithRootDraft(draft, () => update(draft)),
+          )) as typeof update;
       }
 
       const result = originalSetState(...guardedArgs);
@@ -2096,6 +2111,17 @@ class RuntimeApp implements App {
       return callback();
     } finally {
       this.draftMutationContext = previous;
+    }
+  }
+
+  private runWithRootDraft<T>(draft: RootState, callback: () => T): T {
+    const previous = this.activeRootDraft;
+    this.activeRootDraft = draft;
+
+    try {
+      return callback();
+    } finally {
+      this.activeRootDraft = previous;
     }
   }
 
