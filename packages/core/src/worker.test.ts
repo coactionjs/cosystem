@@ -905,6 +905,10 @@ describe("worker prototype", () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const observedVersions: number[] = [];
     const observedCounts: number[] = [];
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (error: unknown) => {
+      unhandledRejections.push(error);
+    };
     const client = createWorkerClient({ transport: clientTransport });
 
     client.subscribe(() => {
@@ -912,6 +916,10 @@ describe("worker prototype", () => {
     });
     client.subscribe((message) => {
       observedVersions.push(message.version);
+    });
+    client.subscribe(async () => {
+      await Promise.resolve();
+      throw new Error("async subscriber boom");
     });
     client.watch(
       () => {
@@ -933,17 +941,35 @@ describe("worker prototype", () => {
       },
       { immediate: true },
     );
+    client.watch(
+      selectWorkerCount,
+      async () => {
+        await Promise.resolve();
+        throw new Error("async watch boom");
+      },
+      { immediate: true },
+    );
 
+    process.on("unhandledRejection", onUnhandledRejection);
     const host = createWorkerApp({
       providers: [WorkerCounter],
       transport: hostTransport,
     });
 
-    await expect(Promise.all([client.ready, host.ready])).resolves.toEqual([undefined, undefined]);
-    await expect(client.module<WorkerCounter>("workerCounter").increase(1)).resolves.toBe(1);
+    try {
+      await expect(Promise.all([client.ready, host.ready])).resolves.toEqual([
+        undefined,
+        undefined,
+      ]);
+      await expect(client.module<WorkerCounter>("workerCounter").increase(1)).resolves.toBe(1);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
 
     expect(observedVersions).toEqual([0, 1]);
     expect(observedCounts).toEqual([0, 1]);
+    expect(unhandledRejections).toEqual([]);
 
     client.dispose();
     await host.dispose();

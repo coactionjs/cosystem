@@ -645,7 +645,7 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
           watcher.previous = value;
 
           if (watcher.immediate) {
-            watcher.listener(value, value);
+            runWorkerObserver(() => watcher.listener(value, value));
           }
 
           continue;
@@ -658,7 +658,7 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
         }
 
         watcher.previous = value;
-        watcher.listener(value, previous as never);
+        runWorkerObserver(() => watcher.listener(value, previous as never));
       } catch {
         // A selector observer must not interrupt state publication or pending RPC settlement.
       }
@@ -810,9 +810,13 @@ function reportWorkerTransportError(
   }
 }
 
-function runWorkerObserver(callback: () => void): void {
+function runWorkerObserver(callback: () => unknown): void {
   try {
-    callback();
+    const result = callback();
+
+    if (isPromiseLike(result)) {
+      void Promise.resolve(result).catch(() => undefined);
+    }
   } catch {
     // Worker observers cannot alter protocol state and must not interrupt message handling.
   }
@@ -1678,6 +1682,15 @@ function assertValidWorkerTimeout(timeout: number, option: string): void {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    (typeof value === "object" || typeof value === "function") &&
+    value !== null &&
+    "then" in value &&
+    typeof value.then === "function"
+  );
 }
 
 function serializeError(error: unknown): SerializedWorkerError {
