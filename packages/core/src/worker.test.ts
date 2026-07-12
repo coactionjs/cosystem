@@ -1274,6 +1274,50 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("rejects empty snapshot payloads before settling client readiness", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const invalidMessages: unknown[] = [];
+    const client = createWorkerClient({
+      onInvalidMessage(message) {
+        invalidMessages.push(message);
+      },
+      transport: clientTransport,
+    });
+    let ready = false;
+    void client.ready.then(() => {
+      ready = true;
+      return undefined;
+    });
+
+    hostTransport.post({
+      state: undefined,
+      sync: "snapshot",
+      type: "state",
+      version: 0,
+    });
+    hostTransport.post({
+      state: null,
+      sync: "snapshot",
+      type: "state",
+      version: 0,
+    });
+    await Promise.resolve();
+
+    expect(ready).toBe(false);
+    expect(invalidMessages).toHaveLength(2);
+
+    hostTransport.post({
+      state: {},
+      sync: "snapshot",
+      type: "state",
+      version: 0,
+    });
+    await client.ready;
+
+    expect(client.getState()).toEqual({});
+    client.dispose();
+  });
+
   it("rejects client readiness when disposed before the initial state", async () => {
     const [, clientTransport] = createMemoryWorkerTransportPair();
     const client = createWorkerClient({

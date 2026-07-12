@@ -1510,8 +1510,9 @@ function isWorkerMessage(message: unknown): message is WorkerMessage {
             message.sections.every((section) => typeof section === "string"))) &&
         (message.patches === undefined ||
           (Array.isArray(message.patches) && message.patches.every(isWorkerPatch))) &&
-        (message.sync !== "snapshot" || "state" in message) &&
-        (message.sync !== "patch" || "state" in message || message.patches !== undefined)
+        (message.state === undefined || isRecord(message.state)) &&
+        (message.sync !== "snapshot" || isRecord(message.state)) &&
+        (message.sync !== "patch" || isRecord(message.state) || message.patches !== undefined)
       );
 
     case "sync":
