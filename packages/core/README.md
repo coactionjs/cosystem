@@ -242,7 +242,8 @@ path throws `AsyncProviderInSyncResolutionError`.
 
 - **State** fields become the module's slice in the store. Reads are tracked.
 - **Actions** wrap writes in a transaction. In `strictActions` mode, writes
-  outside an action throw.
+  outside an action throw, including deep object/array mutations and direct
+  `store.setState()` / `store.apply()` calls.
 - **Computed** getters are memoized and recomputed only when tracked state
   changes.
 - **Effects** run once after init and re-run when their tracked state changes.
@@ -273,7 +274,8 @@ class Counter {
 ```
 
 You can also call `app.runInAction(moduleOrToken, callback, { name, args })` from
-outside the module.
+outside the module. For whole-store hydration or replacement, use the app-level
+overload: `app.runInAction(() => app.store.setState(next), { name: "hydrate" })`.
 
 ## Provider lifetime and scopes
 

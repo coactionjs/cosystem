@@ -106,7 +106,10 @@ const app = createApp({
 });
 ```
 
-With strict actions on, a write outside an action throws.
+With strict actions on, top-level assignments, nested object/array mutations,
+and direct `app.store.setState()` / `app.store.apply()` calls outside an action
+throw before state changes. State views returned through modules and
+`store.getState()` carry the same deep guard.
 
 Async actions need care. Synchronous writes **before the first `await`** are part
 of the action's transaction. Writes **after an `await`** are no longer inside the
@@ -141,6 +144,17 @@ app.runInAction(
   { name: "reset" },
 );
 ```
+
+For a controlled whole-store update, omit the module target and mutate through a
+store API inside the boundary. These action events use `"$app"` as their module:
+
+```ts
+app.runInAction(() => app.store.setState(nextState), { name: "hydrate" });
+```
+
+The writable draft authority exists only while the synchronous store updater is
+running. Retaining a nested reference or continuing after an `await` does not
+extend the boundary.
 
 Async actions may return promises; their settlement is reported to plugins.
 

@@ -570,6 +570,87 @@ describe("app runtime", () => {
     expect(counter.count).toBe(1);
   });
 
+  it("enforces strict actions for deep state and direct store mutations", async () => {
+    class NestedStrictModule {
+      settings = { nested: { value: 0 } };
+      items = [1];
+
+      mutate(): void {
+        this.settings.nested.value += 1;
+        this.items.push(2);
+      }
+
+      async mutateLater(): Promise<void> {
+        await Promise.resolve();
+        this.settings.nested.value += 1;
+      }
+    }
+
+    defineModule(NestedStrictModule, {
+      actions: ["mutate", "mutateLater"],
+      name: "nestedStrictModule",
+      state: ["settings", "items"],
+    });
+
+    const app = testApp({
+      providers: [NestedStrictModule],
+      strictActions: true,
+    });
+    const module = app.getModule(NestedStrictModule);
+
+    expect(() => {
+      module.settings.nested.value = 1;
+    }).toThrow("Cannot mutate state outside an action");
+    expect(() => module.items.push(2)).toThrow("Cannot mutate state outside an action");
+    expect(() => {
+      app.store.getState().nestedStrictModule!.settings = {};
+    }).toThrow("Cannot mutate state outside an action");
+    expect(() =>
+      app.store.setState({ nestedStrictModule: { settings: { nested: { value: 3 } } } }),
+    ).toThrow("Cannot call store.setState() outside an action");
+    expect(() => app.store.apply(app.store.getPureState())).toThrow(
+      "Cannot call store.apply() outside an action",
+    );
+
+    module.mutate();
+
+    expect(module.settings.nested.value).toBe(1);
+    expect(module.items).toEqual([1, 2]);
+    await expect(module.mutateLater()).rejects.toThrow("Cannot mutate state outside an action");
+    expect(module.settings.nested.value).toBe(1);
+
+    app.runInAction(
+      () => {
+        app.store.setState({
+          nestedStrictModule: {
+            items: [4],
+            settings: { nested: { value: 4 } },
+          },
+        });
+      },
+      { name: "replaceNestedState" },
+    );
+
+    expect(module.settings.nested.value).toBe(4);
+    expect(module.items).toEqual([4]);
+    expect(app.test.getActions()).toMatchObject([
+      { method: "mutate", module: "nestedStrictModule" },
+      { error: expect.any(CosystemError), method: "mutateLater" },
+      { method: "replaceNestedState", module: "$app" },
+    ]);
+  });
+
+  it("allows strict apps to commit transactional lazy module state", async () => {
+    const app = createApp({
+      devOptions: { strictActions: true },
+    });
+
+    await app.load(lazyModule(() => LazyCounter));
+
+    expect(app.getModule(LazyCounter).count).toBe(1);
+    expect(app.store.getPureState()).toEqual({ lazyCounter: { count: 1 } });
+  });
+
   it("records async actions after their returned promises resolve", async () => {
     class AsyncActionCounter {
       count = 0;

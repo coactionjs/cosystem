@@ -315,7 +315,10 @@ export function createLocalSpaceStoragePlugin<TState = unknown>(
             return;
           }
 
-          app.store.setState(merge(stored, app.store.getPureState()) as never);
+          app.runInAction(
+            () => app.store.setState(merge(stored, app.store.getPureState()) as never),
+            { name: "storage.hydrate" },
+          );
         } catch (error) {
           options.onError?.(error, "hydrate");
           throw error;
@@ -393,7 +396,10 @@ export function createStoragePlugin<TState = unknown>(
             return;
           }
 
-          app.store.setState(merge(deserialize(stored), app.store.getPureState()) as never);
+          app.runInAction(
+            () => app.store.setState(merge(deserialize(stored), app.store.getPureState()) as never),
+            { name: "storage.hydrate" },
+          );
         } catch (error) {
           options.onError?.(error, "hydrate");
           throw error;

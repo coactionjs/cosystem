@@ -123,6 +123,8 @@ await storage.clear(); // remove the persisted entry
 
 `app.dispose()` also waits for pending storage writes through the plugin context,
 so production teardown does not need an extra `flush()` call.
+Hydration is committed through an app action boundary, so both storage adapters
+remain compatible with `devOptions.strictActions: true`.
 
 For the localspace plugin, `storage.clear()` removes the persisted app-state key.
 Use `app.get(StorageToken).clear()` when you want to clear the whole localspace

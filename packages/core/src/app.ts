@@ -72,6 +72,7 @@ export interface App {
     listener: (value: T, previous: T) => void,
     options?: WatchOptions<T>,
   ): () => void;
+  runInAction<T>(callback: () => T, options?: RunInActionOptions): T;
   runInAction<T>(module: RunInActionTarget, callback: () => T, options?: RunInActionOptions): T;
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -170,6 +171,7 @@ export interface MutableTestInspector extends TestAppInspector {
 
 type RootState = Record<string, Record<PropertyKey, unknown>>;
 type StoreSetState = Store<RootState>["setState"];
+type StoreApply = Store<RootState>["apply"];
 
 interface CoactionStoreOptions {
   readonly name: string;
@@ -402,6 +404,7 @@ class RuntimeApp implements App {
   private readonly testInspector: MutableTestInspector | undefined;
   private readonly effectDisposers: (() => void)[] = [];
   private readonly pendingEffects = new Set<Promise<void>>();
+  private readonly stateProxyCache = new WeakMap<object, object>();
   private readonly loadedLazyModules = new WeakMap<LazyModule, LazyModuleLoadResult>();
   private readonly loadingLazyModules = new WeakMap<LazyModule, Promise<LazyModuleLoadResult>>();
   private readonly dynamicScopes: Container[] = [];
@@ -412,6 +415,9 @@ class RuntimeApp implements App {
   private isStarted = false;
   private isDisposing = false;
   private isDisposed = false;
+  private actionDepth = 0;
+  private internalMutationDepth = 0;
+  private draftMutationDepth = 0;
 
   constructor(options: {
     readonly container: Container;
@@ -444,7 +450,7 @@ class RuntimeApp implements App {
       this.moduleByName.set(moduleBinding.name, moduleBinding);
     }
 
-    this.wrapStoreSetState();
+    this.wrapStoreMutations();
 
     this.store.subscribe(() => {
       (this.state as { version: number }).version += 1;
@@ -543,19 +549,26 @@ class RuntimeApp implements App {
     };
   }
 
+  runInAction<T>(callback: () => T, options?: RunInActionOptions): T;
+  runInAction<T>(module: RunInActionTarget, callback: () => T, options?: RunInActionOptions): T;
   runInAction<T>(
-    module: RunInActionTarget,
-    callback: () => T,
+    moduleOrCallback: RunInActionTarget | (() => T),
+    callbackOrOptions: (() => T) | RunInActionOptions = {},
     options: RunInActionOptions = {},
   ): T {
     this.assertActive("run actions");
-    const moduleBinding = this.resolveModuleBinding(module);
+
+    if (typeof callbackOrOptions !== "function") {
+      return this.runStoreActionCallback(moduleOrCallback as () => T, callbackOrOptions);
+    }
+
+    const moduleBinding = this.resolveModuleBinding(moduleOrCallback as RunInActionTarget);
 
     return this.runActionCallback(
       moduleBinding,
       options.name ?? "runInAction",
       options.args ?? [],
-      callback,
+      callbackOrOptions,
     ) as T;
   }
 
@@ -954,7 +967,7 @@ class RuntimeApp implements App {
       return;
     }
 
-    if (this.devOptions.strictActions === true && moduleBinding.actionDepth === 0) {
+    if (this.devOptions.strictActions === true && this.actionDepth === 0) {
       throw new CosystemError(
         `Cannot write ${moduleBinding.name}.${String(property)} outside an action.`,
       );
@@ -1015,6 +1028,7 @@ class RuntimeApp implements App {
 
     try {
       moduleBinding.actionDepth += 1;
+      this.actionDepth += 1;
       if (moduleBinding.reactiveSlice) {
         this.store.setState((draft) => {
           const previousDraft = moduleBinding.activeDraft;
@@ -1048,6 +1062,7 @@ class RuntimeApp implements App {
       this.emitError(caught, { phase: "action" });
     } finally {
       moduleBinding.actionDepth -= 1;
+      this.actionDepth -= 1;
     }
 
     if (error !== undefined) {
@@ -1071,6 +1086,46 @@ class RuntimeApp implements App {
 
     this.finishAction(event);
 
+    return result;
+  }
+
+  private runStoreActionCallback<T>(callback: () => T, options: RunInActionOptions): T {
+    const event: ActionEvent = {
+      args: options.args ?? [],
+      method: options.name ?? "runInAction",
+      module: "$app",
+      startedAt: Date.now(),
+    };
+    this.emitActionStart(event);
+
+    let result: T;
+
+    try {
+      this.actionDepth += 1;
+      result = callback();
+    } catch (error) {
+      this.emitError(error, { phase: "action" });
+      this.finishAction(event, error);
+      throw error;
+    } finally {
+      this.actionDepth -= 1;
+    }
+
+    if (isPromiseLike(result)) {
+      return Promise.resolve(result).then(
+        (value) => {
+          this.finishAction(event);
+          return value;
+        },
+        (error) => {
+          this.emitError(error, { phase: "action" });
+          this.finishAction(event, error);
+          throw error;
+        },
+      ) as T;
+    }
+
+    this.finishAction(event);
     return result;
   }
 
@@ -1392,16 +1447,110 @@ class RuntimeApp implements App {
     return (container as ContainerImpl).runWithResolutionContext(callback);
   }
 
-  private wrapStoreSetState(): void {
+  private wrapStoreMutations(): void {
     const originalSetState = this.store.setState.bind(this.store) as (
       ...args: Parameters<StoreSetState>
     ) => unknown;
+    const originalApply = this.store.apply.bind(this.store) as StoreApply;
+    const originalGetState = this.store.getState.bind(this.store);
 
     this.store.setState = ((...args: Parameters<StoreSetState>) => {
-      const result = originalSetState(...args);
+      this.assertStoreMutationAllowed("setState");
+      const guardedArgs = [...args] as Parameters<StoreSetState>;
+      const update = guardedArgs[0];
+
+      if (typeof update === "function") {
+        guardedArgs[0] = ((draft: Parameters<typeof update>[0]) =>
+          this.runWithDraftMutation(() => update(draft))) as typeof update;
+      }
+
+      const result = originalSetState(...guardedArgs);
       this.recordMutationResult(result);
       return result as never;
     }) as StoreSetState;
+
+    this.store.apply = ((...args: Parameters<StoreApply>) => {
+      this.assertStoreMutationAllowed("apply");
+      return originalApply(...args);
+    }) as StoreApply;
+
+    this.store.getState = (() =>
+      this.guardStateValue(originalGetState())) as Store<RootState>["getState"];
+  }
+
+  private assertStoreMutationAllowed(operation: "apply" | "setState"): void {
+    if (
+      this.devOptions.strictActions === true &&
+      this.actionDepth === 0 &&
+      this.internalMutationDepth === 0
+    ) {
+      throw new CosystemError(`Cannot call store.${operation}() outside an action.`);
+    }
+  }
+
+  private runWithDraftMutation<T>(callback: () => T): T {
+    this.draftMutationDepth += 1;
+
+    try {
+      return callback();
+    } finally {
+      this.draftMutationDepth -= 1;
+    }
+  }
+
+  private runWithInternalMutation<T>(callback: () => T): T {
+    this.internalMutationDepth += 1;
+
+    try {
+      return callback();
+    } finally {
+      this.internalMutationDepth -= 1;
+    }
+  }
+
+  private guardStateValue<T>(value: T): T {
+    if (this.devOptions.strictActions !== true || !isGuardableStateValue(value)) {
+      return value;
+    }
+
+    const existing = this.stateProxyCache.get(value);
+
+    if (existing !== undefined) {
+      return existing as T;
+    }
+
+    const proxy = new Proxy(value, {
+      defineProperty: (target, property, descriptor) => {
+        this.assertDeepMutationAllowed();
+        return Reflect.defineProperty(target, property, descriptor);
+      },
+      deleteProperty: (target, property) => {
+        this.assertDeepMutationAllowed();
+        return Reflect.deleteProperty(target, property);
+      },
+      get: (target, property, receiver) =>
+        this.guardStateValue(Reflect.get(target, property, receiver)),
+      preventExtensions: (target) => {
+        this.assertDeepMutationAllowed();
+        return Reflect.preventExtensions(target);
+      },
+      set: (target, property, nextValue, receiver) => {
+        this.assertDeepMutationAllowed();
+        return Reflect.set(target, property, nextValue, receiver);
+      },
+      setPrototypeOf: (target, prototype) => {
+        this.assertDeepMutationAllowed();
+        return Reflect.setPrototypeOf(target, prototype);
+      },
+    });
+    this.stateProxyCache.set(value, proxy);
+    return proxy as T;
+  }
+
+  private assertDeepMutationAllowed(): void {
+    if (this.draftMutationDepth === 0 && this.internalMutationDepth === 0) {
+      throw new CosystemError("Cannot mutate state outside an action.");
+    }
   }
 
   private recordMutationResult(result: unknown): void {
@@ -1454,9 +1603,11 @@ class RuntimeApp implements App {
       return;
     }
 
-    this.store.setState({
-      ...this.store.getPureState(),
-      ...rootState,
+    this.runWithInternalMutation(() => {
+      this.store.setState({
+        ...this.store.getPureState(),
+        ...rootState,
+      });
     });
   }
 
@@ -1503,7 +1654,7 @@ class RuntimeApp implements App {
       delete state[moduleBinding.name];
     }
 
-    this.store.apply(state);
+    this.runWithInternalMutation(() => this.store.apply(state));
   }
 
   private unregisterDynamicScope(scope: Container): void {
@@ -1762,6 +1913,19 @@ function isPromiseLike<T = unknown>(value: unknown): value is PromiseLike<T> {
     "then" in value &&
     typeof value.then === "function"
   );
+}
+
+function isGuardableStateValue(value: unknown): value is Record<PropertyKey, unknown> | unknown[] {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+
+  if (Array.isArray(value)) {
+    return true;
+  }
+
+  const prototype = Object.getPrototypeOf(value) as unknown;
+  return prototype === Object.prototype || prototype === null;
 }
 
 async function runCleanupPhase(

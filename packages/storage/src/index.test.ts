@@ -61,6 +61,7 @@ describe("storage plugin", () => {
       storage,
     });
     const app = createApp({
+      devOptions: { strictActions: true },
       plugins: [plugin],
       providers: [Counter],
     });
@@ -165,6 +166,7 @@ describe("storage plugin", () => {
       storage,
     });
     const app = createApp({
+      devOptions: { strictActions: true },
       plugins: [plugin],
       providers: [Counter, Preferences],
     });
@@ -220,6 +222,7 @@ describe("storage plugin", () => {
       storage,
     });
     const app = createApp({
+      devOptions: { strictActions: true },
       plugins: [plugin],
       providers: [Counter],
     });
@@ -244,6 +247,7 @@ describe("localspace storage plugin", () => {
     });
     await plugin.storage.set("app", { storageCounter: { count: 4 } });
     const app = createApp({
+      devOptions: { strictActions: true },
       plugins: [plugin],
       providers: [Counter],
     });
