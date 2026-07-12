@@ -170,8 +170,10 @@ class Service {
 - `onStop` and `onDispose` run in reverse order. Teardown is best-effort: hook
   failures are collected while the remaining modules still run.
 - Every lifecycle hook receives a context whose `inject()` remains valid after
-  an `await` and stays isolated across concurrent apps. Calling `app.start()`
-  from a lifecycle hook is rejected to prevent phase reentry.
+  an `await` and stays isolated across concurrent apps. Lifecycle hooks cannot
+  call `app.start()`, `app.stop()`, or `app.dispose()`; those controls must be
+  invoked by application bootstrap so a hook cannot await the phase that is
+  already waiting for it.
 
 See [Application Lifecycle](./application-lifecycle.md) for the exact ordering
 relative to plugins and effects.

@@ -381,7 +381,7 @@ expectArrayEqual(
     "created:lifecyclePlugin:lifecycle",
     "plugin:setup:lifecyclePlugin",
     "plugin:inject",
-    "plugin:start-rejected:Cannot call start() from an app lifecycle hook.",
+    "plugin:start-rejected:Cannot call start() from app-managed setup work.",
     "module:init",
     "module:start",
     "module:stop",

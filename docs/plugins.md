@@ -63,8 +63,9 @@ const app = createApp({
 See [Application Lifecycle](./application-lifecycle.md#phase-ordering) for the
 exact ordering of `setup`, `onInit`, and effects.
 
-Async setup may call `inject()` before or after an `await`. It must not call
-`app.start()`; lifecycle reentry is rejected to avoid an initialization cycle.
+Async setup may call `inject()` before or after an `await`. It must not await
+`app.ready` or call `app.start()`, `app.stop()`, or `app.dispose()`; lifecycle
+reentry is rejected to avoid initialization and teardown cycles.
 
 ## Event payloads
 

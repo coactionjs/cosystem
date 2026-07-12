@@ -35,6 +35,7 @@ describe("async context fallback", () => {
       releaseSecond = resolve;
     });
     const pluginValues: string[] = [];
+    const reentryErrors: string[] = [];
     let firstPluginContext: PluginContext | undefined;
 
     class LifecycleReader {
@@ -56,10 +57,15 @@ describe("async context fallback", () => {
     const first = createApp({
       plugins: [
         {
-          async setup(_app, context) {
+          async setup(runtimeApp, context) {
             firstPluginContext = context;
             markFirstStarted();
             await firstGate;
+            expect(context.app).toBe(runtimeApp);
+            expect(typeof runtimeApp.store.getPureState).toBe("function");
+            await runtimeApp.dispose().catch((error: unknown) => {
+              reentryErrors.push(error instanceof Error ? error.message : "unknown");
+            });
             pluginValues.push(context.inject(Service));
           },
         },
@@ -88,6 +94,7 @@ describe("async context fallback", () => {
     await second.ready;
 
     expect(pluginValues).toEqual(["first", "second"]);
+    expect(reentryErrors).toEqual(["Cannot call dispose() from app-managed setup work."]);
     expect(first.getModule(LifecycleReader).value).toBe("first");
     expect(second.getModule(LifecycleReader).value).toBe("second");
     expect(firstPluginContext).toBeDefined();

@@ -336,10 +336,11 @@ class Service {
 }
 ```
 
-Lifecycle hooks may use `context.inject()` before or after an `await`. Do not
-call `app.start()` from plugin setup or a module lifecycle hook: the runtime
-rejects that reentry to preserve phase ordering. Call `start()` from the
-application bootstrap instead.
+Lifecycle hooks may use `context.inject()` before or after an `await`.
+App-managed setup, effects, and lifecycle hooks cannot call `app.start()`,
+`app.stop()`, or `app.dispose()`; setup and `onInit` work also cannot await
+`app.ready`. Drive lifecycle phases from application bootstrap so a hook cannot
+await the phase that is already waiting for it.
 
 `onStop`/`onDispose` run in reverse order. Teardown is best-effort across every
 module and cleanup phase; failures are reported together as an `AggregateError`

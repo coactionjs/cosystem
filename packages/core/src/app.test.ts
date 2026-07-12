@@ -1566,6 +1566,108 @@ describe("app runtime", () => {
     ]);
   });
 
+  it("rejects readiness reentry from initialization work", async () => {
+    const app = createApp({
+      plugins: [
+        {
+          async setup(runtimeApp) {
+            await runtimeApp.ready;
+          },
+        },
+      ],
+    });
+
+    await expect(app.ready).rejects.toThrow("Cannot await app.ready from app-managed setup work.");
+    await expect(app.dispose()).resolves.toBeUndefined();
+  });
+
+  it("rejects disposal reentry from startup hooks", async () => {
+    let app!: ReturnType<typeof createApp>;
+
+    class ReentrantStartModule {
+      async onStart(): Promise<void> {
+        await app.dispose();
+      }
+    }
+
+    defineModule(ReentrantStartModule, {
+      name: "reentrantStartModule",
+    });
+
+    app = createApp({ providers: [ReentrantStartModule] });
+
+    await expect(app.start()).rejects.toThrow(
+      "Cannot call dispose() from app-managed onStart work.",
+    );
+    await expect(app.dispose()).resolves.toBeUndefined();
+  });
+
+  it("rejects stop reentry from teardown hooks without leaving the app started", async () => {
+    let app!: ReturnType<typeof createApp>;
+
+    class ReentrantStopModule {
+      async onStop(): Promise<void> {
+        await app.stop();
+      }
+    }
+
+    defineModule(ReentrantStopModule, {
+      name: "reentrantStopModule",
+    });
+
+    app = createApp({ providers: [ReentrantStopModule] });
+    await app.start();
+
+    let stopError: unknown;
+
+    try {
+      await app.stop();
+    } catch (error) {
+      stopError = error;
+    }
+
+    expect(stopError).toBeInstanceOf(AggregateError);
+    expect((stopError as AggregateError).errors[0]).toMatchObject({
+      message: "Cannot call stop() from app-managed onStop work.",
+    });
+    expect(app.started).toBe(false);
+    await expect(app.dispose()).resolves.toBeUndefined();
+  });
+
+  it("rejects disposal reentry from plugin teardown and still reaches a terminal state", async () => {
+    let reentryError: unknown;
+    const app = createApp({
+      plugins: [
+        {
+          async dispose(context) {
+            try {
+              await context.app.dispose();
+            } catch (error) {
+              reentryError = error;
+              throw error;
+            }
+          },
+        },
+      ],
+    });
+
+    await app.ready;
+
+    let disposeError: unknown;
+
+    try {
+      await app.dispose();
+    } catch (error) {
+      disposeError = error;
+    }
+
+    expect(reentryError).toMatchObject({
+      message: "Cannot call dispose() from app-managed pluginDispose work.",
+    });
+    expect(disposeError).toBeInstanceOf(AggregateError);
+    await expect(app.dispose()).rejects.toBe(disposeError);
+  });
+
   it("allows external start while an async initialization hook is in flight", async () => {
     let markSetupStarted!: () => void;
     let releaseSetup!: () => void;

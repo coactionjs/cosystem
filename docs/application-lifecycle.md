@@ -87,9 +87,11 @@ A few consequences worth internalizing:
   rejects with initialization failures; the runtime also observes that
   rejection internally so creating an app without starting or awaiting it does
   not emit an unhandled rejection.
-- **Lifecycle reentry is rejected.** Calling `app.start()` from plugin `setup`
-  or a module lifecycle hook would create a phase cycle, so it returns an
-  internally observed rejection. Call `start()` from application bootstrap.
+- **Lifecycle reentry is rejected.** App-managed setup, lifecycle, effect, and
+  teardown work cannot call `start()`, `stop()`, or `dispose()`: awaiting those
+  operations from a phase they control can create a self-dependency. Setup and
+  `onInit` work likewise cannot await `app.ready`. These calls return internally
+  observed rejections; invoke lifecycle controls from application bootstrap.
 - **Lifecycle injection survives `await`.** Use `PluginContext.inject()` in
   plugin setup and the `ModuleLifecycleContext` hook argument in modules. Their
   explicit resolvers remain app-scoped even when browser hooks overlap.

@@ -222,9 +222,24 @@ interface LifecycleModule {
   onDispose?(context: ModuleLifecycleContext): void | Promise<void>;
 }
 
+type AppManagedPhase =
+  | "effect"
+  | "onDispose"
+  | "onInit"
+  | "onStart"
+  | "onStop"
+  | "pluginContextDispose"
+  | "pluginDispose"
+  | "setup";
+
+interface AppManagedExecution {
+  readonly app: RuntimeApp;
+  readonly phase: AppManagedPhase;
+}
+
 const runtimeModuleMetadataKey = Symbol.for("@cosystem/core/runtimeModule");
 const appContainerMap = new WeakMap<App, Container>();
-const lifecycleExecutionContext = createRuntimeAsyncContext<object>();
+const appManagedExecutionContext = createRuntimeAsyncContext<AppManagedExecution>();
 
 export function createApp(options: CreateAppOptions = {}): App {
   return createAppInternal(options);
@@ -328,11 +343,12 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
 }
 
 class RuntimePluginContext implements PluginContext {
-  readonly app: App;
   readonly name: string;
   readonly #abortController = new AbortController();
   readonly #disposers: (() => void | Promise<void>)[] = [];
   readonly #emitError: (error: unknown, context: ErrorContext) => void;
+  readonly #rootApp: App;
+  #activeApp: App | undefined;
   #resolve: ModuleLifecycleContext["inject"] | undefined;
 
   constructor(options: {
@@ -340,9 +356,13 @@ class RuntimePluginContext implements PluginContext {
     readonly name: string;
     readonly emitError: (error: unknown, context: ErrorContext) => void;
   }) {
-    this.app = options.app;
+    this.#rootApp = options.app;
     this.name = options.name;
     this.#emitError = options.emitError;
+  }
+
+  get app(): App {
+    return this.#activeApp ?? this.#rootApp;
   }
 
   get signal(): AbortSignal {
@@ -369,13 +389,40 @@ class RuntimePluginContext implements PluginContext {
     this.#abortController.abort();
   }
 
-  runWithResolver<T>(resolve: ModuleLifecycleContext["inject"], callback: () => T): T {
+  runWithResolver<T>(resolve: ModuleLifecycleContext["inject"], app: App, callback: () => T): T {
     const previous = this.#resolve;
     this.#resolve = resolve;
 
     const restore = () => {
       if (this.#resolve === resolve) {
         this.#resolve = previous;
+      }
+    };
+
+    return this.runWithApp(app, () => {
+      try {
+        const result = callback();
+
+        if (isPromiseLike(result)) {
+          return Promise.resolve(result).finally(restore) as T;
+        }
+
+        restore();
+        return result;
+      } catch (error) {
+        restore();
+        throw error;
+      }
+    });
+  }
+
+  runWithApp<T>(app: App, callback: () => T): T {
+    const previous = this.#activeApp;
+    this.#activeApp = app;
+
+    const restore = () => {
+      if (this.#activeApp === app) {
+        this.#activeApp = previous;
       }
     };
 
@@ -456,13 +503,13 @@ class RuntimeApp implements App {
   private readonly dynamicScopes: Container[] = [];
   private initPromise: Promise<void> = Promise.resolve();
   private startPromise: Promise<void> | undefined;
+  private stopPromise: Promise<void> | undefined;
   private disposePromise: Promise<void> | undefined;
   private isInitialized = false;
   private isStarted = false;
   private isDisposing = false;
   private isDisposed = false;
-  private readonly lifecycleContext = {};
-  private activeLifecycleHooks = 0;
+  private readonly fallbackManagedExecutions: AppManagedExecution[] = [];
   private actionDepth = 0;
   private internalMutationDepth = 0;
   private draftMutationDepth = 0;
@@ -515,6 +562,12 @@ class RuntimeApp implements App {
   }
 
   get ready(): Promise<void> {
+    const phase = this.getActiveManagedPhase();
+
+    if (phase === "setup" || phase === "onInit" || (phase === "effect" && !this.isInitialized)) {
+      return this.rejectManagedReentry("await app.ready", phase, "init");
+    }
+
     return this.initPromise;
   }
 
@@ -624,10 +677,10 @@ class RuntimeApp implements App {
   }
 
   start(): Promise<void> {
-    if (this.isInsideLifecycleHook()) {
-      const error = new CosystemError("Cannot call start() from an app lifecycle hook.");
-      this.emitError(error, { phase: "start" });
-      return createObservedRejection(error);
+    const phase = this.getActiveManagedPhase();
+
+    if (phase !== undefined) {
+      return this.rejectManagedReentry("call start()", phase, "start");
     }
 
     if (this.isStarted) {
@@ -660,11 +713,22 @@ class RuntimeApp implements App {
     }
   }
 
-  async stop(): Promise<void> {
-    if (!this.isStarted) {
-      return;
+  stop(): Promise<void> {
+    const phase = this.getActiveManagedPhase();
+
+    if (phase !== undefined) {
+      return this.rejectManagedReentry("call stop()", phase, "stop");
     }
 
+    if (!this.isStarted) {
+      return Promise.resolve();
+    }
+
+    this.stopPromise ??= this.stopApp();
+    return this.stopPromise;
+  }
+
+  private async stopApp(): Promise<void> {
     try {
       await this.runTeardownLifecycle("onStop");
     } catch (error) {
@@ -672,12 +736,19 @@ class RuntimeApp implements App {
       throw error;
     } finally {
       this.isStarted = false;
+      this.stopPromise = undefined;
     }
   }
 
-  async dispose(): Promise<void> {
+  dispose(): Promise<void> {
+    const phase = this.getActiveManagedPhase();
+
+    if (phase !== undefined) {
+      return this.rejectManagedReentry("call dispose()", phase, "dispose");
+    }
+
     this.disposePromise ??= this.disposeApp();
-    await this.disposePromise;
+    return this.disposePromise;
   }
 
   private async disposeApp(): Promise<void> {
@@ -949,10 +1020,13 @@ class RuntimeApp implements App {
     try {
       for (const record of this.pluginRecords) {
         // eslint-disable-next-line no-await-in-loop -- setup order is deterministic and preserves async inject context.
-        await this.runWithAppLifecycleContext((lifecycleContext) =>
-          record.context.runWithResolver(lifecycleContext.inject, () =>
-            record.plugin.setup?.(this, record.context),
-          ),
+        await this.runWithAppLifecycleContext(
+          (lifecycleContext) =>
+            record.context.runWithResolver(lifecycleContext.inject, lifecycleContext.app, () =>
+              record.plugin.setup?.(lifecycleContext.app, record.context),
+            ),
+          this.#container,
+          "setup",
         );
       }
 
@@ -1265,7 +1339,11 @@ class RuntimeApp implements App {
     for (const moduleBinding of orderedModules) {
       const lifecycle = moduleBinding.instance as LifecycleModule;
       // eslint-disable-next-line no-await-in-loop -- lifecycle hooks run in deterministic module order.
-      await this.runWithAppLifecycleContext((context) => lifecycle[method]?.(context), container);
+      await this.runWithAppLifecycleContext(
+        (context) => lifecycle[method]?.(context),
+        container,
+        method,
+      );
     }
   }
 
@@ -1281,7 +1359,11 @@ class RuntimeApp implements App {
 
       try {
         // eslint-disable-next-line no-await-in-loop -- teardown hooks run in deterministic module order.
-        await this.runWithAppLifecycleContext((context) => lifecycle[method]?.(context), container);
+        await this.runWithAppLifecycleContext(
+          (context) => lifecycle[method]?.(context),
+          container,
+          method,
+        );
       } catch (error) {
         errors.push(error);
       }
@@ -1355,7 +1437,9 @@ class RuntimeApp implements App {
     property: PropertyKey,
     method: (...args: unknown[]) => unknown,
   ): void {
-    const result = this.runWithAppInjectContext(() => method.call(moduleBinding.instance));
+    const result = this.runWithManagedExecution("effect", () =>
+      this.runWithAppInjectContext(() => method.call(moduleBinding.instance)),
+    );
 
     if (!isPromiseLike(result)) {
       return;
@@ -1403,14 +1487,23 @@ class RuntimeApp implements App {
     for (const record of this.pluginRecords.toReversed()) {
       try {
         // eslint-disable-next-line no-await-in-loop -- plugin teardown order is observable.
-        await record.plugin.dispose?.(record.context);
+        await this.runWithAppLifecycleContext(
+          (context) =>
+            record.context.runWithApp(context.app, () => record.plugin.dispose?.(record.context)),
+          this.#container,
+          "pluginDispose",
+        );
       } catch (error) {
         errors.push(error);
       }
 
       try {
         // eslint-disable-next-line no-await-in-loop -- plugin context disposers belong to the same plugin.
-        await record.context.dispose();
+        await this.runWithAppLifecycleContext(
+          (context) => record.context.runWithApp(context.app, () => record.context.dispose()),
+          this.#container,
+          "pluginContextDispose",
+        );
       } catch (error) {
         errors.push(error);
       }
@@ -1536,12 +1629,13 @@ class RuntimeApp implements App {
 
   private runWithAppLifecycleContext<T>(
     callback: (context: ModuleLifecycleContext) => T,
-    container: Container = this.#container,
+    container: Container,
+    phase: AppManagedPhase,
   ): T {
     const run = (resolutionContext: ResolutionContext): T => {
       let active = true;
       const context: ModuleLifecycleContext = {
-        app: this,
+        app: this.createManagedAppView(phase, () => active),
         inject: <TToken extends InjectionToken>(token: TToken) => {
           if (!active) {
             throw new InjectContextError(tokenName(token));
@@ -1570,25 +1664,30 @@ class RuntimeApp implements App {
       }
     };
 
-    if (lifecycleExecutionContext !== undefined) {
-      return lifecycleExecutionContext.run(this.lifecycleContext, () =>
-        (container as ContainerImpl).runWithResolutionContext(run, true),
-      );
+    return this.runWithManagedExecution(phase, () =>
+      (container as ContainerImpl).runWithResolutionContext(run, true),
+    );
+  }
+
+  private runWithManagedExecution<T>(phase: AppManagedPhase, callback: () => T): T {
+    const execution: AppManagedExecution = { app: this, phase };
+
+    if (appManagedExecutionContext !== undefined) {
+      return appManagedExecutionContext.run(execution, callback);
     }
 
-    this.activeLifecycleHooks += 1;
+    this.fallbackManagedExecutions.push(execution);
 
     const finish = () => {
-      this.activeLifecycleHooks -= 1;
+      const index = this.fallbackManagedExecutions.lastIndexOf(execution);
+
+      if (index !== -1) {
+        this.fallbackManagedExecutions.splice(index, 1);
+      }
     };
 
     try {
-      const result = (container as ContainerImpl).runWithResolutionContext(run, true);
-
-      if (isPromiseLike(result)) {
-        return Promise.resolve(result).finally(finish) as T;
-      }
-
+      const result = callback();
       finish();
       return result;
     } catch (error) {
@@ -1597,12 +1696,64 @@ class RuntimeApp implements App {
     }
   }
 
-  private isInsideLifecycleHook(): boolean {
-    if (lifecycleExecutionContext !== undefined) {
-      return lifecycleExecutionContext.getStore() === this.lifecycleContext;
+  private createManagedAppView(phase: AppManagedPhase, isActive: () => boolean): App {
+    return new Proxy(this, {
+      get: (target, property) => {
+        if (
+          property === "ready" &&
+          isActive() &&
+          (phase === "setup" || phase === "onInit" || (phase === "effect" && !target.isInitialized))
+        ) {
+          return target.rejectManagedReentry("await app.ready", phase, "init");
+        }
+
+        if (property === "start") {
+          return () =>
+            isActive()
+              ? target.rejectManagedReentry("call start()", phase, "start")
+              : target.start();
+        }
+
+        if (property === "stop") {
+          return () =>
+            isActive() ? target.rejectManagedReentry("call stop()", phase, "stop") : target.stop();
+        }
+
+        if (property === "dispose") {
+          return () =>
+            isActive()
+              ? target.rejectManagedReentry("call dispose()", phase, "dispose")
+              : target.dispose();
+        }
+
+        const value = Reflect.get(target, property, target) as unknown;
+
+        if (typeof value !== "function" || Object.hasOwn(target, property)) {
+          return value;
+        }
+
+        return value.bind(target);
+      },
+    });
+  }
+
+  private getActiveManagedPhase(): AppManagedPhase | undefined {
+    if (appManagedExecutionContext !== undefined) {
+      const execution = appManagedExecutionContext.getStore();
+      return execution?.app === this ? execution.phase : undefined;
     }
 
-    return this.activeLifecycleHooks > 0;
+    return this.fallbackManagedExecutions.at(-1)?.phase;
+  }
+
+  private rejectManagedReentry(
+    operation: string,
+    activePhase: AppManagedPhase,
+    errorPhase: string,
+  ): Promise<never> {
+    const error = new CosystemError(`Cannot ${operation} from app-managed ${activePhase} work.`);
+    this.emitError(error, { phase: errorPhase });
+    return createObservedRejection(error);
   }
 
   private wrapStoreMutations(): void {
