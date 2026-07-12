@@ -870,6 +870,58 @@ describe("worker prototype", () => {
     abortClient.dispose();
   });
 
+  it("keeps timeout and abort controls active while waiting for state sync", async () => {
+    const [timeoutHostTransport, timeoutClientTransport] = createMemoryWorkerTransportPair();
+    const stopTimeoutHost = timeoutHostTransport.subscribe((message) => {
+      if (message.type === "call") {
+        timeoutHostTransport.post({
+          id: message.id,
+          stateVersion: 1,
+          type: "result",
+          value: "waiting-for-state",
+        });
+      }
+    });
+    const timeoutClient = createWorkerClient({
+      requestTimeout: 10,
+      transport: timeoutClientTransport,
+    });
+
+    await expect(timeoutClient.call("workerCounter", "increase", 1)).rejects.toThrow(
+      "Worker call timed out after 10ms.",
+    );
+
+    timeoutClient.dispose();
+    stopTimeoutHost();
+
+    const [abortHostTransport, abortClientTransport] = createMemoryWorkerTransportPair();
+    const stopAbortHost = abortHostTransport.subscribe((message) => {
+      if (message.type === "call") {
+        abortHostTransport.post({
+          id: message.id,
+          stateVersion: 1,
+          type: "result",
+          value: "waiting-for-state",
+        });
+      }
+    });
+    const abortClient = createWorkerClient({
+      requestTimeout: 0,
+      transport: abortClientTransport,
+    });
+    const abortController = new AbortController();
+    const pending = abortClient.callWithOptions("workerCounter", "increase", [1], {
+      signal: abortController.signal,
+    });
+
+    abortController.abort();
+
+    await expect(pending).rejects.toThrow("Worker call aborted.");
+
+    abortClient.dispose();
+    stopAbortHost();
+  });
+
   it("resolves client readiness after the initial state snapshot arrives", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const client = createWorkerClient({

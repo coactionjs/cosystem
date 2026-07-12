@@ -707,10 +707,8 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
       return;
     }
 
-    pending.set(message.id, {
-      ...entry,
-      result,
-    });
+    entry.result = result;
+    pending.set(message.id, entry);
     requestStateSync(result.stateVersion!);
   });
 
