@@ -765,7 +765,16 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
 
     entry.result = result;
     pending.set(message.id, entry);
-    requestStateSync(result.stateVersion!);
+
+    try {
+      requestStateSync(result.stateVersion!);
+    } catch (error) {
+      if (pending.get(message.id) === entry) {
+        pending.delete(message.id);
+        entry.cleanup();
+        entry.reject(error);
+      }
+    }
   });
 
   return client;

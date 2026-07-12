@@ -287,6 +287,36 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("rejects pending calls when a state sync request cannot be posted", async () => {
+    const syncError = new Error("sync post failed");
+    let deliver!: (message: WorkerMessage) => void;
+    const client = createWorkerClient({
+      requestTimeout: 0,
+      transport: {
+        post(message) {
+          if (message.type === "sync") {
+            throw syncError;
+          }
+        },
+        subscribe(listener) {
+          deliver = listener;
+          return () => undefined;
+        },
+      },
+    });
+    const pending = client.call("workerCounter", "increase", 1);
+
+    deliver({
+      id: 1,
+      stateVersion: 1,
+      type: "result",
+      value: 1,
+    });
+
+    await expect(pending).rejects.toBe(syncError);
+    client.dispose();
+  });
+
   it("syncs state before rejecting delegated calls when result arrives before state", async () => {
     const pair = createControlledWorkerTransportPair();
     const conflicts: WorkerConflictEvent[] = [];
