@@ -3237,6 +3237,37 @@ describe("app runtime", () => {
     ]);
   });
 
+  it("drains plugin disposers registered during context disposal", async () => {
+    const events: string[] = [];
+    let capturedContext: PluginContext | undefined;
+    const app = createApp({
+      plugins: [
+        {
+          setup(_app, context) {
+            capturedContext = context;
+            context.onDispose(() => {
+              events.push("first");
+            });
+            context.onDispose(() => {
+              events.push("second");
+              context.onDispose(() => {
+                events.push("nested");
+              });
+            });
+          },
+        },
+      ],
+    });
+
+    await app.ready;
+    await app.dispose();
+
+    expect(events).toEqual(["second", "nested", "first"]);
+    expect(() => capturedContext?.onDispose(() => undefined)).toThrow(
+      "Plugin context anonymous-1 has been disposed.",
+    );
+  });
+
   it("does not start later plugin setup after disposal begins", async () => {
     const events: string[] = [];
     let markFirstStarted!: () => void;

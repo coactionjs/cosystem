@@ -403,6 +403,7 @@ class RuntimePluginContext implements PluginContext {
   readonly #rootApp: App;
   #activeApp: App | undefined;
   #resolve: ModuleLifecycleContext["inject"] | undefined;
+  #disposed = false;
 
   constructor(options: {
     readonly app: App;
@@ -435,6 +436,10 @@ class RuntimePluginContext implements PluginContext {
   }
 
   onDispose(disposer: () => void | Promise<void>): void {
+    if (this.#disposed) {
+      throw new CosystemError(`Plugin context ${this.name} has been disposed.`);
+    }
+
     this.#disposers.push(disposer);
   }
 
@@ -517,18 +522,30 @@ class RuntimePluginContext implements PluginContext {
   }
 
   async dispose(): Promise<void> {
+    if (this.#disposed) {
+      return;
+    }
+
     this.abort();
 
     const errors: unknown[] = [];
 
-    for (const dispose of this.#disposers.splice(0).toReversed()) {
+    while (this.#disposers.length > 0) {
+      const dispose = this.#disposers.pop();
+
+      if (dispose === undefined) {
+        continue;
+      }
+
       try {
-        // eslint-disable-next-line no-await-in-loop -- plugin resources are disposed in registration order.
+        // eslint-disable-next-line no-await-in-loop -- Plugin resources are released in LIFO order.
         await dispose();
       } catch (error) {
         errors.push(error);
       }
     }
+
+    this.#disposed = true;
 
     if (errors.length > 0) {
       throw new AggregateError(errors, `One or more disposers failed for plugin ${this.name}.`);
