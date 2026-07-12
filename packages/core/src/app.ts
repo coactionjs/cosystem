@@ -786,6 +786,7 @@ class RuntimeApp implements App {
 
   private async stopApp(): Promise<void> {
     try {
+      await this.waitForStagedLazyLoads();
       await this.runTeardownLifecycle("onStop");
     } catch (error) {
       this.emitError(error, { phase: "stop" });
@@ -2236,6 +2237,10 @@ class RuntimeApp implements App {
   private assertCanLoadLazyModule(): void {
     if (this.isDisposing || this.isDisposed) {
       throw new CosystemError("Cannot load a lazy module after app disposal.");
+    }
+
+    if (this.stopPromise !== undefined) {
+      throw new CosystemError("Cannot load a lazy module while the app is stopping.");
     }
   }
 

@@ -821,6 +821,65 @@ describe("app runtime", () => {
     await app.dispose();
   });
 
+  it("rolls back staged lazy startups before stopping", async () => {
+    const events: string[] = [];
+    let markStartEntered!: () => void;
+    let releaseStart!: () => void;
+    const startEntered = new Promise<void>((resolve) => {
+      markStartEntered = resolve;
+    });
+    const startGate = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+
+    class StagedLazyStart {
+      async onStart(): Promise<void> {
+        events.push("lazy:start");
+        markStartEntered();
+        await startGate;
+      }
+
+      onStop(): void {
+        events.push("lazy:stop");
+      }
+
+      onDispose(): void {
+        events.push("lazy:dispose");
+      }
+    }
+
+    defineModule(StagedLazyStart, { name: "stagedLazyStart" });
+
+    const app = createApp();
+    await app.start();
+
+    const loading = app.load(lazyModule(() => StagedLazyStart));
+    await startEntered;
+
+    const stopping = app.stop();
+    let lateLoaderCalled = false;
+
+    await expect(
+      app.load(
+        lazyModule(() => {
+          lateLoaderCalled = true;
+          return [];
+        }),
+      ),
+    ).rejects.toThrow("Cannot load a lazy module while the app is stopping.");
+    expect(lateLoaderCalled).toBe(false);
+
+    releaseStart();
+
+    await expect(loading).rejects.toThrow("Cannot load a lazy module while the app is stopping.");
+    await stopping;
+
+    expect(events).toEqual(["lazy:start", "lazy:stop", "lazy:dispose"]);
+    expect(app.started).toBe(false);
+    expect(() => app.getModule(StagedLazyStart)).toThrow(CosystemError);
+    await app.dispose();
+  });
+
   it("rejects in-flight lazy loads when the app is disposed before the loader resolves", async () => {
     const events: string[] = [];
     let releaseLoad: (() => void) | undefined;
