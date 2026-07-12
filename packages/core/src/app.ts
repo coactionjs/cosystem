@@ -897,9 +897,9 @@ class RuntimeApp implements App {
     });
     this.stagedLazyLoads.add(stagedLoad);
     const moduleTokens: InjectionToken[] = [];
+    const startedModules: ModuleBinding[] = [];
     let loadedModules: ModuleBinding[] = [];
     let initAttempted = false;
-    let startAttempted = false;
     let modulesRegistered = false;
     let metadataAttached = false;
     let scopeRegistered = false;
@@ -927,8 +927,9 @@ class RuntimeApp implements App {
       this.assertCanLoadLazyModule();
 
       if (this.isStarted) {
-        startAttempted = true;
-        await this.runLifecycle("onStart", false, loadedModules, scopeContainer);
+        await this.runLifecycle("onStart", false, loadedModules, scopeContainer, (moduleBinding) =>
+          startedModules.push(moduleBinding),
+        );
         this.assertCanLoadLazyModule();
       }
 
@@ -1035,9 +1036,9 @@ class RuntimeApp implements App {
         this.unregisterDynamicScope(scopeContainer);
       }
 
-      if (startAttempted) {
+      if (startedModules.length > 0) {
         await runCleanupPhase(rollbackErrors, () =>
-          this.runTeardownLifecycle("onStop", loadedModules, scopeContainer),
+          this.runTeardownLifecycle("onStop", startedModules, scopeContainer),
         );
       }
 
@@ -1436,11 +1437,13 @@ class RuntimeApp implements App {
     reverse = false,
     modules: readonly ModuleBinding[] = this.modules,
     container: Container = this.#container,
+    onAttempt?: (moduleBinding: ModuleBinding) => void,
   ): Promise<void> {
     const orderedModules = reverse ? modules.toReversed() : modules;
 
     for (const moduleBinding of orderedModules) {
       const lifecycle = moduleBinding.instance as LifecycleModule;
+      onAttempt?.(moduleBinding);
       // eslint-disable-next-line no-await-in-loop -- lifecycle hooks run in deterministic module order.
       await this.runWithAppLifecycleContext(
         (context) => lifecycle[method]?.(context),

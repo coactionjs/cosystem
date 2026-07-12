@@ -734,6 +734,63 @@ describe("app runtime", () => {
     expect(app.store.getPureState()).toEqual({});
   });
 
+  it("stops only lazy modules whose startup was attempted", async () => {
+    const events: string[] = [];
+
+    class FailingFirstStart {
+      value = 0;
+
+      onStart(): void {
+        events.push("first:start");
+        throw new Error("first start boom");
+      }
+
+      onStop(): void {
+        events.push("first:stop");
+      }
+
+      onDispose(): void {
+        events.push("first:dispose");
+      }
+    }
+
+    class UnattemptedLaterStart {
+      value = 0;
+
+      onStart(): void {
+        events.push("later:start");
+      }
+
+      onStop(): void {
+        events.push("later:stop");
+      }
+
+      onDispose(): void {
+        events.push("later:dispose");
+      }
+    }
+
+    defineModule(FailingFirstStart, {
+      name: "failingFirstStart",
+      state: ["value"],
+    });
+    defineModule(UnattemptedLaterStart, {
+      name: "unattemptedLaterStart",
+      state: ["value"],
+    });
+
+    const app = createApp();
+    await app.start();
+
+    await expect(
+      app.load(lazyModule(() => [FailingFirstStart, UnattemptedLaterStart])),
+    ).rejects.toThrow("first start boom");
+
+    expect(events).toEqual(["first:start", "first:stop", "later:dispose", "first:dispose"]);
+
+    await app.dispose();
+  });
+
   it("rejects in-flight lazy loads when the app is disposed before the loader resolves", async () => {
     const events: string[] = [];
     let releaseLoad: (() => void) | undefined;
