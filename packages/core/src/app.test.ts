@@ -2407,6 +2407,37 @@ describe("app runtime", () => {
     expect(app.state.version).toBe(version);
   });
 
+  it("rejects start while disposal is stopping a started app", async () => {
+    let markStopStarted!: () => void;
+    let releaseStop!: () => void;
+    const stopStarted = new Promise<void>((resolve) => {
+      markStopStarted = resolve;
+    });
+    const stopGate = new Promise<void>((resolve) => {
+      releaseStop = resolve;
+    });
+
+    class SlowTerminalStop {
+      async onStop(): Promise<void> {
+        markStopStarted();
+        await stopGate;
+      }
+    }
+
+    defineModule(SlowTerminalStop, { name: "slowTerminalStop" });
+
+    const app = createApp({ providers: [SlowTerminalStop] });
+    await app.start();
+
+    const disposal = app.dispose();
+    await stopStarted;
+
+    await expect(app.start()).rejects.toThrow("Cannot start an app after disposal.");
+
+    releaseStop();
+    await disposal;
+  });
+
   it("continues every disposal phase after teardown failures and stays terminal", async () => {
     const events: string[] = [];
     const stopError = new Error("stop boom");

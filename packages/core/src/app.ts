@@ -713,6 +713,10 @@ class RuntimeApp implements App {
       return this.rejectManagedReentry("call start()", phase, "start");
     }
 
+    if (this.isDisposing || this.isDisposed) {
+      return Promise.reject(new CosystemError("Cannot start an app after disposal."));
+    }
+
     if (this.isStarted) {
       return Promise.resolve();
     }
