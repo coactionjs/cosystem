@@ -17,6 +17,7 @@ import {
   State,
   testApp,
   token,
+  type PatchEvent,
   type Plugin,
   type PluginContext,
 } from "./index.js";
@@ -1401,6 +1402,95 @@ describe("app runtime", () => {
       composedEagerModule: { count: 3, total: 3 },
       eagerSiblingModule: { count: 1 },
     });
+    await app.dispose();
+  });
+
+  it("publishes eager and lazy nested actions atomically", async () => {
+    let lazySibling!: NestedLazySiblingModule;
+
+    class EagerWithLazyActionModule {
+      observedLazyCount = 0;
+
+      failBoth(): never {
+        lazySibling.increase();
+        this.observedLazyCount = lazySibling.count;
+        throw new Error("nested transaction boom");
+      }
+
+      updateBoth(): void {
+        lazySibling.increase();
+        this.observedLazyCount = lazySibling.count;
+      }
+    }
+
+    class NestedLazySiblingModule {
+      count = 0;
+
+      increase(): void {
+        this.count += 1;
+      }
+    }
+
+    defineModule(EagerWithLazyActionModule, {
+      actions: ["failBoth", "updateBoth"],
+      name: "eagerWithLazyActionModule",
+      state: ["observedLazyCount"],
+    });
+    defineModule(NestedLazySiblingModule, {
+      actions: ["increase"],
+      name: "nestedLazySiblingModule",
+      state: ["count"],
+    });
+
+    const patchEvents: PatchEvent[] = [];
+    const app = createApp({
+      devOptions: { strictActions: true },
+      plugins: [
+        {
+          onPatch(event) {
+            patchEvents.push(event);
+          },
+        },
+      ],
+      providers: [EagerWithLazyActionModule],
+    });
+    await app.load(lazyModule(() => NestedLazySiblingModule));
+    lazySibling = app.getModule(NestedLazySiblingModule);
+    patchEvents.length = 0;
+    const snapshots: unknown[] = [];
+    const version = app.state.version;
+    const unsubscribe = app.store.subscribe(() => {
+      snapshots.push(app.store.getPureState());
+    });
+
+    app.getModule(EagerWithLazyActionModule).updateBoth();
+    unsubscribe();
+
+    const expectedState = {
+      eagerWithLazyActionModule: { observedLazyCount: 1 },
+      nestedLazySiblingModule: { count: 1 },
+    };
+    expect(app.store.getPureState()).toEqual(expectedState);
+    expect(snapshots).toEqual([expectedState]);
+    expect(app.state.version).toBe(version + 1);
+    expect(patchEvents).toHaveLength(1);
+
+    snapshots.length = 0;
+    patchEvents.length = 0;
+    const committedVersion = app.state.version;
+    const unsubscribeFailure = app.store.subscribe(() => {
+      snapshots.push(app.store.getPureState());
+    });
+
+    expect(() => app.getModule(EagerWithLazyActionModule).failBoth()).toThrow(
+      "nested transaction boom",
+    );
+    unsubscribeFailure();
+
+    expect(app.store.getPureState()).toEqual(expectedState);
+    expect(snapshots).toEqual([]);
+    expect(app.state.version).toBe(committedVersion);
+    expect(patchEvents).toEqual([]);
     await app.dispose();
   });
 

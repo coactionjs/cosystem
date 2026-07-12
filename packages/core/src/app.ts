@@ -251,6 +251,10 @@ interface StatePublicationControl {
   discard(): void;
 }
 
+interface DetachedDraftContext {
+  readonly drafts: Map<ModuleBinding, Record<PropertyKey, unknown>>;
+}
+
 const runtimeModuleMetadataKey = Symbol.for("@cosystem/core/runtimeModule");
 const appContainerMap = new WeakMap<App, Container>();
 const appManagedExecutionContext = createRuntimeAsyncContext<AppManagedExecution>();
@@ -536,6 +540,7 @@ class RuntimeApp implements App {
   private actionDepth = 0;
   private internalMutationDepth = 0;
   private activeRootDraft: RootState | undefined;
+  private detachedDraftContext: DetachedDraftContext | undefined;
   private draftMutationContext:
     | {
         readonly proxyCache: WeakMap<object, object>;
@@ -1288,6 +1293,12 @@ class RuntimeApp implements App {
         return this.guardStateValue(moduleBinding.activeDraft[property]);
       }
 
+      const detachedDraft = this.detachedDraftContext?.drafts.get(moduleBinding);
+
+      if (detachedDraft !== undefined) {
+        return this.guardStateValue(detachedDraft[property]);
+      }
+
       return this.guardStateValue(this.readRawStoreState()[moduleBinding.name]?.[property]);
     }
 
@@ -1303,6 +1314,11 @@ class RuntimeApp implements App {
 
     if (moduleBinding.activeDraft !== undefined) {
       moduleBinding.activeDraft[property] = value;
+      return;
+    }
+
+    if (!moduleBinding.reactiveSlice && this.detachedDraftContext !== undefined) {
+      this.getOrCreateDetachedDraft(moduleBinding)[property] = value;
       return;
     }
 
@@ -1401,6 +1417,14 @@ class RuntimeApp implements App {
 
         if (previousDraft !== undefined) {
           result = callback();
+        } else if (this.detachedDraftContext !== undefined) {
+          moduleBinding.activeDraft = this.getOrCreateDetachedDraft(moduleBinding);
+
+          try {
+            result = callback();
+          } finally {
+            moduleBinding.activeDraft = undefined;
+          }
         } else {
           moduleBinding.activeDraft = slice === undefined ? {} : cloneStateValue(slice);
 
@@ -1601,6 +1625,24 @@ class RuntimeApp implements App {
         this.startEffect(moduleBinding, property, container);
       }
     }
+  }
+
+  private getOrCreateDetachedDraft(moduleBinding: ModuleBinding): Record<PropertyKey, unknown> {
+    const context = this.detachedDraftContext;
+
+    if (context === undefined) {
+      throw new CosystemError("Cannot create a detached module draft outside a store update.");
+    }
+
+    let draft = context.drafts.get(moduleBinding);
+
+    if (draft === undefined) {
+      const slice = this.readRawStoreState()[moduleBinding.name];
+      draft = slice === undefined ? {} : cloneStateValue(slice);
+      context.drafts.set(moduleBinding, draft);
+    }
+
+    return draft;
   }
 
   private startEffect(
@@ -2037,17 +2079,46 @@ class RuntimeApp implements App {
       this.assertStoreMutationAllowed("setState");
       const guardedArgs = [...args] as Parameters<StoreSetState>;
       const update = guardedArgs[0];
+      let detachedDrafts: ReadonlyMap<ModuleBinding, Record<PropertyKey, unknown>> | undefined;
 
       if (typeof update === "function") {
         guardedArgs[0] = ((draft: Parameters<typeof update>[0]) =>
           this.runWithDraftMutation(() =>
-            this.runWithRootDraft(draft, () => update(draft)),
+            this.runWithRootDraft(draft, () => {
+              const previousContext = this.detachedDraftContext;
+              const context: DetachedDraftContext = { drafts: new Map() };
+              this.detachedDraftContext = context;
+
+              try {
+                return update(draft);
+              } finally {
+                detachedDrafts = context.drafts;
+                this.detachedDraftContext = previousContext;
+              }
+            }),
           )) as typeof update;
       }
 
-      const result = originalSetState(...guardedArgs);
-      this.recordMutationResult(result);
-      return result as never;
+      const applyUpdate = () => {
+        const result = originalSetState(...guardedArgs);
+        this.recordMutationResult(result);
+
+        if (detachedDrafts !== undefined && detachedDrafts.size > 0) {
+          const nextState = { ...this.readRawStoreState() };
+
+          for (const [moduleBinding, draft] of detachedDrafts) {
+            nextState[moduleBinding.name] = draft;
+          }
+
+          this.recordMutationResult(originalSetState(nextState));
+        }
+
+        return result as never;
+      };
+
+      return typeof update === "function" && this.statePublication === undefined
+        ? this.runStatePublicationTransaction(applyUpdate)
+        : applyUpdate();
     }) as StoreSetState;
 
     this.store.apply = ((...args: Parameters<StoreApply>) => {
