@@ -687,6 +687,28 @@ describe("worker prototype", () => {
     await expect(pending).rejects.toThrow("Worker client disposed before response.");
   });
 
+  it("rejects new calls immediately after the worker client is disposed", async () => {
+    let posted = 0;
+    const transport: WorkerTransport = {
+      post() {
+        posted += 1;
+      },
+      subscribe() {
+        return () => undefined;
+      },
+    };
+    const client = createWorkerClient({ transport });
+    const counter = client.module<WorkerCounter>("workerCounter");
+
+    client.dispose();
+
+    await expect(client.call("workerCounter", "increase", 1)).rejects.toThrow(
+      "Worker client has been disposed.",
+    );
+    await expect(counter.increase(1)).rejects.toThrow("Worker client has been disposed.");
+    expect(posted).toBe(0);
+  });
+
   it("resolves client readiness after the initial state snapshot arrives", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const client = createWorkerClient({
@@ -718,6 +740,56 @@ describe("worker prototype", () => {
     client.dispose();
 
     await expect(client.ready).rejects.toThrow("Worker client disposed before initial state.");
+  });
+
+  it("aborts app initialization before waiting for worker host readiness on dispose", async () => {
+    const [hostTransport] = createMemoryWorkerTransportPair();
+    const events: string[] = [];
+    let signal: AbortSignal | undefined;
+    const host = createWorkerApp({
+      plugins: [
+        {
+          setup(_app, context) {
+            signal = context.signal;
+            events.push("setup");
+
+            return new Promise<void>((resolve) => {
+              context.signal.addEventListener(
+                "abort",
+                () => {
+                  events.push("abort");
+                  resolve();
+                },
+                { once: true },
+              );
+            });
+          },
+        },
+      ],
+      transport: hostTransport,
+    });
+    const firstDispose = host.dispose();
+    const repeatedDispose = host.dispose();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    expect(repeatedDispose).toBe(firstDispose);
+
+    try {
+      await Promise.race([
+        firstDispose,
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => reject(new Error("worker host dispose timed out")), 100);
+        }),
+      ]);
+    } finally {
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
+    }
+
+    expect(signal?.aborted).toBe(true);
+    expect(events).toEqual(["setup", "abort"]);
+    await expect(host.ready).rejects.toThrow("Cannot start an app after disposal.");
   });
 
   it("publishes the initial worker snapshot after app startup lifecycle", async () => {

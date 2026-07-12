@@ -494,6 +494,10 @@ state version associated with the method result. If a result arrives before its
 state update, the client requests a snapshot sync and waits before resolving or
 rejecting the call.
 
+Worker host disposal aborts in-flight app initialization before awaiting
+readiness. Worker client disposal rejects both pending and newly attempted RPC
+calls, so no request can remain orphaned after subscriptions are removed.
+
 Transports (all interchangeable):
 
 - `createMemoryWorkerTransportPair()` — in-process host/client pair (tests).

@@ -76,6 +76,13 @@ arrives before the corresponding state message, the client requests a snapshot
 sync and resolves or rejects the method promise only after the local mirror is
 caught up.
 
+Disposal is terminal on both sides. `host.dispose()` first starts app disposal,
+which aborts plugin setup through `PluginContext.signal`, and only then waits for
+startup to settle; this prevents initialization/disposal deadlocks. Repeated
+host disposal shares one promise. `client.dispose()` rejects pending calls and
+all later `call()` / module-proxy requests immediately instead of posting work
+that can no longer receive a response.
+
 ## Transports
 
 A transport is just `{ post(message), subscribe(listener) }`. The package ships

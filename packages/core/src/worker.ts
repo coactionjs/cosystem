@@ -250,7 +250,13 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
     },
     plugins: [...(appOptions.plugins ?? []), patchPlugin],
   });
+  let disposed = false;
+  let disposePromise: Promise<void> | undefined;
   const ready = app.start().then(() => {
+    if (disposed) {
+      return undefined;
+    }
+
     publishPatches = true;
     transport.post({ type: "ready" });
     const version = stateSections === undefined ? app.state.version : stateSyncVersion;
@@ -260,7 +266,13 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
     }
     return undefined;
   });
+
+  ready.catch(() => undefined);
   const unsubscribeTransport = transport.subscribe((message) => {
+    if (disposed) {
+      return;
+    }
+
     if (message.type === "sync") {
       void handleSync(app, transport, message, ready, stateSections, () => stateSyncVersion);
       return;
@@ -274,12 +286,23 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
   return {
     app,
     ready,
-    async dispose() {
-      unsubscribeTransport();
-      await ready.catch(() => undefined);
-      await app.dispose();
+    dispose() {
+      disposePromise ??= disposeHost();
+      return disposePromise;
     },
   };
+
+  async function disposeHost(): Promise<void> {
+    disposed = true;
+    publishPatches = false;
+    unsubscribeTransport();
+
+    try {
+      await app.dispose();
+    } finally {
+      await ready.catch(() => undefined);
+    }
+  }
 }
 
 export function createWorkerClient(options: CreateWorkerClientOptions): WorkerClient {
@@ -293,6 +316,7 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
   let syncedStaleVersion = 0;
   let snapshot: unknown;
   let readySettled = false;
+  let disposed = false;
   let resolveReady!: () => void;
   let rejectReady!: (error: unknown) => void;
   const ready = new Promise<void>((resolve, reject) => {
@@ -307,6 +331,10 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
     ready,
     state,
     call(module, method, ...args) {
+      if (disposed) {
+        return Promise.reject(new CosystemError("Worker client has been disposed."));
+      }
+
       const id = nextId;
       nextId += 1;
 
@@ -322,6 +350,11 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
       });
     },
     dispose() {
+      if (disposed) {
+        return;
+      }
+
+      disposed = true;
       unsubscribe();
 
       if (!readySettled) {
@@ -436,6 +469,10 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
   };
 
   const requestStateSync = (stateVersion: number): void => {
+    if (disposed) {
+      return;
+    }
+
     if (stateVersion <= state.version || stateVersion <= requestedSyncVersion) {
       return;
     }
