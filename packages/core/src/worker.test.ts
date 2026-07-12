@@ -953,6 +953,51 @@ describe("worker prototype", () => {
     await expect(host.ready).rejects.toThrow("Cannot start an app after disposal.");
   });
 
+  it("rejects host readiness when disposed during startup before publication", async () => {
+    const messages: WorkerMessage[] = [];
+    let markStartEntered: (() => void) | undefined;
+    let releaseStart: (() => void) | undefined;
+    const startEntered = new Promise<void>((resolve) => {
+      markStartEntered = resolve;
+    });
+    const startGate = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+
+    class SlowStartingWorkerModule {
+      async onStart(): Promise<void> {
+        markStartEntered?.();
+        await startGate;
+      }
+    }
+
+    defineModule(SlowStartingWorkerModule, {
+      name: "slowStartingWorkerModule",
+    });
+
+    const transport: WorkerTransport = {
+      post(message) {
+        messages.push(message);
+      },
+      subscribe() {
+        return () => undefined;
+      },
+    };
+    const host = createWorkerApp({
+      providers: [SlowStartingWorkerModule],
+      transport,
+    });
+
+    await startEntered;
+
+    const disposal = host.dispose();
+    releaseStart?.();
+
+    await expect(host.ready).rejects.toThrow("Worker host disposed before initial state.");
+    await expect(disposal).resolves.toBeUndefined();
+    expect(messages).toEqual([]);
+  });
+
   it("publishes the initial worker snapshot after app startup lifecycle", async () => {
     class StartedCounter {
       count = 0;

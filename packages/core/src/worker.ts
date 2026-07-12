@@ -286,7 +286,7 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
   let disposePromise: Promise<void> | undefined;
   const ready = app.start().then(() => {
     if (disposed) {
-      return undefined;
+      throw new CosystemError("Worker host disposed before initial state.");
     }
 
     publishPatches = true;
