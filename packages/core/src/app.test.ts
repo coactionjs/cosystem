@@ -2192,6 +2192,84 @@ describe("app runtime", () => {
     await app.dispose();
   });
 
+  it("finishes stopping when stop is requested during startup", async () => {
+    const events: string[] = [];
+    let markStartEntered!: () => void;
+    let releaseStart!: () => void;
+    const startEntered = new Promise<void>((resolve) => {
+      markStartEntered = resolve;
+    });
+    const startGate = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+
+    class SlowStartModule {
+      async onStart(): Promise<void> {
+        events.push("start");
+        markStartEntered();
+        await startGate;
+      }
+
+      onStop(): void {
+        events.push("stop");
+      }
+    }
+
+    defineModule(SlowStartModule, { name: "slowStartModule" });
+
+    const app = createApp({ providers: [SlowStartModule] });
+    const starting = app.start();
+    await startEntered;
+
+    const stopping = app.stop();
+    releaseStart();
+    await Promise.all([starting, stopping]);
+
+    expect(events).toEqual(["start", "stop"]);
+    expect(app.started).toBe(false);
+    await app.dispose();
+  });
+
+  it("restarts when start is requested during stopping", async () => {
+    const events: string[] = [];
+    let markStopEntered!: () => void;
+    let releaseStop!: () => void;
+    const stopEntered = new Promise<void>((resolve) => {
+      markStopEntered = resolve;
+    });
+    const stopGate = new Promise<void>((resolve) => {
+      releaseStop = resolve;
+    });
+
+    class SlowStopModule {
+      onStart(): void {
+        events.push("start");
+      }
+
+      async onStop(): Promise<void> {
+        events.push("stop");
+        markStopEntered();
+        await stopGate;
+      }
+    }
+
+    defineModule(SlowStopModule, { name: "slowStopModule" });
+
+    const app = createApp({ providers: [SlowStopModule] });
+    await app.start();
+
+    const stopping = app.stop();
+    await stopEntered;
+    const restarting = app.start();
+
+    releaseStop();
+    await Promise.all([stopping, restarting]);
+
+    expect(events).toEqual(["start", "stop", "start"]);
+    expect(app.started).toBe(true);
+    await app.dispose();
+  });
+
   it("rejects readiness reentry from initialization work", async () => {
     const app = createApp({
       plugins: [

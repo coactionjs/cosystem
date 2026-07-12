@@ -521,9 +521,11 @@ class RuntimeApp implements App {
   private initPromise: Promise<void> = Promise.resolve();
   private startPromise: Promise<void> | undefined;
   private stopPromise: Promise<void> | undefined;
+  private lifecycleTransition: Promise<void> | undefined;
   private disposePromise: Promise<void> | undefined;
   private isInitialized = false;
   private isStarted = false;
+  private shouldBeStarted = false;
   private isDisposing = false;
   private isDisposed = false;
   private readonly fallbackManagedExecutions: AppManagedExecution[] = [];
@@ -717,12 +719,39 @@ class RuntimeApp implements App {
       return Promise.reject(new CosystemError("Cannot start an app after disposal."));
     }
 
-    if (this.isStarted) {
+    this.shouldBeStarted = true;
+
+    if (this.isStarted && this.lifecycleTransition === undefined) {
       return Promise.resolve();
     }
 
-    this.startPromise ??= this.startApp();
-    return this.startPromise;
+    return this.transitionLifecycle();
+  }
+
+  private transitionLifecycle(): Promise<void> {
+    this.lifecycleTransition ??= this.reconcileLifecycleState();
+    return this.lifecycleTransition;
+  }
+
+  private async reconcileLifecycleState(): Promise<void> {
+    try {
+      while (this.shouldBeStarted !== this.isStarted) {
+        if (this.shouldBeStarted) {
+          this.startPromise ??= this.startApp();
+          // eslint-disable-next-line no-await-in-loop -- Opposite lifecycle requests must run in order.
+          await this.startPromise;
+        } else {
+          this.stopPromise ??= this.stopApp();
+          // eslint-disable-next-line no-await-in-loop -- Opposite lifecycle requests must run in order.
+          await this.stopPromise;
+        }
+      }
+    } catch (error) {
+      this.shouldBeStarted = this.isStarted;
+      throw error;
+    } finally {
+      this.lifecycleTransition = undefined;
+    }
   }
 
   private async startApp(): Promise<void> {
@@ -776,12 +805,13 @@ class RuntimeApp implements App {
       return this.rejectManagedReentry("call stop()", phase, "stop");
     }
 
-    if (!this.isStarted) {
+    this.shouldBeStarted = false;
+
+    if (!this.isStarted && this.lifecycleTransition === undefined) {
       return Promise.resolve();
     }
 
-    this.stopPromise ??= this.stopApp();
-    return this.stopPromise;
+    return this.transitionLifecycle();
   }
 
   private async stopApp(): Promise<void> {
