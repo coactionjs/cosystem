@@ -223,8 +223,18 @@ class RuntimeContainer implements ContainerImpl {
   }
 
   private assertActive(): void {
-    if (this.disposed || (this.root !== this && this.root.disposed)) {
+    if (this.disposed) {
       throw new DisposedContainerError();
+    }
+
+    let container = this.parent;
+
+    while (container !== undefined) {
+      if (container.disposed) {
+        throw new DisposedContainerError();
+      }
+
+      container = container.parent;
     }
   }
 

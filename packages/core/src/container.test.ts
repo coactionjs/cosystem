@@ -702,6 +702,35 @@ describe("DI container", () => {
     await expect(container.dispose()).resolves.toBeUndefined();
   });
 
+  it("makes an intermediate scope disposal terminal for its descendants", async () => {
+    const events: string[] = [];
+
+    class ScopedResource {
+      constructor() {
+        events.push("create");
+      }
+
+      dispose(): void {
+        events.push("dispose");
+      }
+    }
+
+    const root = createContainer();
+    const parentScope = root.createScope();
+    parentScope.provide(ScopedResource);
+    const childScope = parentScope.createScope();
+
+    await parentScope.dispose();
+
+    expect(() => childScope.get(ScopedResource)).toThrow(DisposedContainerError);
+    await expect(childScope.getAsync(ScopedResource)).rejects.toThrow(DisposedContainerError);
+    expect(() => childScope.createScope()).toThrow(DisposedContainerError);
+    expect(events).toEqual([]);
+
+    await childScope.dispose();
+    await root.dispose();
+  });
+
   it("waits for in-flight providers and disposes their resolved resources", async () => {
     const ResourceToken = token<{ destroy(): void }>("PendingResource");
     const events: string[] = [];
