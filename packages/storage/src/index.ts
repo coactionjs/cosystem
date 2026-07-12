@@ -226,7 +226,7 @@ export function createLocalSpaceStoragePlugin<TState = unknown>(
   ): Promise<void> => {
     const operation = writeQueue.catch(() => undefined).then(task);
     writeQueue = operation.catch((error: unknown) => {
-      options.onError?.(error, phase);
+      reportStorageError(options.onError, error, phase);
     });
 
     return operation;
@@ -320,7 +320,7 @@ export function createLocalSpaceStoragePlugin<TState = unknown>(
             { name: "storage.hydrate" },
           );
         } catch (error) {
-          options.onError?.(error, "hydrate");
+          reportStorageError(options.onError, error, "hydrate");
           throw error;
         }
       })();
@@ -346,7 +346,7 @@ export function createStoragePlugin<TState = unknown>(
   ): Promise<void> => {
     const operation = writeQueue.catch(() => undefined).then(task);
     writeQueue = operation.catch((error: unknown) => {
-      options.onError?.(error, phase);
+      reportStorageError(options.onError, error, phase);
     });
 
     return operation;
@@ -401,7 +401,7 @@ export function createStoragePlugin<TState = unknown>(
             { name: "storage.hydrate" },
           );
         } catch (error) {
-          options.onError?.(error, "hydrate");
+          reportStorageError(options.onError, error, "hydrate");
           throw error;
         }
       })();
@@ -409,4 +409,16 @@ export function createStoragePlugin<TState = unknown>(
       return readyPromise;
     },
   };
+}
+
+function reportStorageError(
+  onError: StoragePluginOptions["onError"] | undefined,
+  error: unknown,
+  phase: StoragePluginErrorPhase,
+): void {
+  try {
+    onError?.(error, phase);
+  } catch {
+    // Storage error observers must not replace failures or re-open handled background errors.
+  }
 }

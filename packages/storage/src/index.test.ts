@@ -235,6 +235,52 @@ describe("storage plugin", () => {
     expect(errors[0]?.phase).toBe("persist");
     expect(errors[0]?.error).toBeInstanceOf(Error);
   });
+
+  it("isolates throwing storage error observers", async () => {
+    const hydrateError = new Error("hydrate failed");
+    const persistError = new Error("persist failed");
+    const phases: string[] = [];
+    let hydrate = true;
+    const storage: StorageLike = {
+      getItem: () => {
+        if (hydrate) {
+          throw hydrateError;
+        }
+
+        return null;
+      },
+      setItem: () => Promise.reject(persistError),
+    };
+    const plugin = createStoragePlugin({
+      key: "app",
+      onError(_error, phase) {
+        phases.push(phase);
+        throw new Error("observer failed");
+      },
+      storage,
+    });
+    const failedApp = createApp({ plugins: [plugin], providers: [Counter] });
+
+    await expect(failedApp.start()).rejects.toBe(hydrateError);
+    await expect(failedApp.dispose()).rejects.toBeInstanceOf(AggregateError);
+
+    hydrate = false;
+    const retryPlugin = createStoragePlugin({
+      key: "app",
+      onError(_error, phase) {
+        phases.push(phase);
+        throw new Error("observer failed");
+      },
+      storage,
+    });
+    const app = createApp({ plugins: [retryPlugin], providers: [Counter] });
+    await app.start();
+    app.getModule(Counter).increase();
+
+    await expect(retryPlugin.flush()).resolves.toBeUndefined();
+    await expect(app.dispose()).resolves.toBeUndefined();
+    expect(phases).toEqual(["hydrate", "persist"]);
+  });
 });
 
 describe("localspace storage plugin", () => {
