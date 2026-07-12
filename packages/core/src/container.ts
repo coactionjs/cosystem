@@ -50,6 +50,17 @@ class RuntimeContainer implements ContainerImpl {
 
   constructor(options: ContainerOptions = {}) {
     this.parent = options.parent as ContainerImpl | undefined;
+
+    let ancestor = this.parent;
+
+    while (ancestor !== undefined) {
+      if (ancestor.disposed) {
+        throw new DisposedContainerError();
+      }
+
+      ancestor = ancestor.parent;
+    }
+
     this.strictScopes = options.strictScopes ?? this.parent?.strictScopes ?? true;
     this.root = this.parent?.root ?? this;
     this.parent?.children.add(this);

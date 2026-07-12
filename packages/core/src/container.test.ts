@@ -709,6 +709,7 @@ describe("DI container", () => {
     expect(() => container.provide(Service)).toThrow(DisposedContainerError);
     expect(() => container.override(Service)).toThrow(DisposedContainerError);
     expect(() => container.createScope()).toThrow(DisposedContainerError);
+    expect(() => createContainer({ parent: container })).toThrow(DisposedContainerError);
     expect(() => container.build(Service)).toThrow(DisposedContainerError);
     await expect(container.buildAsync(Service)).rejects.toThrow(DisposedContainerError);
     expect(() => container.freeze()).toThrow(DisposedContainerError);
