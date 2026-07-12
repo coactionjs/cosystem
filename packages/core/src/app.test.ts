@@ -2221,6 +2221,43 @@ describe("app runtime", () => {
     ).toThrow("FactoryOverriddenModule resolved to a value that is not a CoSystem module.");
   });
 
+  it("rejects unsafe module names and metadata keys", () => {
+    for (const unsafeName of ["__proto__", "constructor", "prototype"]) {
+      class UnsafeNamedModule {
+        value = 1;
+      }
+
+      defineModule(UnsafeNamedModule, {
+        name: unsafeName,
+        state: ["value"],
+      });
+
+      expect(() => createApp({ providers: [UnsafeNamedModule] })).toThrow(
+        `CoSystem module name ${unsafeName} is unsafe.`,
+      );
+    }
+
+    for (const [kind, label] of [
+      ["actions", "action"],
+      ["computed", "computed"],
+      ["effects", "effect"],
+      ["state", "state"],
+    ] as const) {
+      class UnsafeMetadataModule {
+        value = 1;
+      }
+
+      defineModule(UnsafeMetadataModule, {
+        [kind]: ["__proto__"],
+        name: `unsafe${kind}`,
+      });
+
+      expect(() => createApp({ providers: [UnsafeMetadataModule] })).toThrow(
+        `has an unsafe ${label} key: __proto__.`,
+      );
+    }
+  });
+
   it("keeps non-module class and factory providers lazy by default", () => {
     const ServiceToken = token<{ readonly value: string }>("LazyService");
     const events: string[] = [];

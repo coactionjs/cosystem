@@ -2665,6 +2665,7 @@ function instantiateModules(
     }
 
     const name = metadata.name ?? stableModuleName(moduleToken);
+    assertSafeModuleMetadata(name, metadata);
 
     if (modules.some((moduleBinding) => moduleBinding.name === name)) {
       throw new DuplicateProviderError(name);
@@ -2734,6 +2735,29 @@ function createRootState(modules: readonly ModuleBinding[]): RootState {
 function stableModuleName(token: InjectionToken): string {
   const name = tokenName(token);
   return `${name.slice(0, 1).toLowerCase()}${name.slice(1)}`;
+}
+
+function assertSafeModuleMetadata(name: string, metadata: ModuleMetadata): void {
+  if (isUnsafeStateKey(name)) {
+    throw new CosystemError(`CoSystem module name ${name} is unsafe.`);
+  }
+
+  for (const [kind, properties] of [
+    ["action", metadata.actions],
+    ["computed", metadata.computed],
+    ["effect", metadata.effects],
+    ["state", metadata.state],
+  ] as const) {
+    for (const property of properties) {
+      if (typeof property === "string" && isUnsafeStateKey(property)) {
+        throw new CosystemError(`CoSystem module ${name} has an unsafe ${kind} key: ${property}.`);
+      }
+    }
+  }
+}
+
+function isUnsafeStateKey(value: string): boolean {
+  return value === "__proto__" || value === "constructor" || value === "prototype";
 }
 
 function getMethod(
