@@ -356,7 +356,7 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
   const pending = new Map<number, PendingWorkerCall>();
   const state = { version: 0 };
   let nextId = 1;
-  let requestedSyncVersion = 0;
+  let requestedSyncVersion: number | undefined;
   let syncedStaleVersion = 0;
   let snapshot: unknown;
   let readySettled = false;
@@ -544,7 +544,10 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
     entry: PendingWorkerCall,
     result: PendingWorkerResult,
   ): boolean => {
-    if (result.stateVersion !== undefined && result.stateVersion > state.version) {
+    if (
+      result.stateVersion !== undefined &&
+      (!readySettled || result.stateVersion > state.version)
+    ) {
       return false;
     }
 
@@ -565,7 +568,10 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
       return;
     }
 
-    if (stateVersion <= state.version || stateVersion <= requestedSyncVersion) {
+    if (
+      (readySettled && stateVersion <= state.version) ||
+      (requestedSyncVersion !== undefined && stateVersion <= requestedSyncVersion)
+    ) {
       return;
     }
 
@@ -667,9 +673,9 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
       }
 
       state.version = message.version;
-      if (requestedSyncVersion > 0 && requestedSyncVersion <= state.version) {
+      if (requestedSyncVersion !== undefined && requestedSyncVersion <= state.version) {
         syncedStaleVersion = Math.max(syncedStaleVersion, state.version);
-        requestedSyncVersion = 0;
+        requestedSyncVersion = undefined;
       }
 
       if (!readySettled) {

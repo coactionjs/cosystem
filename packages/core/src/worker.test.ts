@@ -227,6 +227,50 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("waits for the initial version-zero snapshot before settling a call", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const syncRequests: number[] = [];
+    const unsubscribeHost = hostTransport.subscribe((message) => {
+      if (message.type === "call") {
+        hostTransport.post({
+          id: message.id,
+          stateVersion: 0,
+          type: "result",
+          value: "done",
+        });
+      } else if (message.type === "sync" && message.stateVersion !== undefined) {
+        syncRequests.push(message.stateVersion);
+      }
+    });
+    const client = createWorkerClient({
+      transport: clientTransport,
+    });
+    let settled = false;
+    const call = client.call("workerCounter", "increase", 1).then((value) => {
+      settled = true;
+      return value;
+    });
+
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    expect(syncRequests).toEqual([0]);
+
+    hostTransport.post({
+      state: { workerCounter: { count: 0 } },
+      sync: "snapshot",
+      type: "state",
+      version: 0,
+    });
+
+    await expect(call).resolves.toBe("done");
+    await expect(client.ready).resolves.toBeUndefined();
+    expect(client.getState()).toEqual({ workerCounter: { count: 0 } });
+
+    client.dispose();
+    unsubscribeHost();
+  });
+
   it("selects and watches worker state through a reactive client contract", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const client = createWorkerClient({
