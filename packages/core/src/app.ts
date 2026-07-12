@@ -1301,6 +1301,7 @@ class RuntimeApp implements App {
 
     let result: unknown;
     let error: unknown;
+    let failed = false;
 
     try {
       moduleBinding.actionDepth += 1;
@@ -1334,6 +1335,7 @@ class RuntimeApp implements App {
         }
       }
     } catch (caught) {
+      failed = true;
       error = caught;
       this.emitError(caught, { phase: "action" });
     } finally {
@@ -1341,8 +1343,8 @@ class RuntimeApp implements App {
       this.actionDepth -= 1;
     }
 
-    if (error !== undefined) {
-      this.finishAction(event, error);
+    if (failed) {
+      this.finishAction(event, error, true);
       throw error;
     }
 
@@ -1354,7 +1356,7 @@ class RuntimeApp implements App {
         },
         (caught) => {
           this.emitError(caught, { phase: "action" });
-          this.finishAction(event, caught);
+          this.finishAction(event, caught, true);
           throw caught;
         },
       );
@@ -1381,7 +1383,7 @@ class RuntimeApp implements App {
       result = callback();
     } catch (error) {
       this.emitError(error, { phase: "action" });
-      this.finishAction(event, error);
+      this.finishAction(event, error, true);
       throw error;
     } finally {
       this.actionDepth -= 1;
@@ -1395,7 +1397,7 @@ class RuntimeApp implements App {
         },
         (error) => {
           this.emitError(error, { phase: "action" });
-          this.finishAction(event, error);
+          this.finishAction(event, error, true);
           throw error;
         },
       ) as T;
@@ -1451,11 +1453,11 @@ class RuntimeApp implements App {
     throw new CosystemError(`${tokenName(target)} is not a CoSystem module.`);
   }
 
-  private finishAction(event: ActionEvent, error?: unknown): void {
+  private finishAction(event: ActionEvent, error?: unknown, failed = false): void {
     const endedEvent: ActionEvent = {
       ...event,
       endedAt: Date.now(),
-      ...(error === undefined ? {} : { error }),
+      ...(failed ? { error } : {}),
     };
     this.testInspector?.recordAction(endedEvent);
     this.emitActionEnd(endedEvent);

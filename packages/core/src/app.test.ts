@@ -3034,6 +3034,45 @@ describe("app runtime", () => {
     expect(errors).toEqual(["action:boom"]);
   });
 
+  it("preserves undefined action failures and records them as errors", async () => {
+    class UndefinedFailingAction {
+      fail(): never {
+        throw undefined;
+      }
+
+      async failLater(): Promise<never> {
+        await Promise.resolve();
+        throw undefined;
+      }
+    }
+
+    defineModule(UndefinedFailingAction, {
+      actions: ["fail", "failLater"],
+      name: "undefinedFailingAction",
+    });
+
+    const app = testApp({ providers: [UndefinedFailingAction] });
+    const module = app.getModule(UndefinedFailingAction);
+    let returnedNormally = true;
+    let syncError: unknown = Symbol("not thrown");
+
+    try {
+      module.fail();
+    } catch (error) {
+      returnedNormally = false;
+      syncError = error;
+    }
+
+    expect(returnedNormally).toBe(false);
+    expect(syncError).toBeUndefined();
+    await expect(module.failLater()).rejects.toBeUndefined();
+    expect(app.test.getActions()).toHaveLength(2);
+    expect(app.test.getActions().every((event) => Object.hasOwn(event, "error"))).toBe(true);
+    expect(app.test.getActions().map((event) => event.error)).toEqual([undefined, undefined]);
+
+    await app.dispose();
+  });
+
   it("supports inject() across awaits in plugin setup and module lifecycle hooks", async () => {
     class InjectingLifecycle {
       async onInit(): Promise<void> {
