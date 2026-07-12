@@ -85,7 +85,7 @@ defineModule(Counter, {
 | ---------- | ------------------ | --------------------------------------------------------------- |
 | `name`     | `string`           | Stable store key for this module's state.                       |
 | `deps`     | `DependencySpec[]` | Constructor dependencies (see [DI](./dependency-injection.md)). |
-| `scope`    | `Scope`            | Provider scope (default `singleton`).                           |
+| `scope`    | `"singleton"`      | Module provider scope; other scopes are rejected.               |
 | `state`    | `PropertyKey[]`    | Fields that become reactive state.                              |
 | `actions`  | `PropertyKey[]`    | Methods wrapped in a transaction.                               |
 | `computed` | `PropertyKey[]`    | Cached getters.                                                 |
@@ -142,6 +142,12 @@ counter.count; // current state value
 
 `app.getModule(token)` and `app.getModuleByName(name)` both return this bound
 facade.
+
+Modules are singleton-only because every module owns one slice in the app's
+single store. Multiple transient/resolution/scoped instances would not share the
+bound facade and could mutate fields without updating that slice. Use scoped or
+transient plain DI services behind a singleton module when request-specific
+state is needed.
 
 ## Lifecycle hooks
 

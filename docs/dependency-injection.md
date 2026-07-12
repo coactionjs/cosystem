@@ -138,8 +138,11 @@ provide(RequestContext, { useClass: RequestContext, scope: "scoped" });
 provide(Id, { useFactory: () => crypto.randomUUID(), scope: "transient" });
 ```
 
-`@Module` app modules default to `singleton` because UI adapters expect business
-modules to be stable.
+CoSystem app modules must use `singleton`. A module owns exactly one slice in the
+app's single store and its bound facade must be the same instance seen by DI;
+`scoped`, `resolution`, and `transient` module scopes are rejected during app or
+lazy-module provider normalization. Those scopes remain fully supported for
+plain service/factory providers.
 
 ## Lifetime safety
 

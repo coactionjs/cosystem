@@ -288,6 +288,11 @@ Providers default to the `"singleton"` scope. Available scopes:
 | `"resolution"` | One instance per resolution graph (shared within a single get). |
 | `"transient"`  | A fresh instance on every resolution.                           |
 
+These four scopes apply to plain DI services. CoSystem modules are
+singleton-only: each module owns one app store slice and must have the same
+identity through `getModule()` and dependency injection. Configuring a module as
+`scoped`, `resolution`, or `transient` throws during provider normalization.
+
 `@Module` providers and `useValue` providers are eager. Plain class/factory
 providers stay lazy unless a module or another eager provider depends on them.
 Mark startup services eager explicitly:

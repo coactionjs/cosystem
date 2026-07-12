@@ -24,6 +24,7 @@ import type {
   InjectionToken,
   Provider,
   ProviderInput,
+  Scope,
   ScopeOptions,
 } from "./types.js";
 
@@ -1699,8 +1700,11 @@ function normalizeAppProvider(provider: ProviderInput): {
     const metadata = getModuleMetadata(provider);
 
     if (metadata !== undefined) {
+      const moduleProviderOptions = createModuleClassProviderOptions(provider, metadata);
+      assertSingletonModuleScope(provider, moduleProviderOptions.scope);
+
       return {
-        provider: provide(provider, createModuleClassProviderOptions(provider, metadata)),
+        provider: provide(provider, moduleProviderOptions),
         moduleToken: provider,
       };
     }
@@ -1712,11 +1716,14 @@ function normalizeAppProvider(provider: ProviderInput): {
     const metadata = getModuleMetadata(provider.useClass);
 
     if (metadata !== undefined) {
+      const moduleProvider = {
+        ...provider,
+        ...mergeModuleClassProviderOptions(provider, metadata),
+      };
+      assertSingletonModuleScope(provider.provide, moduleProvider.scope);
+
       return {
-        provider: {
-          ...provider,
-          ...mergeModuleClassProviderOptions(provider, metadata),
-        },
+        provider: moduleProvider,
         moduleToken: provider.provide,
       };
     }
@@ -1731,6 +1738,17 @@ function providerInputToken(provider: ProviderInput): InjectionToken {
 
 function isMultiProvider(provider: ProviderInput): boolean {
   return typeof provider !== "function" && provider.multi === true;
+}
+
+function assertSingletonModuleScope(token: InjectionToken, scope: Scope | undefined): void {
+  const resolvedScope = scope ?? "singleton";
+
+  if (resolvedScope !== "singleton") {
+    throw new CosystemError(
+      `CoSystem module ${tokenName(token)} must use singleton scope; received ${resolvedScope}. ` +
+        "A module owns one app store slice and cannot have multiple instances.",
+    );
+  }
 }
 
 function createStoreOptions(

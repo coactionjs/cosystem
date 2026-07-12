@@ -194,6 +194,7 @@ void [counter.increase(), extensions];
 function createRuntimeConsumerSource() {
   return `import {
   AsyncProviderInSyncResolutionError,
+  CosystemError,
   createApp,
   defineModule,
   provide,
@@ -233,7 +234,7 @@ defineModule(ProviderOverrideCounter, {
 });
 
 await verifyProviderDepsOverride();
-await verifyModuleFacadeScopes();
+verifyModuleScopeGuard();
 await verifyProviderEagerness();
 await verifyParentAppResolution();
 
@@ -266,7 +267,7 @@ async function verifyProviderDepsOverride() {
   await app.dispose();
 }
 
-async function verifyModuleFacadeScopes() {
+function verifyModuleScopeGuard() {
   class TransientScopedCounter {
     constructor() {
       this.count = 0;
@@ -284,31 +285,20 @@ async function verifyModuleFacadeScopes() {
     state: ["count"],
   });
 
-  const app = createApp({
-    providers: [TransientScopedCounter],
-  });
-  const module = app.getModule(TransientScopedCounter);
+  try {
+    createApp({
+      providers: [TransientScopedCounter],
+    });
+  } catch (error) {
+    if (!(error instanceof CosystemError)) {
+      throw error;
+    }
 
-  module.increase();
+    expectIncludes(error.message, "must use singleton scope", "module scope guard message");
+    return;
+  }
 
-  expectSame(app.get(TransientScopedCounter), module, "sync app get returns bound module facade");
-  expectSame(
-    await app.getAsync(TransientScopedCounter),
-    module,
-    "async app get returns bound module facade",
-  );
-  expectEqual(app.get(TransientScopedCounter).count, 1, "bound module facade state");
-  expectJsonEqual(
-    app.store.getPureState(),
-    {
-      transientScopedCounter: {
-        count: 1,
-      },
-    },
-    "transient module state is app-bound",
-  );
-
-  await app.dispose();
+  throw new Error("transient CoSystem module should be rejected");
 }
 
 async function verifyProviderEagerness() {

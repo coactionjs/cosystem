@@ -334,6 +334,26 @@ describe("app runtime", () => {
     expect(app.getModule(LazyCounter).count).toBe(1);
   });
 
+  it("rejects non-singleton lazy modules before they become visible", async () => {
+    class InvalidLazyScope {
+      value = 1;
+    }
+
+    defineModule(InvalidLazyScope, {
+      name: "invalidLazyScope",
+      scope: "transient",
+      state: ["value"],
+    });
+
+    const app = createApp();
+
+    await expect(app.load(lazyModule(() => InvalidLazyScope))).rejects.toThrow(
+      "must use singleton scope; received transient",
+    );
+    expect(() => app.getModule(InvalidLazyScope)).toThrow(CosystemError);
+    expect(app.store.getPureState()).toEqual({});
+  });
+
   it("coalesces concurrent lazy loads and keeps modules hidden until initialization commits", async () => {
     const events: string[] = [];
     let loaderCalls = 0;
@@ -1263,37 +1283,40 @@ describe("app runtime", () => {
     expect(app.getModule(ProviderOverrideCounter).logger).toBeInstanceOf(ProviderLogger);
   });
 
-  it("returns the bound module facade from app get APIs even when module scope is not singleton", async () => {
-    class TransientScopedCounter {
-      count = 0;
-
-      increase(): void {
-        this.count += 1;
+  it("rejects non-singleton module metadata and provider scopes", () => {
+    for (const scope of ["scoped", "resolution", "transient"] as const) {
+      class InvalidScopedModule {
+        readonly ready = true;
       }
+
+      defineModule(InvalidScopedModule, {
+        name: `invalid-${scope}`,
+        scope,
+      });
+
+      expect(() => createApp({ providers: [InvalidScopedModule] })).toThrow(
+        `must use singleton scope; received ${scope}`,
+      );
     }
 
-    defineModule(TransientScopedCounter, {
-      actions: ["increase"],
-      name: "transientScopedCounter",
-      scope: "transient",
-      state: ["count"],
+    class ProviderScopedModule {
+      readonly ready = true;
+    }
+
+    defineModule(ProviderScopedModule, {
+      name: "providerScopedModule",
     });
 
-    const app = createApp({
-      providers: [TransientScopedCounter],
-    });
-    const module = app.getModule(TransientScopedCounter);
-
-    module.increase();
-
-    expect(app.get(TransientScopedCounter)).toBe(module);
-    await expect(app.getAsync(TransientScopedCounter)).resolves.toBe(module);
-    expect(app.get(TransientScopedCounter).count).toBe(1);
-    expect(app.store.getPureState()).toEqual({
-      transientScopedCounter: {
-        count: 1,
-      },
-    });
+    expect(() =>
+      createApp({
+        providers: [
+          provide(ProviderScopedModule, {
+            scope: "resolution",
+            useClass: ProviderScopedModule,
+          }),
+        ],
+      }),
+    ).toThrow("must use singleton scope; received resolution");
   });
 
   it("keeps non-module class and factory providers lazy by default", () => {
