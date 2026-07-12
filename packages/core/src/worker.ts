@@ -1286,7 +1286,7 @@ function normalizePatchPath(path: unknown): readonly PatchPathSegment[] {
   }
 
   if (typeof path === "string") {
-    if (path === "" || path === "/") {
+    if (path === "") {
       return [];
     }
 

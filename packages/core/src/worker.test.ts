@@ -492,6 +492,30 @@ describe("worker prototype", () => {
     client.dispose();
   });
 
+  it("treats a slash patch path as an empty property instead of the root", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({ transport: clientTransport });
+
+    hostTransport.post({
+      state: { "": 1, stable: true },
+      sync: "snapshot",
+      type: "state",
+      version: 0,
+    });
+    await client.ready;
+
+    hostTransport.post({
+      patches: [{ op: "replace", path: "/", value: 2 }],
+      sync: "patch",
+      type: "state",
+      version: 1,
+    });
+
+    expect(client.getState()).toEqual({ "": 2, stable: true });
+    expect(client.state.version).toBe(1);
+    client.dispose();
+  });
+
   it("isolates worker state sync to configured state sections", async () => {
     const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
     const client = createWorkerClient({
