@@ -334,12 +334,28 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
   async function disposeHost(): Promise<void> {
     disposed = true;
     publishPatches = false;
-    unsubscribeTransport();
+    const errors: unknown[] = [];
+
+    try {
+      unsubscribeTransport();
+    } catch (error) {
+      errors.push(error);
+    }
 
     try {
       await app.dispose();
+    } catch (error) {
+      errors.push(error);
     } finally {
       await ready.catch(() => undefined);
+    }
+
+    if (errors.length === 1) {
+      throw errors[0];
+    }
+
+    if (errors.length > 1) {
+      throw new AggregateError(errors, "Worker host disposal failed.");
     }
   }
 }
@@ -447,7 +463,15 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
       }
 
       disposed = true;
-      unsubscribe();
+      let unsubscribeError: unknown;
+      let unsubscribeFailed = false;
+
+      try {
+        unsubscribe();
+      } catch (error) {
+        unsubscribeFailed = true;
+        unsubscribeError = error;
+      }
 
       if (!readySettled) {
         readySettled = true;
@@ -462,6 +486,10 @@ export function createWorkerClient(options: CreateWorkerClientOptions): WorkerCl
       pending.clear();
       listeners.clear();
       selectorWatchers.clear();
+
+      if (unsubscribeFailed) {
+        throw unsubscribeError;
+      }
     },
     getState() {
       return snapshot;

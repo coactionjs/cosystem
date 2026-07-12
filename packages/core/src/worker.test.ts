@@ -1240,6 +1240,34 @@ describe("worker prototype", () => {
     await expect(pending).rejects.toThrow("Worker client disposed before response.");
   });
 
+  it("finishes worker client cleanup when transport unsubscribe throws", async () => {
+    const unsubscribeError = new Error("client unsubscribe failed");
+    const client = createWorkerClient({
+      requestTimeout: 0,
+      transport: {
+        post() {},
+        subscribe() {
+          return () => {
+            throw unsubscribeError;
+          };
+        },
+      },
+    });
+    const ready = client.ready.catch((error: unknown) => error);
+    const pending = client.call("workerCounter", "increase").catch((error: unknown) => error);
+
+    expect(() => client.dispose()).toThrow(unsubscribeError);
+    await expect(ready).resolves.toMatchObject({
+      message: "Worker client disposed before initial state.",
+    });
+    await expect(pending).resolves.toMatchObject({
+      message: "Worker client disposed before response.",
+    });
+    await expect(client.call("workerCounter", "increase")).rejects.toThrow(
+      "Worker client has been disposed.",
+    );
+  });
+
   it("rejects new calls immediately after the worker client is disposed", async () => {
     let posted = 0;
     const transport: WorkerTransport = {
@@ -1467,6 +1495,43 @@ describe("worker prototype", () => {
     expect(signal?.aborted).toBe(true);
     expect(events).toEqual(["setup", "abort"]);
     await expect(host.ready).rejects.toThrow("Cannot start an app after disposal.");
+  });
+
+  it("disposes the worker app when transport unsubscribe throws", async () => {
+    const unsubscribeError = new Error("host unsubscribe failed");
+    const events: string[] = [];
+
+    class DisposableWorkerModule {
+      onDispose(): void {
+        events.push("dispose");
+      }
+    }
+
+    defineModule(DisposableWorkerModule, { name: "disposableWorkerModule" });
+
+    const [memoryHostTransport] = createMemoryWorkerTransportPair();
+    const host = createWorkerApp({
+      providers: [DisposableWorkerModule],
+      transport: {
+        post(message) {
+          memoryHostTransport.post(message);
+        },
+        subscribe(listener) {
+          const unsubscribe = memoryHostTransport.subscribe(listener);
+          return () => {
+            unsubscribe();
+            throw unsubscribeError;
+          };
+        },
+      },
+    });
+    await host.ready;
+
+    await expect(host.dispose()).rejects.toBe(unsubscribeError);
+    expect(events).toEqual(["dispose"]);
+    expect(() => host.app.getModule(DisposableWorkerModule)).toThrow(
+      "Cannot access modules after app disposal has begun.",
+    );
   });
 
   it("rejects host readiness when disposed during startup before publication", async () => {
