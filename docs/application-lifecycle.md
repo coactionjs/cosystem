@@ -165,11 +165,15 @@ app.getModule(AdminCounter).increase();
   second call returns the same result).
 - Concurrent loads of the same `LazyModule` share one loader and initialization
   promise.
-- Providers and modules are staged in a temporary child scope. The module state,
-  facades, metadata, effects, and lookup maps become visible only after
-  `onInit` and (for a started app) `onStart` succeed.
-- A failed load disposes the temporary scope and rolls back all staged runtime
-  state. A later call retries from a fresh scope.
+- Providers and modules are staged in a temporary child scope. After `onInit`
+  and (for a started app) `onStart` succeed, the runtime installs the state and
+  performs each effect's initial synchronous run as one publication
+  transaction. State subscribers, watches, patches, and the app state version
+  observe only the committed result.
+- A failed load, including a synchronous effect-startup failure, discards that
+  publication, restores local module bindings for teardown, disposes the
+  temporary scope, and rolls back all staged runtime state. A later call retries
+  from a fresh scope.
 - Once app disposal begins, lazy loads reject instead of installing new modules.
 - A loader may return a provider, a provider array, or a module-namespace object
   (`{ default }` / `{ providers }`), which makes dynamic `import()` ergonomic:

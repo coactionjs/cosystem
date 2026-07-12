@@ -383,6 +383,10 @@ describe("app runtime", () => {
       return TransactionalLazyModule;
     });
     const app = createApp();
+    const committedStates: unknown[] = [];
+    const unsubscribe = app.store.subscribe(() => {
+      committedStates.push(structuredClone(app.store.getPureState()));
+    });
     const firstLoad = app.load(feature);
     const concurrentLoad = app.load(feature);
 
@@ -400,6 +404,8 @@ describe("app runtime", () => {
     expect(events).toEqual(["init:start", "init:done"]);
     expect(app.getModule(TransactionalLazyModule).count).toBe(2);
     expect(app.store.getPureState()).toEqual({ transactionalLazyModule: { count: 2 } });
+    expect(committedStates).toEqual([{ transactionalLazyModule: { count: 2 } }]);
+    unsubscribe();
   });
 
   it("rolls back failed lazy initialization and allows a clean retry", async () => {
@@ -467,17 +473,36 @@ describe("app runtime", () => {
 
   it("rolls back lazy module maps, state, effects, and scope when an effect fails", async () => {
     const events: string[] = [];
+    const patchEvents: unknown[] = [];
+    const stateEvents: unknown[] = [];
+    const storeSnapshots: unknown[] = [];
+    const watchEvents: string[] = [];
 
     class BrokenLazyEffect {
       value = 1;
+
+      get double(): number {
+        return this.value * 2;
+      }
+
+      cleanup(): void {
+        this.value += 1;
+      }
 
       explode(): void {
         events.push("effect");
         throw new Error("lazy effect boom");
       }
+
+      onDispose(): void {
+        this.cleanup();
+        events.push(`dispose:${String(this.double)}`);
+      }
     }
 
     defineModule(BrokenLazyEffect, {
+      actions: ["cleanup"],
+      computed: ["double"],
       effects: ["explode"],
       name: "brokenLazyEffect",
       state: ["value"],
@@ -489,13 +514,39 @@ describe("app runtime", () => {
           onModuleCreated(event) {
             events.push(`created:${event.name}`);
           },
+          onPatch(event) {
+            patchEvents.push(event);
+          },
+          onStateChange(event) {
+            stateEvents.push(structuredClone(event.state));
+          },
         },
       ],
     });
 
+    await app.ready;
+    const version = app.state.version;
+    const unsubscribe = app.store.subscribe(() => {
+      storeSnapshots.push(structuredClone(app.store.getPureState()));
+    });
+    const unwatch = app.watch(
+      () => Object.hasOwn(app.store.getPureState(), "brokenLazyEffect"),
+      (value, previous) => {
+        watchEvents.push(`${String(previous)}->${String(value)}`);
+      },
+    );
+
     await expect(app.load(lazyModule(() => BrokenLazyEffect))).rejects.toThrow("lazy effect boom");
 
-    expect(events).toEqual(["effect"]);
+    unsubscribe();
+    unwatch();
+
+    expect(events).toEqual(["effect", "dispose:4"]);
+    expect(patchEvents).toEqual([]);
+    expect(stateEvents).toEqual([]);
+    expect(storeSnapshots).toEqual([]);
+    expect(watchEvents).toEqual([]);
+    expect(app.state.version).toBe(version);
     expect(() => app.getModule(BrokenLazyEffect)).toThrow(CosystemError);
     expect(app.store.getPureState()).toEqual({});
   });

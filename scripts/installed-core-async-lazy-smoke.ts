@@ -245,6 +245,22 @@ defineModule(LazyCounter, {
   state: ["count"],
 });
 
+class BrokenLazyEffect {
+  constructor() {
+    this.value = 1;
+  }
+
+  explode() {
+    throw new Error("installed lazy effect boom");
+  }
+}
+
+defineModule(BrokenLazyEffect, {
+  effects: ["explode"],
+  name: "brokenLazyEffect",
+  state: ["value"],
+});
+
 const container = createContainer();
 
 container.provide(
@@ -340,6 +356,31 @@ const app = createApp({
 });
 
 await app.start();
+const failedLazySnapshots = [];
+const versionBeforeFailedLazyLoad = app.state.version;
+const stopFailedLazyWatch = app.store.subscribe(() => {
+  failedLazySnapshots.push(app.store.getPureState());
+});
+
+await expectRejects(
+  app.load(lazyModule(() => BrokenLazyEffect)),
+  "installed lazy effect boom",
+  "failed lazy effect load",
+);
+stopFailedLazyWatch();
+expectEqual(failedLazySnapshots.length, 0, "failed lazy load publishes no snapshots");
+expectEqual(app.state.version, versionBeforeFailedLazyLoad, "failed lazy load preserves version");
+expectEqual(
+  Object.hasOwn(app.store.getPureState(), "brokenLazyEffect"),
+  false,
+  "failed lazy state stays hidden",
+);
+expectThrowsInstance(
+  () => app.getModule(BrokenLazyEffect),
+  CosystemError,
+  "failed lazy module stays hidden",
+);
+
 expectThrowsInstance(
   () => app.get(AppSyncErrorToken),
   AsyncProviderInSyncResolutionError,
@@ -413,6 +454,20 @@ expectArrayEqual(
 
 function tick() {
   return Promise.resolve();
+}
+
+async function expectRejects(promise, expectedMessage, label) {
+  try {
+    await promise;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes(expectedMessage)) {
+      return;
+    }
+
+    throw new Error(label + ": expected " + expectedMessage + ", got " + formatError(error));
+  }
+
+  throw new Error(label + ": expected rejection");
 }
 
 function expectEqual(actual, expected, label) {

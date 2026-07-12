@@ -2,6 +2,8 @@ import {
   computed as createCoactionComputed,
   create as createCoactionStore,
   createReactiveTracker,
+  endBatch,
+  startBatch,
   type Store,
 } from "coaction";
 
@@ -235,6 +237,15 @@ type AppManagedPhase =
 interface AppManagedExecution {
   readonly app: RuntimeApp;
   readonly phase: AppManagedPhase;
+}
+
+interface StatePublication {
+  readonly listeners: Set<() => void>;
+  readonly mutationResults: unknown[];
+}
+
+interface StatePublicationControl {
+  discard(): void;
 }
 
 const runtimeModuleMetadataKey = Symbol.for("@cosystem/core/runtimeModule");
@@ -495,6 +506,7 @@ class RuntimeApp implements App {
   private readonly moduleByName = new Map<string, ModuleBinding>();
   private readonly pluginRecords: readonly PluginRecord[];
   private readonly testInspector: MutableTestInspector | undefined;
+  private readonly readRawStoreState: () => RootState;
   private readonly effectDisposers: (() => void)[] = [];
   private readonly pendingEffects = new Set<Promise<void>>();
   private readonly stateProxyCache = new WeakMap<object, object>();
@@ -514,6 +526,7 @@ class RuntimeApp implements App {
   private actionDepth = 0;
   private internalMutationDepth = 0;
   private draftMutationDepth = 0;
+  private statePublication: StatePublication | undefined;
 
   constructor(options: {
     readonly container: Container;
@@ -531,6 +544,7 @@ class RuntimeApp implements App {
     this.modules = options.modules;
     this.state = options.state;
     this.store = options.store;
+    this.readRawStoreState = options.store.getPureState.bind(options.store);
     this.testInspector = options.testInspector;
     this.pluginRecords = options.plugins.map((plugin, index) => ({
       context: new RuntimePluginContext({
@@ -911,11 +925,61 @@ class RuntimeApp implements App {
       this.registerModules(loadedModules);
       scopeRegistered = true;
       this.dynamicScopes.push(scopeContainer);
-      stateInstalled = true;
-      this.installModuleState(loadedModules, stagedState);
+      this.runStatePublicationTransaction((publication) => {
+        try {
+          stateInstalled = true;
+          this.installModuleState(loadedModules, stagedState);
 
-      effectStartIndex = this.effectDisposers.length;
-      this.startEffects(loadedModules);
+          effectStartIndex = this.effectDisposers.length;
+          this.startEffects(loadedModules);
+        } catch (error) {
+          const publicationRollbackErrors: unknown[] = [];
+          const rollbackEffectStartIndex = effectStartIndex;
+
+          if (rollbackEffectStartIndex !== undefined) {
+            runSyncCleanupPhase(publicationRollbackErrors, () =>
+              this.stopEffectsFrom(rollbackEffectStartIndex),
+            );
+            effectStartIndex = undefined;
+          }
+
+          const rollbackState: RootState = { ...stagedState };
+          const currentState = this.readRawStoreState();
+
+          for (const moduleBinding of loadedModules) {
+            if (currentState[moduleBinding.name] !== undefined) {
+              rollbackState[moduleBinding.name] = currentState[moduleBinding.name]!;
+            }
+          }
+
+          runSyncCleanupPhase(publicationRollbackErrors, () =>
+            this.restoreModuleBindingsForRollback(loadedModules, rollbackState),
+          );
+
+          if (stateInstalled) {
+            try {
+              this.uninstallModuleState(loadedModules);
+              stateInstalled = false;
+              publication.discard();
+            } catch (rollbackError) {
+              collectCleanupError(publicationRollbackErrors, rollbackError);
+            }
+          } else {
+            publication.discard();
+          }
+
+          if (publicationRollbackErrors.length > 0) {
+            // eslint-disable-next-line preserve-caught-error -- AggregateError.errors and cause both retain the startup failure.
+            throw new AggregateError(
+              [error, ...publicationRollbackErrors],
+              error instanceof Error ? error.message : "Effect startup and rollback failed.",
+              { cause: error },
+            );
+          }
+
+          throw error;
+        }
+      });
       this.runModuleCreatedHooks(loadedModules);
 
       const result: LazyModuleLoadResult = {
@@ -1768,7 +1832,7 @@ class RuntimeApp implements App {
     ) => unknown;
     const originalApply = this.store.apply.bind(this.store) as StoreApply;
     const originalGetState = this.store.getState.bind(this.store);
-    const originalGetPureState = this.store.getPureState.bind(this.store);
+    const originalSubscribe = this.store.subscribe.bind(this.store);
 
     this.store.setState = ((...args: Parameters<StoreSetState>) => {
       this.assertStoreMutationAllowed("setState");
@@ -1793,9 +1857,32 @@ class RuntimeApp implements App {
     this.store.getState = (() =>
       this.guardStateValue(originalGetState())) as Store<RootState>["getState"];
     this.store.getPureState = (() => {
-      const state = originalGetPureState();
+      const state = this.readRawStoreState();
       return this.devOptions.strictActions === true ? this.createStrictStateSnapshot(state) : state;
     }) as Store<RootState>["getPureState"];
+    this.store.subscribe = ((listener: () => void) => {
+      let active = true;
+      const notify = () => {
+        if (active) {
+          listener();
+        }
+      };
+      const unsubscribe = originalSubscribe(() => {
+        const publication = this.statePublication;
+
+        if (publication === undefined) {
+          notify();
+        } else {
+          publication.listeners.add(notify);
+        }
+      });
+
+      return () => {
+        active = false;
+        this.statePublication?.listeners.delete(notify);
+        unsubscribe();
+      };
+    }) as Store<RootState>["subscribe"];
   }
 
   private assertStoreMutationAllowed(operation: "apply" | "setState"): void {
@@ -1825,6 +1912,44 @@ class RuntimeApp implements App {
       return callback();
     } finally {
       this.internalMutationDepth -= 1;
+    }
+  }
+
+  private runStatePublicationTransaction<T>(callback: (control: StatePublicationControl) => T): T {
+    if (this.statePublication !== undefined) {
+      throw new CosystemError("Cannot nest state publication transactions.");
+    }
+
+    const publication: StatePublication = {
+      listeners: new Set(),
+      mutationResults: [],
+    };
+    let publish = true;
+    this.statePublication = publication;
+    startBatch();
+
+    try {
+      return callback({
+        discard() {
+          publish = false;
+        },
+      });
+    } finally {
+      try {
+        endBatch();
+      } finally {
+        this.statePublication = undefined;
+
+        if (publish) {
+          for (const listener of publication.listeners) {
+            listener();
+          }
+
+          for (const result of publication.mutationResults) {
+            this.recordMutationResult(result);
+          }
+        }
+      }
     }
   }
 
@@ -1917,6 +2042,11 @@ class RuntimeApp implements App {
   }
 
   private recordMutationResult(result: unknown): void {
+    if (this.statePublication !== undefined) {
+      this.statePublication.mutationResults.push(result);
+      return;
+    }
+
     if (!Array.isArray(result) || result.length < 3) {
       return;
     }
@@ -2017,6 +2147,52 @@ class RuntimeApp implements App {
   private detachRuntimeMetadata(modules: readonly ModuleBinding[]): void {
     for (const moduleBinding of modules) {
       delete moduleBinding.instance[runtimeModuleMetadataKey];
+    }
+  }
+
+  private restoreModuleBindingsForRollback(
+    modules: readonly ModuleBinding[],
+    rootState: RootState,
+  ): void {
+    for (const moduleBinding of modules) {
+      const slice = rootState[moduleBinding.name] ?? {};
+
+      for (const property of moduleBinding.metadata.state) {
+        delete moduleBinding.instance[property];
+
+        if (!Reflect.set(moduleBinding.instance, property, slice[property])) {
+          Object.defineProperty(moduleBinding.instance, property, {
+            configurable: true,
+            enumerable: true,
+            value: slice[property],
+            writable: true,
+          });
+        }
+      }
+
+      for (const property of moduleBinding.metadata.computed) {
+        const getter = moduleBinding.originalComputed.get(property);
+
+        if (getter !== undefined) {
+          Object.defineProperty(moduleBinding.instance, property, {
+            configurable: true,
+            enumerable: true,
+            get: () => getter.call(moduleBinding.instance),
+          });
+        }
+      }
+
+      for (const property of moduleBinding.metadata.actions) {
+        const action = moduleBinding.originalActions.get(property);
+
+        if (action !== undefined) {
+          Object.defineProperty(moduleBinding.instance, property, {
+            configurable: true,
+            value: action,
+            writable: true,
+          });
+        }
+      }
     }
   }
 
@@ -2329,11 +2505,22 @@ async function runCleanupPhase(
   try {
     await cleanup();
   } catch (error) {
-    if (error instanceof AggregateError) {
-      errors.push(...error.errors);
-      return;
-    }
+    collectCleanupError(errors, error);
+  }
+}
 
+function runSyncCleanupPhase(errors: unknown[], cleanup: () => void): void {
+  try {
+    cleanup();
+  } catch (error) {
+    collectCleanupError(errors, error);
+  }
+}
+
+function collectCleanupError(errors: unknown[], error: unknown): void {
+  if (error instanceof AggregateError) {
+    errors.push(...error.errors);
+  } else {
     errors.push(error);
   }
 }

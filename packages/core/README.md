@@ -385,8 +385,10 @@ loading it. Call `await app.load()` to load all pending lazy modules, or
 array, or a module-namespace object (`{ default }` / `{ providers }`), which
 makes dynamic `import()` ergonomic. Concurrent calls for the same entry share
 one in-flight load. Lifecycle work runs in a temporary scope; state, facades,
-effects, and module lookups are committed only after initialization/startup
-succeeds. Failed loads dispose and roll back the scope so a later call can retry.
+effects, and module lookups are committed only after initialization, startup,
+and the effects' initial synchronous run succeed. A failed effect startup emits
+no transient state, watch, patch, or version update. Failed loads dispose and
+roll back the scope so a later call can retry.
 
 ## Plugins
 
