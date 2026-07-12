@@ -9,6 +9,7 @@ import {
   createWorkerApp,
   createWorkerClient,
   defineModule,
+  lazyModule,
   type DataTransportLike,
   type PostMessageEndpoint,
   type PostMessageEventLike,
@@ -299,6 +300,67 @@ describe("worker prototype", () => {
       },
     });
     expect(client.select(selectWorkerCount)).toBe(2);
+
+    client.dispose();
+    await host.dispose();
+  });
+
+  it("publishes one worker version for an atomic lazy effect commit", async () => {
+    class AtomicLazyWorkerModule {
+      count = 0;
+
+      initializeCount(): void {
+        if (this.count === 0) {
+          this.setCount(1);
+        }
+      }
+
+      setCount(value: number): void {
+        this.count = value;
+      }
+    }
+
+    defineModule(AtomicLazyWorkerModule, {
+      actions: ["setCount"],
+      effects: ["initializeCount"],
+      name: "atomicLazyWorkerModule",
+      state: ["count"],
+    });
+
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const conflicts: WorkerConflictEvent[] = [];
+    const messages: WorkerStateMessage[] = [];
+    const client = createWorkerClient({
+      onConflict(event) {
+        conflicts.push(event);
+      },
+      transport: clientTransport,
+    });
+    const host = createWorkerApp({
+      sync: "patch",
+      transport: hostTransport,
+    });
+
+    client.subscribe((message) => {
+      messages.push(message);
+    });
+
+    await client.ready;
+    await host.app.load(lazyModule(() => AtomicLazyWorkerModule));
+
+    expect(host.app.store.getPureState()).toEqual({
+      atomicLazyWorkerModule: { count: 1 },
+    });
+    expect(client.getState()).toEqual({
+      atomicLazyWorkerModule: { count: 1 },
+    });
+    expect(messages).toHaveLength(2);
+    expect(messages[1]).toMatchObject({
+      patches: [{ op: "add" }, { op: "replace" }],
+      sync: "patch",
+      version: 1,
+    });
+    expect(conflicts).toEqual([]);
 
     client.dispose();
     await host.dispose();

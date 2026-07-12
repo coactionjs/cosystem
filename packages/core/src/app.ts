@@ -2036,9 +2036,7 @@ class RuntimeApp implements App {
             }
           }
 
-          for (const result of publication.mutationResults) {
-            this.recordMutationResult(result);
-          }
+          this.recordMutationResults(publication.mutationResults);
         }
       }
     }
@@ -2147,11 +2145,27 @@ class RuntimeApp implements App {
       return;
     }
 
-    if (!Array.isArray(result) || result.length < 3) {
-      return;
-    }
+    this.recordMutationResults([result]);
+  }
 
-    const patches = result[1] as readonly unknown[];
+  private recordMutationResults(results: readonly unknown[]): void {
+    const patches: unknown[] = [];
+    const inversePatches: unknown[] = [];
+
+    for (const result of results) {
+      if (!Array.isArray(result) || result.length < 3) {
+        continue;
+      }
+
+      const resultPatches = result[1] as readonly unknown[];
+
+      if (resultPatches.length === 0) {
+        continue;
+      }
+
+      patches.push(...resultPatches);
+      inversePatches.unshift(...(result[2] as readonly unknown[]));
+    }
 
     if (patches.length === 0) {
       return;
@@ -2159,7 +2173,7 @@ class RuntimeApp implements App {
 
     this.testInspector?.recordPatch(patches);
     this.emitPatch({
-      inversePatches: result[2] as readonly unknown[],
+      inversePatches,
       patches,
     });
   }
