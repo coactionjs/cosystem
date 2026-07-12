@@ -28,6 +28,7 @@ interface PluginContext {
   readonly name: string;
   readonly signal: AbortSignal;
   emitError(error: unknown, phase?: string): void;
+  inject<TToken extends InjectionToken>(token: TToken): TokenValue<TToken>;
   onDispose(disposer: () => void | Promise<void>): void;
   watch<T>(
     read: () => T,
