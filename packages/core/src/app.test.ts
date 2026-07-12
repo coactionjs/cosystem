@@ -2897,4 +2897,31 @@ describe("app runtime", () => {
 
     expect(logger.messages).toEqual(["count:1"]);
   });
+
+  it("allows hook-managed app views to parent child apps", async () => {
+    const ParentService = token<string>("ManagedParentService");
+    let child: ReturnType<typeof createApp> | undefined;
+    const parent = createApp({
+      plugins: [
+        {
+          async setup(runtimeApp) {
+            await Promise.resolve();
+            child = createApp({ parent: runtimeApp });
+          },
+        },
+      ],
+      providers: [provide(ParentService, { useValue: "from-parent" })],
+    });
+
+    await parent.ready;
+
+    if (child === undefined) {
+      throw new Error("Expected setup to create a child app.");
+    }
+
+    expect(child.get(ParentService)).toBe("from-parent");
+
+    await child.dispose();
+    await parent.dispose();
+  });
 });

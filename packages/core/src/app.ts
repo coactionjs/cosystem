@@ -1838,7 +1838,7 @@ class RuntimeApp implements App {
   }
 
   private createManagedAppView(phase: AppManagedPhase, isActive: () => boolean): App {
-    return new Proxy(this, {
+    const view = new Proxy(this, {
       get: (target, property) => {
         if (
           property === "ready" &&
@@ -1876,6 +1876,8 @@ class RuntimeApp implements App {
         return value.bind(target);
       },
     });
+    appContainerMap.set(view, this.#container);
+    return view;
   }
 
   private getActiveManagedPhase(includeSuspendedFallback = true): AppManagedPhase | undefined {
