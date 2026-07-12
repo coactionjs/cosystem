@@ -209,8 +209,10 @@ provide(Service, {
 });
 ```
 
-`inject()` only works while a provider is being resolved (or inside an app hook).
-Outside that window it throws `InjectContextError`.
+`inject()` only works while a provider is being resolved, during plugin `setup`,
+or inside a module lifecycle hook. The lifecycle context spans the hook's full
+async execution, so `inject()` still works after an `await`. Outside those
+windows it throws `InjectContextError`.
 
 ## The container
 

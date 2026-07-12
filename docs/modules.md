@@ -163,12 +163,14 @@ class Service {
 }
 ```
 
-- `onInit` runs during app creation (tracked by the internal init promise that
-  `start()` awaits) — good for wiring that needs the full module graph.
+- `onInit` runs during app creation (tracked by `app.ready`, which `start()` also
+  awaits) — good for wiring that needs the full module graph.
 - `onStart` runs when you call `app.start()` — good for kicking off subscriptions
   or fetching initial data.
-- `onStop` and `onDispose` run in reverse order. They are fail-fast: if one hook
-  throws, later hooks in that phase do not run.
+- `onStop` and `onDispose` run in reverse order. Teardown is best-effort: hook
+  failures are collected while the remaining modules still run.
+- Every lifecycle hook may call `inject()` after an `await`. Calling
+  `app.start()` from a lifecycle hook is rejected to prevent phase reentry.
 
 See [Application Lifecycle](./application-lifecycle.md) for the exact ordering
 relative to plugins and effects.

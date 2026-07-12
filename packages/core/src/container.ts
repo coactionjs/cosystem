@@ -161,9 +161,9 @@ class RuntimeContainer implements ContainerImpl {
     this.frozen = true;
   }
 
-  runWithResolutionContext<T>(callback: () => T): T {
+  runWithResolutionContext<T>(callback: () => T, preserveAsync = false): T {
     this.assertActive();
-    return runWithInjectContext(this.createResolutionContext("sync"), callback);
+    return runWithInjectContext(this.createResolutionContext("sync"), callback, preserveAsync);
   }
 
   async dispose(): Promise<void> {

@@ -72,7 +72,7 @@ describe("devtools plugin", () => {
     });
   });
 
-  it("trims old timeline events when maxEvents is reached", () => {
+  it("trims old timeline events when maxEvents is reached", async () => {
     const devtools = createDevtoolsPlugin({
       maxEvents: 2,
       now: () => 1,
@@ -82,13 +82,14 @@ describe("devtools plugin", () => {
       providers: [Counter],
     });
 
+    await app.ready;
     app.getModule(Counter).increase();
 
     expect(devtools.getTimeline()).toHaveLength(2);
     expect(devtools.getTimeline().map((event) => event.type)).toEqual(["patch", "action:end"]);
   });
 
-  it("returns timeline snapshots", () => {
+  it("returns timeline snapshots", async () => {
     const devtools = createDevtoolsPlugin({
       now: () => 1,
     });
@@ -97,6 +98,7 @@ describe("devtools plugin", () => {
       providers: [Counter],
     });
 
+    await app.ready;
     const snapshot = devtools.getTimeline();
 
     app.getModule(Counter).increase();
@@ -106,7 +108,7 @@ describe("devtools plugin", () => {
     expect(devtools.getTimeline()).toEqual([]);
   });
 
-  it("publishes timeline events to subscribers", () => {
+  it("publishes timeline events to subscribers", async () => {
     const devtools = createDevtoolsPlugin({
       maxEvents: 2,
       now: () => 1,
@@ -120,6 +122,7 @@ describe("devtools plugin", () => {
       providers: [Counter],
     });
 
+    await app.ready;
     app.getModule(Counter).increase();
     unsubscribe();
     app.getModule(Counter).increase();
@@ -128,7 +131,7 @@ describe("devtools plugin", () => {
     expect(devtools.getTimeline().map((event) => event.type)).toEqual(["patch", "action:end"]);
   });
 
-  it("records runtime errors", () => {
+  it("records runtime errors", async () => {
     const devtools = createDevtoolsPlugin({
       now: () => 1,
     });
@@ -137,6 +140,7 @@ describe("devtools plugin", () => {
       providers: [FailingAction],
     });
 
+    await app.ready;
     expect(() => app.getModule(FailingAction).fail()).toThrow("boom");
 
     expect(devtools.getTimeline().map((event) => event.type)).toEqual([

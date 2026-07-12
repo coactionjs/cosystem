@@ -5,6 +5,7 @@ import {
   type Store,
 } from "coaction";
 
+import { createRuntimeAsyncContext } from "./async-context.js";
 import { createContainer } from "./container.js";
 import { CosystemError, DuplicateProviderError } from "./errors.js";
 import {
@@ -59,6 +60,7 @@ export interface AppScope {
 }
 
 export interface App {
+  readonly ready: Promise<void>;
   readonly state: AppState;
   readonly started: boolean;
   readonly store: Store<RootState>;
@@ -214,6 +216,7 @@ interface LifecycleModule {
 
 const runtimeModuleMetadataKey = Symbol.for("@cosystem/core/runtimeModule");
 const appContainerMap = new WeakMap<App, Container>();
+const lifecycleExecutionContext = createRuntimeAsyncContext<object>();
 
 export function createApp(options: CreateAppOptions = {}): App {
   return createAppInternal(options);
@@ -416,6 +419,8 @@ class RuntimeApp implements App {
   private isStarted = false;
   private isDisposing = false;
   private isDisposed = false;
+  private readonly lifecycleContext = {};
+  private activeLifecycleHooks = 0;
   private actionDepth = 0;
   private internalMutationDepth = 0;
   private draftMutationDepth = 0;
@@ -465,6 +470,10 @@ class RuntimeApp implements App {
 
   get started(): boolean {
     return this.isStarted;
+  }
+
+  get ready(): Promise<void> {
+    return this.initPromise;
   }
 
   get<T>(token: InjectionToken<T>): T {
@@ -572,13 +581,19 @@ class RuntimeApp implements App {
     ) as T;
   }
 
-  async start(): Promise<void> {
+  start(): Promise<void> {
+    if (this.isInsideLifecycleHook()) {
+      const error = new CosystemError("Cannot call start() from an app lifecycle hook.");
+      this.emitError(error, { phase: "start" });
+      return createObservedRejection(error);
+    }
+
     if (this.isStarted) {
-      return;
+      return Promise.resolve();
     }
 
     this.startPromise ??= this.startApp();
-    await this.startPromise;
+    return this.startPromise;
   }
 
   private async startApp(): Promise<void> {
@@ -628,7 +643,13 @@ class RuntimeApp implements App {
     const errors: unknown[] = [];
 
     if (!this.isInitialized) {
-      this.abortPluginContexts();
+      // Initialization is scheduled before createApp() returns. Let its first
+      // turn enter plugin setup before aborting so setup cannot miss the signal.
+      await Promise.resolve();
+
+      if (!this.isInitialized) {
+        this.abortPluginContexts();
+      }
     }
 
     try {
@@ -878,31 +899,33 @@ class RuntimeApp implements App {
   }
 
   init(): void {
-    this.initPromise = (async () => {
-      try {
-        await Promise.all(
-          this.pluginRecords.map((record) =>
-            this.runWithAppInjectContext(() => record.plugin.setup?.(this, record.context)),
-          ),
-        );
+    this.initPromise = Promise.resolve().then(() => this.initialize());
+    this.initPromise.catch(() => undefined);
+  }
 
-        if (this.isDisposing || this.isDisposed) {
-          return;
-        }
-
-        await this.runLifecycle("onInit");
-
-        if (this.isDisposing || this.isDisposed) {
-          return;
-        }
-
-        this.startEffects();
-        this.isInitialized = true;
-      } catch (error) {
-        this.emitError(error, { phase: "init" });
-        throw error;
+  private async initialize(): Promise<void> {
+    try {
+      for (const record of this.pluginRecords) {
+        // eslint-disable-next-line no-await-in-loop -- setup order is deterministic and preserves async inject context.
+        await this.runWithAppLifecycleContext(() => record.plugin.setup?.(this, record.context));
       }
-    })();
+
+      if (this.isDisposing || this.isDisposed) {
+        return;
+      }
+
+      await this.runLifecycle("onInit");
+
+      if (this.isDisposing || this.isDisposed) {
+        return;
+      }
+
+      this.startEffects();
+      this.isInitialized = true;
+    } catch (error) {
+      this.emitError(error, { phase: "init" });
+      throw error;
+    }
   }
 
   private bindState(moduleBinding: ModuleBinding): void {
@@ -1196,7 +1219,7 @@ class RuntimeApp implements App {
     for (const moduleBinding of orderedModules) {
       const lifecycle = moduleBinding.instance as LifecycleModule;
       // eslint-disable-next-line no-await-in-loop -- lifecycle hooks run in deterministic module order.
-      await this.runWithAppInjectContext(() => lifecycle[method]?.(), container);
+      await this.runWithAppLifecycleContext(() => lifecycle[method]?.(), container);
     }
   }
 
@@ -1212,7 +1235,7 @@ class RuntimeApp implements App {
 
       try {
         // eslint-disable-next-line no-await-in-loop -- teardown hooks run in deterministic module order.
-        await this.runWithAppInjectContext(() => lifecycle[method]?.(), container);
+        await this.runWithAppLifecycleContext(() => lifecycle[method]?.(), container);
       } catch (error) {
         errors.push(error);
       }
@@ -1463,6 +1486,45 @@ class RuntimeApp implements App {
 
   private runWithAppInjectContext<T>(callback: () => T, container: Container = this.#container): T {
     return (container as ContainerImpl).runWithResolutionContext(callback);
+  }
+
+  private runWithAppLifecycleContext<T>(
+    callback: () => T,
+    container: Container = this.#container,
+  ): T {
+    if (lifecycleExecutionContext !== undefined) {
+      return lifecycleExecutionContext.run(this.lifecycleContext, () =>
+        (container as ContainerImpl).runWithResolutionContext(callback, true),
+      );
+    }
+
+    this.activeLifecycleHooks += 1;
+
+    const finish = () => {
+      this.activeLifecycleHooks -= 1;
+    };
+
+    try {
+      const result = (container as ContainerImpl).runWithResolutionContext(callback, true);
+
+      if (isPromiseLike(result)) {
+        return Promise.resolve(result).finally(finish) as T;
+      }
+
+      finish();
+      return result;
+    } catch (error) {
+      finish();
+      throw error;
+    }
+  }
+
+  private isInsideLifecycleHook(): boolean {
+    if (lifecycleExecutionContext !== undefined) {
+      return lifecycleExecutionContext.getStore() === this.lifecycleContext;
+    }
+
+    return this.activeLifecycleHooks > 0;
   }
 
   private wrapStoreMutations(): void {
@@ -1978,6 +2040,14 @@ async function runCleanupPhase(
     errors.push(error);
   }
 }
+
+/* eslint-disable promise/no-promise-in-callback -- this helper deliberately returns an observed rejection. */
+function createObservedRejection(error: unknown): Promise<never> {
+  const rejection = Promise.reject(error);
+  rejection.catch(() => undefined);
+  return rejection;
+}
+/* eslint-enable promise/no-promise-in-callback */
 
 function getAppContainer(app: App): Container {
   const container = appContainerMap.get(app);

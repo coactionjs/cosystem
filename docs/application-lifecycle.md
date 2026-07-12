@@ -44,10 +44,10 @@ createApp()
   9. instantiate other eager providers
   10. run onModuleCreated plugin hooks
   11. init():
-       - run each plugin's setup(app, context)
+       - run each plugin's setup(app, context) in registration order
        - run module onInit() hooks
        - start effects
-     (steps under init() are tracked by an internal init promise)
+     (steps under init() are tracked by the stable app.ready promise)
 
 app.start()
   - await the init promise
@@ -74,11 +74,24 @@ app.dispose()
 
 A few consequences worth internalizing:
 
+- **Async initialization starts after `createApp()` returns.** Module creation
+  and `onModuleCreated` are synchronous; plugin `setup`, `onInit`, and effects
+  begin on the next microtask. Await `ready` (or `start()`) before work that
+  depends on those phases.
 - **`onInit` and effects run during creation**, not during `start()`. Many apps
   never need `start()` at all — call it only when you have explicit startup work
   in `onStart` hooks.
 - **`start()` awaits init.** If a plugin's `setup` (e.g. storage hydration) is
   async, `start()` waits for it.
+- **`ready` exposes init completion.** `app.ready` is one stable promise. It
+  rejects with initialization failures; the runtime also observes that
+  rejection internally so creating an app without starting or awaiting it does
+  not emit an unhandled rejection.
+- **Lifecycle reentry is rejected.** Calling `app.start()` from plugin `setup`
+  or a module lifecycle hook would create a phase cycle, so it returns an
+  internally observed rejection. Call `start()` from application bootstrap.
+- **Lifecycle injection survives `await`.** `inject()` remains scoped to the
+  current app throughout async plugin setup and module lifecycle hooks.
 - **Teardown hooks run in reverse order and best-effort.** Errors from module
   hooks, effects, scopes, plugins, providers, and the store are collected while
   the remaining cleanup continues, then re-thrown together as an
@@ -94,6 +107,7 @@ A few consequences worth internalizing:
 app.state.version; // increments on every store change
 app.started; // boolean
 app.store.getPureState(); // full plain state tree
+await app.ready; // plugin setup and module onInit are complete
 
 app.getModule(Counter); // bound module facade
 app.getModuleByName("counter"); // look up by registered name

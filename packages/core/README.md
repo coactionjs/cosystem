@@ -176,9 +176,12 @@ const app = createApp({
 
 `@Module` providers are instantiated during `createApp()` so their state can be
 bound to the store. Plugin `setup`, module `onInit` hooks, and effects are kicked
-off during creation (tracked by an internal init promise that `start()` also
-awaits). `app.start()` then runs `onStart` hooks and marks the app started; many
-apps can skip `start()` entirely if they have no startup work.
+off on the next microtask and tracked by the stable `app.ready` promise.
+`app.start()` awaits that same initialization, then runs `onStart` hooks and
+marks the app started; many apps can skip `start()` entirely if they have no
+startup work. Initialization failures reject `app.ready` even though the runtime
+observes them internally to prevent an unhandled rejection when an app is never
+started.
 
 ## Dependency injection
 
@@ -222,7 +225,9 @@ provide(Service, {
 });
 ```
 
-`inject()` throws `InjectContextError` outside of an active resolution.
+`inject()` throws `InjectContextError` outside of an active resolution. Plugin
+`setup` and module lifecycle hooks also provide an injection context for their
+full async execution, including after an `await`.
 
 ### Container access
 
@@ -324,6 +329,11 @@ class Service {
   onDispose(): void | Promise<void> {} // during app.dispose()
 }
 ```
+
+Lifecycle hooks may call `inject()` before or after an `await`. Do not call
+`app.start()` from plugin setup or a module lifecycle hook: the runtime rejects
+that reentry to preserve phase ordering. Call `start()` from the application
+bootstrap instead.
 
 `onStop`/`onDispose` run in reverse order. Teardown is best-effort across every
 module and cleanup phase; failures are reported together as an `AggregateError`
@@ -562,6 +572,7 @@ root, alongside their TypeScript types (`App`, `CreateAppOptions`, `Plugin`,
 
 ```ts
 interface App {
+  readonly ready: Promise<void>;
   readonly state: { readonly version: number };
   readonly started: boolean;
   readonly store: Store<RootState>;

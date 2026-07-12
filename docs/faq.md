@@ -20,10 +20,11 @@ parameter decorators. You declare dependencies explicitly with `deps` (or
 ## Do I need to call `app.start()`?
 
 Often not. Plugin `setup`, module `onInit` hooks, and effects all run during
-`createApp()` (tracked by an internal init promise). `start()` exists to run
-`onStart` hooks and mark the app started — call it only when you have explicit
-startup work, or when a plugin's async `setup` (like storage hydration) must
-finish first. See [Application Lifecycle](./application-lifecycle.md).
+`createApp()` (tracked by `app.ready`). `start()` exists to await that
+initialization, run `onStart` hooks, and mark the app started — call it only when
+you have explicit startup work. Await `app.ready` directly when you only need an
+async setup task such as storage hydration. See
+[Application Lifecycle](./application-lifecycle.md).
 
 ## How is this different from using Coaction directly?
 

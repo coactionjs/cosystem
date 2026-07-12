@@ -51,7 +51,7 @@ const app = createApp({
 | Hook                      | Fires when                                                                                         |
 | ------------------------- | -------------------------------------------------------------------------------------------------- |
 | `providers`               | Before app providers are registered. Providers are for services/tokens only, not CoSystem modules. |
-| `setup(app, context)`     | During app init (before `onInit`); may be async — `start()` awaits it.                             |
+| `setup(app, context)`     | During app init (before `onInit`), in registration order; `ready` and `start()` await it.          |
 | `onModuleCreated(event)`  | After each module instance is created and bound.                                                   |
 | `onActionStart(event)`    | When an action begins.                                                                             |
 | `onActionEnd(event)`      | When an action settles (includes `error` on failure).                                              |
@@ -62,6 +62,9 @@ const app = createApp({
 
 See [Application Lifecycle](./application-lifecycle.md#phase-ordering) for the
 exact ordering of `setup`, `onInit`, and effects.
+
+Async setup may call `inject()` before or after an `await`. It must not call
+`app.start()`; lifecycle reentry is rejected to avoid an initialization cycle.
 
 ## Event payloads
 

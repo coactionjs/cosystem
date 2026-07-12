@@ -163,10 +163,11 @@ const app: App = createApp({
 });
 const scope = app.createScope();
 const container = createContainer({ strictScopes: false });
+const ready: Promise<void> = app.ready;
 
 container.provide(ScopedService);
 
-void [app.getAll(MultiToken), scope.container.get(ScopedService), container.get(ScopedService)];
+void [ready, app.getAll(MultiToken), scope.container.get(ScopedService), container.get(ScopedService)];
 `;
 }
 
@@ -175,6 +176,7 @@ function createRuntimeConsumerSource() {
   createApp,
   createContainer,
   defineModule,
+  inject,
   provide,
   token,
 } from "@cosystem/core";
@@ -183,6 +185,7 @@ const events = [];
 const disposeEvents = [];
 const MultiToken = token("MultiToken");
 const EagerToken = token("EagerToken");
+const LifecycleEventToken = token("LifecycleEventToken");
 
 class LifecycleModule {
   value = 0;
@@ -192,20 +195,24 @@ class LifecycleModule {
     return this.value;
   }
 
-  onInit() {
-    events.push("module:init");
+  async onInit() {
+    await Promise.resolve();
+    inject(LifecycleEventToken)("module:init");
   }
 
-  onStart() {
-    events.push("module:start");
+  async onStart() {
+    await Promise.resolve();
+    inject(LifecycleEventToken)("module:start");
   }
 
-  onStop() {
-    events.push("module:stop");
+  async onStop() {
+    await Promise.resolve();
+    inject(LifecycleEventToken)("module:stop");
   }
 
-  onDispose() {
-    events.push("module:dispose");
+  async onDispose() {
+    await Promise.resolve();
+    inject(LifecycleEventToken)("module:dispose");
   }
 }
 
@@ -247,8 +254,13 @@ const app = createApp({
       onModuleCreated(event, context) {
         events.push("created:" + context.name + ":" + event.name);
       },
-      setup(_app, context) {
+      async setup(runtimeApp, context) {
         events.push("plugin:setup:" + context.name);
+        await Promise.resolve();
+        inject(LifecycleEventToken)("plugin:inject");
+        await runtimeApp.start().catch((error) => {
+          events.push("plugin:start-rejected:" + error.message);
+        });
         context.onDispose(() => {
           events.push("plugin:onDispose");
         });
@@ -260,6 +272,11 @@ const app = createApp({
   ],
   providers: [
     LifecycleModule,
+    provide(LifecycleEventToken, {
+      useValue(event) {
+        events.push(event);
+      },
+    }),
     provide(ScopedService, {
       dispose(value) {
         disposeEvents.push("scoped:" + String(value.id));
@@ -287,7 +304,10 @@ const app = createApp({
   ],
 });
 
+const ready = app.ready;
+expectSame(app.ready, ready, "app readiness promise is stable");
 await app.start();
+await ready;
 expectEqual(app.getModule(LifecycleModule).increase(2), 2, "module action returns updated value");
 expectEqual(app.get(LifecycleModule).value, 2, "module state is mutated through action");
 expectArrayEqual(app.getAll(MultiToken), ["first", "second"], "multi provider order");
@@ -360,6 +380,8 @@ expectArrayEqual(
   [
     "created:lifecyclePlugin:lifecycle",
     "plugin:setup:lifecyclePlugin",
+    "plugin:inject",
+    "plugin:start-rejected:Cannot call start() from an app lifecycle hook.",
     "module:init",
     "module:start",
     "module:stop",

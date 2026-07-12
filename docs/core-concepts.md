@@ -183,6 +183,7 @@ and exposes a small surface:
 app.getModule(Counter); // the bound module facade
 app.get(SomeToken); // resolve any provider
 app.watch(read, listener); // subscribe to derived values
+await app.ready; // wait for setup and onInit
 await app.start(); // run onStart hooks (optional)
 await app.dispose(); // tear everything down
 ```

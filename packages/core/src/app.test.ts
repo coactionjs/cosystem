@@ -1488,6 +1488,182 @@ describe("app runtime", () => {
     ]);
   });
 
+  it("exposes stable readiness and internally observes initialization failures", async () => {
+    const initError = new Error("ready init boom");
+    const unhandled: unknown[] = [];
+    const onUnhandled = (error: unknown) => {
+      unhandled.push(error);
+    };
+
+    class FailingReadyModule {
+      async onInit(): Promise<void> {
+        await Promise.resolve();
+        throw initError;
+      }
+    }
+
+    defineModule(FailingReadyModule, {
+      name: "failingReadyModule",
+    });
+
+    process.on("unhandledRejection", onUnhandled);
+
+    try {
+      const app = createApp({ providers: [FailingReadyModule] });
+      const ready = app.ready;
+
+      expect(app.ready).toBe(ready);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+      await expect(ready).rejects.toBe(initError);
+      await expect(app.dispose()).resolves.toBeUndefined();
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("rejects start reentry from async lifecycle hooks without reordering phases", async () => {
+    const events: string[] = [];
+
+    class OrderedLifecycleModule {
+      onInit(): void {
+        events.push("module:init");
+      }
+
+      onStart(): void {
+        events.push("module:start");
+      }
+    }
+
+    defineModule(OrderedLifecycleModule, {
+      name: "orderedLifecycleModule",
+    });
+
+    const app = createApp({
+      plugins: [
+        {
+          async setup(runtimeApp) {
+            events.push("plugin:setup");
+            await Promise.resolve();
+
+            await runtimeApp.start().catch((error: unknown) => {
+              events.push(error instanceof CosystemError ? "plugin:start-rejected" : "unknown");
+            });
+          },
+        },
+      ],
+      providers: [OrderedLifecycleModule],
+    });
+
+    await app.ready;
+    await app.start();
+
+    expect(events).toEqual([
+      "plugin:setup",
+      "plugin:start-rejected",
+      "module:init",
+      "module:start",
+    ]);
+  });
+
+  it("allows external start while an async initialization hook is in flight", async () => {
+    let markSetupStarted!: () => void;
+    let releaseSetup!: () => void;
+    const setupStarted = new Promise<void>((resolve) => {
+      markSetupStarted = resolve;
+    });
+    const setupGate = new Promise<void>((resolve) => {
+      releaseSetup = resolve;
+    });
+
+    class ExternallyStartedModule {
+      started = false;
+
+      onStart(): void {
+        this.started = true;
+      }
+    }
+
+    defineModule(ExternallyStartedModule, {
+      name: "externallyStartedModule",
+    });
+
+    const app = createApp({
+      plugins: [
+        {
+          async setup() {
+            markSetupStarted();
+            await setupGate;
+          },
+        },
+      ],
+      providers: [ExternallyStartedModule],
+    });
+
+    await setupStarted;
+    const startPromise = app.start();
+    releaseSetup();
+    await startPromise;
+
+    expect(app.getModule(ExternallyStartedModule).started).toBe(true);
+    await app.dispose();
+  });
+
+  it("isolates inject() across concurrently initializing apps", async () => {
+    let markFirstStarted!: () => void;
+    let markSecondStarted!: () => void;
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const secondStarted = new Promise<void>((resolve) => {
+      markSecondStarted = resolve;
+    });
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const secondGate = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    const firstLogger = new MemoryLogger();
+    const secondLogger = new MemoryLogger();
+    const first = createApp({
+      plugins: [
+        {
+          async setup() {
+            markFirstStarted();
+            await firstGate;
+            inject(Logger).info("first");
+          },
+        },
+      ],
+      providers: [provide(Logger, { useValue: firstLogger })],
+    });
+    const second = createApp({
+      plugins: [
+        {
+          async setup() {
+            markSecondStarted();
+            await secondGate;
+            inject(Logger).info("second");
+          },
+        },
+      ],
+      providers: [provide(Logger, { useValue: secondLogger })],
+    });
+
+    await Promise.all([firstStarted, secondStarted]);
+    releaseFirst();
+    await first.ready;
+    releaseSecond();
+    await second.ready;
+
+    expect(firstLogger.messages).toEqual(["first"]);
+    expect(secondLogger.messages).toEqual(["second"]);
+    await Promise.all([first.dispose(), second.dispose()]);
+  });
+
   it("waits for in-flight start hooks before disposing the app", async () => {
     const events: string[] = [];
     let releaseStart: (() => void) | undefined;
@@ -2098,13 +2274,15 @@ describe("app runtime", () => {
     expect(errors).toEqual(["action:boom"]);
   });
 
-  it("supports inject() inside plugin setup and module lifecycle hooks", async () => {
+  it("supports inject() across awaits in plugin setup and module lifecycle hooks", async () => {
     class InjectingLifecycle {
-      onInit(): void {
+      async onInit(): Promise<void> {
+        await Promise.resolve();
         inject(Logger).info("module:init");
       }
 
-      onStart(): void {
+      async onStart(): Promise<void> {
+        await Promise.resolve();
         inject(Logger).info("module:start");
       }
     }
@@ -2117,7 +2295,8 @@ describe("app runtime", () => {
     const app = createApp({
       plugins: [
         {
-          setup() {
+          async setup() {
+            await Promise.resolve();
             inject(Logger).info("plugin:setup");
           },
         },
@@ -2125,6 +2304,7 @@ describe("app runtime", () => {
       providers: [InjectingLifecycle, provide(Logger, { useValue: logger })],
     });
 
+    await app.ready;
     await app.start();
 
     expect(logger.messages).toEqual(["plugin:setup", "module:init", "module:start"]);
