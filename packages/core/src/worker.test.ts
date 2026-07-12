@@ -199,6 +199,55 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("observes failures while posting worker call results", async () => {
+    const listeners = new Set<(message: WorkerMessage) => void>();
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (error: unknown) => {
+      unhandledRejections.push(error);
+    };
+    let failPosts = false;
+    const host = createWorkerApp({
+      providers: [WorkerCounter],
+      transport: {
+        post() {
+          if (failPosts) {
+            throw new Error("result post failed");
+          }
+        },
+        subscribe(listener) {
+          listeners.add(listener);
+          return () => {
+            listeners.delete(listener);
+          };
+        },
+      },
+    });
+    await host.ready;
+    failPosts = true;
+    process.on("unhandledRejection", onUnhandledRejection);
+
+    try {
+      for (const listener of listeners) {
+        listener({
+          args: [1],
+          id: 1,
+          method: "increase",
+          module: "workerCounter",
+          type: "call",
+        });
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
+
+    expect(host.app.getModule(WorkerCounter).count).toBe(1);
+    expect(unhandledRejections).toEqual([]);
+    failPosts = false;
+    await host.dispose();
+  });
+
   it("syncs state before resolving delegated calls when result arrives before state", async () => {
     const pair = createControlledWorkerTransportPair();
     const conflicts: WorkerConflictEvent[] = [];

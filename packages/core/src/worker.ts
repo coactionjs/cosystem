@@ -321,7 +321,9 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
       }
 
       if (message.type === "call") {
-        void handleCall(app, transport, message, ready, () => stateSyncVersion);
+        void handleCall(app, transport, message, ready, () => stateSyncVersion).catch(
+          () => undefined,
+        );
       }
     });
   } catch (error) {
