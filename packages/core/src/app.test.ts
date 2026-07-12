@@ -695,6 +695,36 @@ describe("app runtime", () => {
     await app.dispose();
   });
 
+  it("resolves lazy effect injection from the lazy scope", async () => {
+    const EffectValue = token<string>("LazyEffectValue");
+    const values: string[] = [];
+
+    class ScopedLazyEffect {
+      readValue(): void {
+        values.push(inject(EffectValue));
+      }
+    }
+
+    defineModule(ScopedLazyEffect, {
+      effects: ["readValue"],
+      name: "scopedLazyEffect",
+    });
+
+    const app = createApp({
+      providers: [provide(EffectValue, { useValue: "root" })],
+    });
+    await app.ready;
+
+    await app.load(
+      lazyModule(() => ({
+        providers: [provide(EffectValue, { useValue: "lazy" }), ScopedLazyEffect],
+      })),
+    );
+
+    expect(values).toEqual(["lazy"]);
+    await app.dispose();
+  });
+
   it("rolls back initialized lazy modules when startup fails", async () => {
     const events: string[] = [];
 

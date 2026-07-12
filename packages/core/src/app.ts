@@ -975,7 +975,7 @@ class RuntimeApp implements App {
 
           pendingEffectsBeforeStart = new Set(this.pendingEffects);
           effectStartIndex = this.effectDisposers.length;
-          this.startEffects(loadedModules);
+          this.startEffects(loadedModules, scopeContainer);
         } catch (error) {
           const publicationRollbackErrors: unknown[] = [];
           const rollbackEffectStartIndex = effectStartIndex;
@@ -1505,15 +1505,22 @@ class RuntimeApp implements App {
     }
   }
 
-  private startEffects(modules: readonly ModuleBinding[] = this.modules): void {
+  private startEffects(
+    modules: readonly ModuleBinding[] = this.modules,
+    container: Container = this.#container,
+  ): void {
     for (const moduleBinding of modules) {
       for (const property of moduleBinding.metadata.effects) {
-        this.startEffect(moduleBinding, property);
+        this.startEffect(moduleBinding, property, container);
       }
     }
   }
 
-  private startEffect(moduleBinding: ModuleBinding, property: PropertyKey): void {
+  private startEffect(
+    moduleBinding: ModuleBinding,
+    property: PropertyKey,
+    container: Container,
+  ): void {
     const method = getMethod(moduleBinding.instance, property);
     const tracker = createReactiveTracker();
     let disposed = false;
@@ -1524,7 +1531,7 @@ class RuntimeApp implements App {
       }
 
       try {
-        tracker.track(() => this.runEffect(moduleBinding, property, method));
+        tracker.track(() => this.runEffect(moduleBinding, property, method, container));
       } catch (error) {
         this.emitError(error, { phase: "effect" });
         throw error;
@@ -1567,9 +1574,10 @@ class RuntimeApp implements App {
     moduleBinding: ModuleBinding,
     property: PropertyKey,
     method: (...args: unknown[]) => unknown,
+    container: Container,
   ): void {
     const result = this.runWithManagedExecution("effect", () =>
-      this.runWithAppInjectContext(() => method.call(moduleBinding.instance)),
+      this.runWithAppInjectContext(() => method.call(moduleBinding.instance), container),
     );
 
     if (!isPromiseLike(result)) {
