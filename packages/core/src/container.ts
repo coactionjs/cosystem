@@ -2,6 +2,7 @@ import {
   AmbiguousProviderError,
   AsyncProviderInSyncResolutionError,
   CircularDependencyError,
+  DisposedContainerError,
   DuplicateProviderError,
   FrozenContainerError,
   LifetimeLeakError,
@@ -35,13 +36,16 @@ export function createContainer(options: ContainerOptions = {}): Container {
 
 class RuntimeContainer implements ContainerImpl {
   readonly parent: ContainerImpl | undefined;
+  readonly pendingResolutions = new Set<Promise<unknown>>();
   readonly strictScopes: boolean;
   readonly records = new Map<InjectionToken, ProviderRecord[]>();
   readonly scopedCache = new Map<ProviderRecord, unknown>();
   readonly created: DisposableInstance[] = [];
   readonly root: ContainerImpl;
   readonly singletonCache = new Map<ProviderRecord, unknown>();
+  disposed = false;
   frozen = false;
+  private disposePromise: Promise<void> | undefined;
 
   constructor(options: ContainerOptions = {}) {
     this.parent = options.parent as ContainerImpl | undefined;
@@ -52,6 +56,7 @@ class RuntimeContainer implements ContainerImpl {
   get<T>(token: InjectionToken<T>): T;
   get<T>(token: InjectionToken<T>, options: { readonly optional: true }): T | undefined;
   get<T>(token: InjectionToken<T>, options?: { readonly optional: true }): T | undefined {
+    this.assertActive();
     const record =
       options?.optional === true
         ? this.getSingleRecord(token, true)
@@ -73,6 +78,7 @@ class RuntimeContainer implements ContainerImpl {
   }
 
   getAll<T>(token: InjectionToken<T>): T[] {
+    this.assertActive();
     const records = this.getAllRecords(token);
     const context = this.createResolutionContext("sync");
 
@@ -89,12 +95,14 @@ class RuntimeContainer implements ContainerImpl {
   }
 
   async getAsync<T>(token: InjectionToken<T>): Promise<T> {
+    this.assertActive();
     const record = this.getSingleRecord(token, false);
     const context = this.createResolutionContext("async");
     return (await this.resolveRecord(record, context)) as T;
   }
 
   has(token: InjectionToken): boolean {
+    this.assertActive();
     return this.findRecords(token).length > 0;
   }
 
@@ -117,6 +125,7 @@ class RuntimeContainer implements ContainerImpl {
   }
 
   createScope(options: ScopeOptions = {}): Container {
+    this.assertActive();
     return new RuntimeContainer({
       parent: this,
       strictScopes: options.strictScopes ?? this.strictScopes,
@@ -124,6 +133,7 @@ class RuntimeContainer implements ContainerImpl {
   }
 
   build<T>(target: Constructor<T>, options: BuildOptions = {}): T {
+    this.assertActive();
     const deps =
       options.deps ?? (target as { readonly inject?: readonly DependencySpec[] }).inject ?? [];
     const context = this.createResolutionContext("sync");
@@ -138,6 +148,7 @@ class RuntimeContainer implements ContainerImpl {
   }
 
   async buildAsync<T>(target: Constructor<T>, options: BuildOptions = {}): Promise<T> {
+    this.assertActive();
     const deps =
       options.deps ?? (target as { readonly inject?: readonly DependencySpec[] }).inject ?? [];
     const context = this.createResolutionContext("async");
@@ -146,14 +157,24 @@ class RuntimeContainer implements ContainerImpl {
   }
 
   freeze(): void {
+    this.assertActive();
     this.frozen = true;
   }
 
   runWithResolutionContext<T>(callback: () => T): T {
+    this.assertActive();
     return runWithInjectContext(this.createResolutionContext("sync"), callback);
   }
 
   async dispose(): Promise<void> {
+    this.disposePromise ??= this.disposeContainer();
+    await this.disposePromise;
+  }
+
+  private async disposeContainer(): Promise<void> {
+    this.disposed = true;
+    await this.waitForPendingResolutions();
+
     const errors: unknown[] = [];
 
     for (const entry of [...this.created].toReversed()) {
@@ -184,8 +205,23 @@ class RuntimeContainer implements ContainerImpl {
   }
 
   private assertMutable(): void {
+    this.assertActive();
+
     if (this.frozen) {
       throw new FrozenContainerError();
+    }
+  }
+
+  private assertActive(): void {
+    if (this.disposed || (this.root !== this && this.root.disposed)) {
+      throw new DisposedContainerError();
+    }
+  }
+
+  private async waitForPendingResolutions(): Promise<void> {
+    while (this.pendingResolutions.size > 0) {
+      // eslint-disable-next-line no-await-in-loop -- resolutions may enqueue dependent async providers.
+      await Promise.allSettled(this.pendingResolutions);
     }
   }
 
@@ -296,6 +332,7 @@ class RuntimeContainer implements ContainerImpl {
   }
 
   private resolveInjected<T>(token: InjectionToken<T>, context: ResolutionContext): T {
+    this.assertActive();
     const record = this.getRequiredRecord(token, context);
     const value = this.resolveRecord(record, context);
 
@@ -462,10 +499,12 @@ class RuntimeContainer implements ContainerImpl {
     const cache = this.cacheFor(record, context);
 
     if (cache === undefined) {
-      return Promise.resolve(value).then((resolved) => {
+      const pending = Promise.resolve(value).then((resolved) => {
         this.trackCreated(record, resolved, context);
         return resolved;
       });
+      this.trackPending(record, pending, context);
+      return pending;
     }
 
     let pending: Promise<unknown>;
@@ -487,6 +526,7 @@ class RuntimeContainer implements ContainerImpl {
       },
     );
     cache.set(record, pending);
+    this.trackPending(record, pending, context);
     return pending;
   }
 
@@ -511,8 +551,26 @@ class RuntimeContainer implements ContainerImpl {
       return;
     }
 
-    const owner = record.scope === "singleton" ? this.root : context.requestContainer;
+    const owner = this.ownerFor(record, context);
     owner.created.push({ record, value, disposed: false });
+  }
+
+  private trackPending(
+    record: ProviderRecord,
+    pending: Promise<unknown>,
+    context: ResolutionContext,
+  ): void {
+    const owner = this.ownerFor(record, context);
+    owner.pendingResolutions.add(pending);
+
+    const removePending = () => {
+      owner.pendingResolutions.delete(pending);
+    };
+    void pending.then(removePending, removePending);
+  }
+
+  private ownerFor(record: ProviderRecord, context: ResolutionContext): ContainerImpl {
+    return record.scope === "singleton" ? this.root : context.requestContainer;
   }
 
   private assertNoCycle(record: ProviderRecord, context: ResolutionContext): void {

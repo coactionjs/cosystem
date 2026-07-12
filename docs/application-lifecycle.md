@@ -69,6 +69,7 @@ app.dispose()
   - dispose plugins and plugin context resources in reverse order
   - dispose the container (provider dispose callbacks, reverse creation order)
   - destroy the store
+  - if any teardown failed, throw one AggregateError after every phase ran
 ```
 
 A few consequences worth internalizing:
@@ -78,9 +79,14 @@ A few consequences worth internalizing:
   in `onStart` hooks.
 - **`start()` awaits init.** If a plugin's `setup` (e.g. storage hydration) is
   async, `start()` waits for it.
-- **Teardown hooks run in reverse order and fail fast.** If an `onStop` or
-  `onDispose` hook throws, later lifecycle hooks in that phase do not run and the
-  error is re-thrown after plugin error hooks are notified.
+- **Teardown hooks run in reverse order and best-effort.** Errors from module
+  hooks, effects, scopes, plugins, providers, and the store are collected while
+  the remaining cleanup continues, then re-thrown together as an
+  `AggregateError`.
+- **Disposal is terminal.** As soon as disposal begins, provider resolution,
+  watches, explicit action boundaries, lazy loads, and new scopes are rejected.
+  Disposed containers (including descendants of a disposed root) likewise reject
+  further use.
 
 ## Reading the app
 

@@ -3,6 +3,7 @@ export {
   AsyncProviderInSyncResolutionError,
   CircularDependencyError,
   CosystemError,
+  DisposedContainerError,
   DuplicateProviderError,
   FrozenContainerError,
   InjectContextError,

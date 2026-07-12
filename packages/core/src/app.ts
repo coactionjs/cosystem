@@ -460,6 +460,7 @@ class RuntimeApp implements App {
   }
 
   get<T>(token: InjectionToken<T>): T {
+    this.assertActive("resolve providers");
     const moduleBinding = this.moduleByToken.get(token);
 
     if (moduleBinding !== undefined) {
@@ -469,17 +470,19 @@ class RuntimeApp implements App {
     return this.#container.get(token);
   }
 
-  getAsync<T>(token: InjectionToken<T>): Promise<T> {
+  async getAsync<T>(token: InjectionToken<T>): Promise<T> {
+    this.assertActive("resolve providers");
     const moduleBinding = this.moduleByToken.get(token);
 
     if (moduleBinding !== undefined) {
-      return Promise.resolve(moduleBinding.instance as T);
+      return moduleBinding.instance as T;
     }
 
-    return this.#container.getAsync(token);
+    return await this.#container.getAsync(token);
   }
 
   getAll<T>(token: InjectionToken<T>): T[] {
+    this.assertActive("resolve providers");
     return this.#container.getAll(token);
   }
 
@@ -508,6 +511,7 @@ class RuntimeApp implements App {
     listener: (value: T, previous: T) => void,
     options: WatchOptions<T> = {},
   ): () => void {
+    this.assertActive("watch state");
     const equals = options.equals ?? Object.is;
     const tracker = createReactiveTracker();
     let previous = tracker.track(read);
@@ -543,6 +547,7 @@ class RuntimeApp implements App {
     callback: () => T,
     options: RunInActionOptions = {},
   ): T {
+    this.assertActive("run actions");
     const moduleBinding = this.resolveModuleBinding(module);
 
     return this.runActionCallback(
@@ -590,25 +595,23 @@ class RuntimeApp implements App {
     }
 
     try {
-      await this.runLifecycle("onStop", true);
-      this.isStarted = false;
+      await this.runTeardownLifecycle("onStop");
     } catch (error) {
       this.emitError(error, { phase: "stop" });
       throw error;
+    } finally {
+      this.isStarted = false;
     }
   }
 
   async dispose(): Promise<void> {
-    if (this.isDisposed) {
-      return;
-    }
-
     this.disposePromise ??= this.disposeApp();
     await this.disposePromise;
   }
 
   private async disposeApp(): Promise<void> {
     this.isDisposing = true;
+    const errors: unknown[] = [];
 
     if (!this.isInitialized) {
       this.abortPluginContexts();
@@ -628,29 +631,33 @@ class RuntimeApp implements App {
       // should still release any resources registered before the failure.
     }
 
-    await this.stop();
+    await runCleanupPhase(errors, () => this.stop());
+    await runCleanupPhase(errors, () => this.stopEffects());
+    await runCleanupPhase(errors, () => this.waitForPendingEffects());
+    await runCleanupPhase(errors, () => this.runTeardownLifecycle("onDispose"));
 
-    try {
-      this.stopEffects();
-      await this.waitForPendingEffects();
-      await this.runLifecycle("onDispose", true);
-      for (const scope of this.dynamicScopes.toReversed()) {
-        // eslint-disable-next-line no-await-in-loop -- dynamic scopes are disposed in reverse load order.
-        await scope.dispose();
-      }
-      await this.disposePlugins();
-      await this.#container.dispose();
-      this.store.destroy();
-      this.isDisposed = true;
-    } catch (error) {
+    for (const scope of this.dynamicScopes.splice(0).toReversed()) {
+      // eslint-disable-next-line no-await-in-loop -- dynamic scopes are disposed in reverse load order.
+      await runCleanupPhase(errors, () => scope.dispose());
+    }
+
+    await runCleanupPhase(errors, () => this.disposePlugins());
+    await runCleanupPhase(errors, () => this.#container.dispose());
+    await runCleanupPhase(errors, () => this.store.destroy());
+
+    this.isStarted = false;
+    this.isDisposed = true;
+    this.isDisposing = false;
+
+    if (errors.length > 0) {
+      const error = new AggregateError(errors, "One or more app resources failed to dispose.");
       this.emitError(error, { phase: "dispose" });
-      this.disposePromise = undefined;
-      this.isDisposing = false;
       throw error;
     }
   }
 
   createScope(options?: ScopeOptions): AppScope {
+    this.assertActive("create scopes");
     return {
       container: this.#container.createScope(options),
     };
@@ -1048,6 +1055,28 @@ class RuntimeApp implements App {
     }
   }
 
+  private async runTeardownLifecycle(
+    method: "onStop" | "onDispose",
+    modules: readonly ModuleBinding[] = this.modules,
+  ): Promise<void> {
+    const errors: unknown[] = [];
+
+    for (const moduleBinding of modules.toReversed()) {
+      const lifecycle = moduleBinding.instance as LifecycleModule;
+
+      try {
+        // eslint-disable-next-line no-await-in-loop -- teardown hooks run in deterministic module order.
+        await this.runWithAppInjectContext(() => lifecycle[method]?.());
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new AggregateError(errors, `One or more module ${method} hooks failed.`);
+    }
+  }
+
   private startEffects(modules: readonly ModuleBinding[] = this.modules): void {
     for (const moduleBinding of modules) {
       for (const property of moduleBinding.metadata.effects) {
@@ -1119,8 +1148,18 @@ class RuntimeApp implements App {
   }
 
   private stopEffects(): void {
+    const errors: unknown[] = [];
+
     for (const dispose of this.effectDisposers.splice(0).toReversed()) {
-      dispose();
+      try {
+        dispose();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "One or more effects failed to stop.");
     }
   }
 
@@ -1160,9 +1199,21 @@ class RuntimeApp implements App {
   }
 
   private async waitForPendingEffects(): Promise<void> {
+    const errors: unknown[] = [];
+
     while (this.pendingEffects.size > 0) {
       // eslint-disable-next-line no-await-in-loop -- async effects may enqueue follow-up effects while settling.
-      await Promise.all(this.pendingEffects);
+      const results = await Promise.allSettled(this.pendingEffects);
+
+      for (const result of results) {
+        if (result.status === "rejected") {
+          errors.push(result.reason);
+        }
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "One or more pending effects failed while disposing.");
     }
   }
 
@@ -1276,6 +1327,12 @@ class RuntimeApp implements App {
   private assertCanLoadLazyModule(): void {
     if (this.isDisposing || this.isDisposed) {
       throw new CosystemError("Cannot load a lazy module after app disposal.");
+    }
+  }
+
+  private assertActive(operation: string): void {
+    if (this.isDisposing || this.isDisposed) {
+      throw new CosystemError(`Cannot ${operation} after app disposal has begun.`);
     }
   }
 
@@ -1540,6 +1597,22 @@ function isPromiseLike<T = unknown>(value: unknown): value is PromiseLike<T> {
     "then" in value &&
     typeof value.then === "function"
   );
+}
+
+async function runCleanupPhase(
+  errors: unknown[],
+  cleanup: () => void | Promise<void>,
+): Promise<void> {
+  try {
+    await cleanup();
+  } catch (error) {
+    if (error instanceof AggregateError) {
+      errors.push(...error.errors);
+      return;
+    }
+
+    errors.push(error);
+  }
 }
 
 function getAppContainer(app: App): Container {

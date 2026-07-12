@@ -1198,6 +1198,103 @@ describe("app runtime", () => {
     expect(events).toEqual(["module:start", "module:start:done", "module:stop", "module:dispose"]);
   });
 
+  it("continues every disposal phase after teardown failures and stays terminal", async () => {
+    const events: string[] = [];
+    const stopError = new Error("stop boom");
+    const moduleDisposeError = new Error("module dispose boom");
+    const pluginDisposeError = new Error("plugin dispose boom");
+    const providerDisposeError = new Error("provider dispose boom");
+
+    class ContinuingModule {
+      onStop(): void {
+        events.push("continuing:stop");
+      }
+
+      onDispose(): void {
+        events.push("continuing:dispose");
+      }
+    }
+
+    class FailingModule {
+      onStop(): void {
+        events.push("failing:stop");
+        throw stopError;
+      }
+
+      onDispose(): void {
+        events.push("failing:dispose");
+        throw moduleDisposeError;
+      }
+    }
+
+    class DisposableService {
+      destroy(): void {
+        events.push("provider:dispose");
+        throw providerDisposeError;
+      }
+    }
+
+    defineModule(ContinuingModule, { name: "continuingModule" });
+    defineModule(FailingModule, { name: "failingModule" });
+
+    const app = createApp({
+      plugins: [
+        {
+          dispose() {
+            events.push("plugin:dispose");
+            throw pluginDisposeError;
+          },
+        },
+      ],
+      providers: [ContinuingModule, FailingModule, DisposableService],
+    });
+    const continuingModule = app.getModule(ContinuingModule);
+    const service = app.get(DisposableService);
+
+    await app.start();
+
+    let caught: unknown;
+    try {
+      await app.dispose();
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(events).toEqual([
+      "failing:stop",
+      "continuing:stop",
+      "failing:dispose",
+      "continuing:dispose",
+      "plugin:dispose",
+      "provider:dispose",
+    ]);
+    expect(caught).toBeInstanceOf(AggregateError);
+    expect((caught as AggregateError).errors).toEqual([
+      stopError,
+      moduleDisposeError,
+      pluginDisposeError,
+      providerDisposeError,
+    ]);
+    expect(app.started).toBe(false);
+
+    expect(() => app.get(DisposableService)).toThrow(/after app disposal has begun/);
+    await expect(app.getAsync(DisposableService)).rejects.toThrow(/after app disposal has begun/);
+    expect(() => app.getAll(DisposableService)).toThrow(/after app disposal has begun/);
+    expect(() =>
+      app.watch(
+        () => 1,
+        () => undefined,
+      ),
+    ).toThrow(/after app disposal has begun/);
+    expect(() => app.runInAction(continuingModule, () => undefined)).toThrow(
+      /after app disposal has begun/,
+    );
+    expect(() => app.createScope()).toThrow(/after app disposal has begun/);
+    await expect(app.load()).rejects.toThrow(/after app disposal/);
+    await expect(app.dispose()).rejects.toBe(caught);
+    expect(service).toBeInstanceOf(DisposableService);
+  });
+
   it("passes plugin context and disposes plugin resources", async () => {
     const events: string[] = [];
     let capturedContext: PluginContext | undefined;

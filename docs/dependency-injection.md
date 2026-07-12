@@ -263,7 +263,10 @@ provide(Connection, {
 
 `app.dispose()` disposes created instances in **reverse creation order**, then
 disposes scopes and the container. Modules can also implement `onDispose()` (see
-[Application Lifecycle](./application-lifecycle.md)).
+[Application Lifecycle](./application-lifecycle.md)). Disposal waits for
+in-flight async providers before releasing their results. Once a container or
+its root has begun disposal, further resolution, mutation, builds, and scope
+creation throw `DisposedContainerError`.
 
 ## Errors
 
@@ -278,6 +281,7 @@ All extend `CosystemError`:
 | `AsyncProviderInSyncResolutionError` | Sync `get()` hit an async factory.                      |
 | `LifetimeLeakError`                  | A longer-lived provider depends on a shorter-lived one. |
 | `FrozenContainerError`               | Mutating the graph after `freeze()`.                    |
+| `DisposedContainerError`             | Using a container after disposal begins.                |
 | `InjectContextError`                 | `inject()` outside provider resolution.                 |
 
 ## Next

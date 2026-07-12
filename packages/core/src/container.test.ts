@@ -4,6 +4,7 @@ import {
   AmbiguousProviderError,
   AsyncProviderInSyncResolutionError,
   CircularDependencyError,
+  DisposedContainerError,
   DuplicateProviderError,
   FrozenContainerError,
   InjectContextError,
@@ -528,5 +529,69 @@ describe("DI container", () => {
 
     await expect(container.dispose()).rejects.toThrow(AggregateError);
     expect(disposed).toEqual(["second", "first"]);
+  });
+
+  it("makes disposal terminal for a container and its descendant scopes", async () => {
+    class Service {
+      readonly ready = true;
+    }
+
+    const container = createContainer();
+    container.provide(Service);
+    const scope = container.createScope();
+
+    expect(container.get(Service)).toBeInstanceOf(Service);
+
+    await container.dispose();
+
+    expect(() => container.get(Service)).toThrow(DisposedContainerError);
+    await expect(container.getAsync(Service)).rejects.toThrow(DisposedContainerError);
+    expect(() => container.getAll(Service)).toThrow(DisposedContainerError);
+    expect(() => container.has(Service)).toThrow(DisposedContainerError);
+    expect(() => container.provide(Service)).toThrow(DisposedContainerError);
+    expect(() => container.override(Service)).toThrow(DisposedContainerError);
+    expect(() => container.createScope()).toThrow(DisposedContainerError);
+    expect(() => container.build(Service)).toThrow(DisposedContainerError);
+    await expect(container.buildAsync(Service)).rejects.toThrow(DisposedContainerError);
+    expect(() => container.freeze()).toThrow(DisposedContainerError);
+    expect(() => scope.get(Service)).toThrow(DisposedContainerError);
+    await expect(container.dispose()).resolves.toBeUndefined();
+  });
+
+  it("waits for in-flight providers and disposes their resolved resources", async () => {
+    const ResourceToken = token<{ destroy(): void }>("PendingResource");
+    const events: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const container = createContainer();
+
+    container.provide(
+      provide(ResourceToken, {
+        useFactory: async () => {
+          events.push("create");
+          await gate;
+          events.push("created");
+          return {
+            destroy() {
+              events.push("destroy");
+            },
+          };
+        },
+      }),
+    );
+
+    const resolution = container.getAsync(ResourceToken);
+    const disposal = container.dispose();
+
+    await Promise.resolve();
+    expect(events).toEqual(["create"]);
+
+    release();
+    await resolution;
+    await disposal;
+
+    expect(events).toEqual(["create", "created", "destroy"]);
   });
 });

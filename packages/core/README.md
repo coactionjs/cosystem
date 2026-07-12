@@ -313,7 +313,9 @@ class Service {
 }
 ```
 
-`onStop`/`onDispose` run in reverse order and fail fast on the first thrown error.
+`onStop`/`onDispose` run in reverse order. Teardown is best-effort across every
+module and cleanup phase; failures are reported together as an `AggregateError`
+after disposal reaches its terminal state.
 
 ## Lazy modules
 
@@ -511,6 +513,7 @@ All errors extend `CosystemError`:
 | `AsyncProviderInSyncResolutionError` | A sync `get()` hits an async factory (use `getAsync`/`buildAsync`).   |
 | `LifetimeLeakError`                  | A longer-lived provider depends on a shorter-lived one.               |
 | `FrozenContainerError`               | The provider graph is mutated after freezing.                         |
+| `DisposedContainerError`             | A container is used after disposal begins.                            |
 | `InjectContextError`                 | `inject()` is used outside provider resolution.                       |
 
 ## API reference

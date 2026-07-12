@@ -186,7 +186,9 @@ export type NormalizedProvider =
     };
 
 export interface ContainerImpl extends Container {
+  readonly disposed: boolean;
   readonly parent: ContainerImpl | undefined;
+  readonly pendingResolutions: Set<Promise<unknown>>;
   readonly strictScopes: boolean;
   readonly records: Map<InjectionToken, ProviderRecord[]>;
   readonly scopedCache: Map<ProviderRecord, unknown>;

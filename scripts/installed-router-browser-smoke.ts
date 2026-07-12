@@ -199,6 +199,7 @@ const app = createApp({
     }),
   ],
 });
+const providedRouter = app.get(RouterToken);
 
 const ready = start();
 
@@ -222,7 +223,7 @@ async function start(): Promise<void> {
 }
 
 async function navigate(to: string | RouteLocation): Promise<void> {
-  app.get(RouterToken).navigate(to);
+  router.navigate(to);
   render("ready");
 }
 
@@ -238,7 +239,7 @@ function read(): SmokeSnapshot {
     formatted: formatLocation({ hash: "#typed", path: "/typed", search: "?via=format" }),
     href: location.pathname + location.search + location.hash,
     parsed: parseLocation("/parsed?via=parse#hash"),
-    provided: app.get(RouterToken) === router,
+    provided: providedRouter === router,
   };
 }
 

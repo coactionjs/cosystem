@@ -12,6 +12,13 @@ export class FrozenContainerError extends CosystemError {
   }
 }
 
+export class DisposedContainerError extends CosystemError {
+  constructor() {
+    super("Container has been disposed and can no longer be used.");
+    this.name = "DisposedContainerError";
+  }
+}
+
 export class MissingProviderError extends CosystemError {
   constructor(token: string, path: readonly string[]) {
     super(
