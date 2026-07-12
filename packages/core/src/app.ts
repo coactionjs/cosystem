@@ -525,7 +525,12 @@ class RuntimeApp implements App {
   private readonly fallbackManagedExecutions: AppManagedExecution[] = [];
   private actionDepth = 0;
   private internalMutationDepth = 0;
-  private draftMutationDepth = 0;
+  private draftMutationContext:
+    | {
+        readonly proxyCache: WeakMap<object, object>;
+        readonly token: symbol;
+      }
+    | undefined;
   private statePublication: StatePublication | undefined;
 
   constructor(options: {
@@ -1896,12 +1901,16 @@ class RuntimeApp implements App {
   }
 
   private runWithDraftMutation<T>(callback: () => T): T {
-    this.draftMutationDepth += 1;
+    const previous = this.draftMutationContext;
+    this.draftMutationContext = {
+      proxyCache: new WeakMap(),
+      token: Symbol("draftMutation"),
+    };
 
     try {
       return callback();
     } finally {
-      this.draftMutationDepth -= 1;
+      this.draftMutationContext = previous;
     }
   }
 
@@ -1953,12 +1962,22 @@ class RuntimeApp implements App {
     }
   }
 
-  private guardStateValue<T>(value: T): T {
+  private guardStateValue<T>(
+    value: T,
+    draftMutation: symbol | null = this.draftMutationContext?.token ?? null,
+  ): T {
     if (!isGuardableStateValue(value)) {
       return value;
     }
 
-    const existing = this.stateProxyCache.get(value);
+    const activeDraftMutation = this.draftMutationContext;
+    const proxyCache =
+      draftMutation === null
+        ? this.stateProxyCache
+        : activeDraftMutation?.token === draftMutation
+          ? activeDraftMutation.proxyCache
+          : undefined;
+    const existing = proxyCache?.get(value);
 
     if (existing !== undefined) {
       return existing as T;
@@ -1966,29 +1985,29 @@ class RuntimeApp implements App {
 
     const proxy = new Proxy(value, {
       defineProperty: (target, property, descriptor) => {
-        this.assertDeepMutationAllowed();
+        this.assertDeepMutationAllowed(draftMutation);
         return Reflect.defineProperty(target, property, descriptor);
       },
       deleteProperty: (target, property) => {
-        this.assertDeepMutationAllowed();
+        this.assertDeepMutationAllowed(draftMutation);
         return Reflect.deleteProperty(target, property);
       },
       get: (target, property, receiver) =>
-        this.guardStateValue(Reflect.get(target, property, receiver)),
+        this.guardStateValue(Reflect.get(target, property, receiver), draftMutation),
       preventExtensions: (target) => {
-        this.assertDeepMutationAllowed();
+        this.assertDeepMutationAllowed(draftMutation);
         return Reflect.preventExtensions(target);
       },
       set: (target, property, nextValue, receiver) => {
-        this.assertDeepMutationAllowed();
+        this.assertDeepMutationAllowed(draftMutation);
         return Reflect.set(target, property, nextValue, receiver);
       },
       setPrototypeOf: (target, prototype) => {
-        this.assertDeepMutationAllowed();
+        this.assertDeepMutationAllowed(draftMutation);
         return Reflect.setPrototypeOf(target, prototype);
       },
     });
-    this.stateProxyCache.set(value, proxy);
+    proxyCache?.set(value, proxy);
     return proxy as T;
   }
 
@@ -2029,13 +2048,12 @@ class RuntimeApp implements App {
     return snapshot as T;
   }
 
-  private assertDeepMutationAllowed(): void {
+  private assertDeepMutationAllowed(draftMutation: symbol | null): void {
     this.assertModuleMutationAllowed("mutate module state");
 
     if (
       this.devOptions.strictActions === true &&
-      this.draftMutationDepth === 0 &&
-      this.internalMutationDepth === 0
+      (draftMutation === null || this.draftMutationContext?.token !== draftMutation)
     ) {
       throw new CosystemError("Cannot mutate state outside an action.");
     }

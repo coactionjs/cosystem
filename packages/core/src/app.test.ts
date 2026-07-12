@@ -784,6 +784,42 @@ describe("app runtime", () => {
     ]);
   });
 
+  it("does not grant draft authority to retained strict state views", () => {
+    class RetainedStrictState {
+      settings = { nested: { value: 0 } };
+    }
+
+    defineModule(RetainedStrictState, {
+      name: "retainedStrictState",
+      state: ["settings"],
+    });
+
+    const app = testApp({
+      providers: [RetainedStrictState],
+      strictActions: true,
+    });
+    const module = app.getModule(RetainedStrictState);
+    const retained = module.settings.nested;
+    const version = app.state.version;
+
+    expect(() =>
+      app.runInAction(
+        () =>
+          app.store.setState(() => {
+            retained.value = 9;
+          }),
+        { name: "mutateRetainedState" },
+      ),
+    ).toThrow("Cannot mutate state outside an action");
+
+    expect(module.settings.nested.value).toBe(0);
+    expect(app.store.getPureState()).toEqual({
+      retainedStrictState: { settings: { nested: { value: 0 } } },
+    });
+    expect(app.state.version).toBe(version);
+    expect(app.test.getPatches()).toEqual([]);
+  });
+
   it("allows strict apps to commit transactional lazy module state", async () => {
     const app = createApp({
       devOptions: { strictActions: true },
