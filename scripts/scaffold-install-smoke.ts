@@ -22,7 +22,7 @@ try {
   const createTarball = await packPackage("@cosystem/create");
   const coreTarball = await packPackage("@cosystem/core");
 
-  await writeCliConsumer(createTarball);
+  await writeCliConsumer(createTarball, catalog);
   await run(
     "pnpm",
     ["install", "--prefer-offline", "--no-frozen-lockfile", "--ignore-scripts"],
@@ -71,7 +71,7 @@ async function packPackage(name) {
   return join(destination, tarballs[0]);
 }
 
-async function writeCliConsumer(createTarball) {
+async function writeCliConsumer(createTarball, catalog) {
   await mkdir(cliConsumerDir, { recursive: true });
   await writeFile(
     join(cliConsumerDir, "package.json"),
@@ -87,6 +87,14 @@ async function writeCliConsumer(createTarball) {
       null,
       2,
     )}\n`,
+  );
+  await writeFile(
+    join(cliConsumerDir, "pnpm-workspace.yaml"),
+    [
+      "minimumReleaseAgeExclude:",
+      `  - ${JSON.stringify(`coaction@${readCatalogVersion(catalog, "coaction")}`)}`,
+      "",
+    ].join("\n"),
   );
   await copyLockfile(cliConsumerDir);
 }
