@@ -159,7 +159,10 @@ async function writeConsumerProject(packages, tarballByName, catalog) {
     )}\n`,
   );
   await writeFile(join(consumerDir, "pnpm-lock.yaml"), await readFile(lockfilePath, "utf8"));
-  await writeFile(join(consumerDir, "pnpm-workspace.yaml"), createWorkspaceSource(overrides));
+  await writeFile(
+    join(consumerDir, "pnpm-workspace.yaml"),
+    createWorkspaceSource(overrides, catalog),
+  );
   await writeFile(
     join(consumerDir, "tsconfig.json"),
     `${JSON.stringify(
@@ -220,8 +223,12 @@ function sortObject(value) {
   );
 }
 
-function createWorkspaceSource(overrides) {
-  const lines = ["overrides:"];
+function createWorkspaceSource(overrides, catalog) {
+  const lines = [
+    "minimumReleaseAgeExclude:",
+    `  - ${JSON.stringify(`coaction@${resolveDependencyVersion("coaction", "catalog:", catalog)}`)}`,
+    "overrides:",
+  ];
 
   for (const [name, value] of Object.entries(sortObject(overrides))) {
     lines.push(`  ${JSON.stringify(name)}: ${JSON.stringify(value)}`);

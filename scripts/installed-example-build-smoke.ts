@@ -315,7 +315,10 @@ async function writeInstalledExamplesWorkspace(
     )}\n`,
   );
   await writeFile(join(tempDir, "pnpm-lock.yaml"), await readFile(lockfilePath, "utf8"));
-  await writeFile(join(tempDir, "pnpm-workspace.yaml"), createWorkspaceSource(tarballByName));
+  await writeFile(
+    join(tempDir, "pnpm-workspace.yaml"),
+    createWorkspaceSource(tarballByName, catalog),
+  );
 }
 
 function rewritePackageJson(packageJson, tarballByName, catalog) {
@@ -356,10 +359,12 @@ function rewriteDependencyField(dependencies, tarballByName, catalog) {
   return rewritten;
 }
 
-function createWorkspaceSource(tarballByName) {
+function createWorkspaceSource(tarballByName, catalog) {
   const lines = [
     "packages:",
     '  - "examples/*"',
+    "minimumReleaseAgeExclude:",
+    `  - ${JSON.stringify(`coaction@${readCatalogVersion(catalog, "coaction")}`)}`,
     "allowBuilds:",
     '  "@parcel/watcher": true',
     "  esbuild: true",

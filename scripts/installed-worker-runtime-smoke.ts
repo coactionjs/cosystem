@@ -110,6 +110,8 @@ async function writeInstalledWorkerExample(coreTarball, catalog, rootPackageJson
   await writeFile(
     join(tempDir, "pnpm-workspace.yaml"),
     [
+      "minimumReleaseAgeExclude:",
+      `  - ${JSON.stringify(`coaction@${readCatalogVersion(catalog, "coaction")}`)}`,
       "packages:",
       '  - "examples/*"',
       "allowBuilds:",

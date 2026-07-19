@@ -96,6 +96,8 @@ async function writeGeneratedAppOverrides(coreTarball, catalog) {
   await writeFile(
     join(appDir, "pnpm-workspace.yaml"),
     [
+      "minimumReleaseAgeExclude:",
+      `  - ${JSON.stringify(`coaction@${readCatalogVersion(catalog, "coaction")}`)}`,
       "allowBuilds:",
       "  esbuild: true",
       "overrides:",

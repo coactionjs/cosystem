@@ -92,6 +92,8 @@ async function writeConsumerProject(coreTarball, devtoolsTarball, catalog) {
   await writeFile(
     join(consumerDir, "pnpm-workspace.yaml"),
     [
+      "minimumReleaseAgeExclude:",
+      `  - ${JSON.stringify(`coaction@${readCatalogVersion(catalog, "coaction")}`)}`,
       "allowBuilds:",
       '  "@parcel/watcher": true',
       "  esbuild: true",

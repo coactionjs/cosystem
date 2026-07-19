@@ -77,6 +77,8 @@ async function writeConsumerProject(coreTarball, testingTarball, catalog) {
   await writeFile(
     join(consumerDir, "pnpm-workspace.yaml"),
     [
+      "minimumReleaseAgeExclude:",
+      `  - ${JSON.stringify(`coaction@${readCatalogVersion(catalog, "coaction")}`)}`,
       "overrides:",
       `  "@cosystem/core": ${JSON.stringify(`file:${coreTarball}`)}`,
       `  "@cosystem/testing": ${JSON.stringify(`file:${testingTarball}`)}`,
