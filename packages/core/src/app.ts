@@ -1,11 +1,11 @@
 import {
   computed as createCoactionComputed,
   create as createCoactionStore,
-  createReactiveTracker,
   endBatch,
   startBatch,
   type Store,
 } from "coaction";
+import { createReactiveTracker } from "coaction/adapter";
 
 import { createRuntimeAsyncContext } from "./async-context.js";
 import { createContainer } from "./container.js";
@@ -186,6 +186,13 @@ type RootState = Record<string, Record<PropertyKey, unknown>>;
 type StoreSetState = Store<RootState>["setState"];
 type StoreApply = Store<RootState>["apply"];
 
+interface CoactionRootState {
+  readonly modules: RootState;
+}
+
+type CoactionStoreSetState = Store<CoactionRootState>["setState"];
+type CoactionStoreApply = Store<CoactionRootState>["apply"];
+
 interface CoactionStoreOptions {
   readonly name: string;
   readonly sliceMode: "single";
@@ -343,9 +350,9 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
 
     const modules = instantiateModules(container, moduleTokens);
     const rootState = createRootState(modules);
-    store = createCoactionStore(
+    store = createRootStore(
       rootState,
-      createStoreOptions(options.engine, shouldEnablePatches(options)) as never,
+      createStoreOptions(options.engine, shouldEnablePatches(options)),
     );
     const state: { version: number } = { version: 0 };
     app = new RuntimeApp({
@@ -2867,6 +2874,119 @@ function createStoreOptions(
     enablePatches,
     ...(engine?.transport === undefined ? {} : { transport: engine.transport }),
   } as CoactionStoreOptions;
+}
+
+function createRootStore(rootState: RootState, options: CoactionStoreOptions): Store<RootState> {
+  const coactionStore = createCoactionStore(
+    { modules: rootState },
+    options as never,
+  ) as unknown as Store<CoactionRootState>;
+  const setState = coactionStore.setState.bind(coactionStore) as CoactionStoreSetState;
+  const apply = coactionStore.apply.bind(coactionStore) as CoactionStoreApply;
+
+  const store: Store<RootState> = {
+    name: coactionStore.name,
+    setState: ((next, updater) => {
+      const wrappedNext = wrapRootStateUpdate(next);
+      const wrappedUpdater =
+        updater === undefined
+          ? undefined
+          : () => wrapRootMutationResult(updater(next), prefixRootPatches);
+      const result = setState(wrappedNext, wrappedUpdater as never);
+      return unwrapRootMutationResult(result);
+    }) as StoreSetState,
+    getState: () => coactionStore.getState().modules,
+    subscribe: coactionStore.subscribe.bind(coactionStore),
+    destroy: coactionStore.destroy.bind(coactionStore),
+    share: coactionStore.share ?? false,
+    ...(coactionStore.transport === undefined ? {} : { transport: coactionStore.transport }),
+    isSliceStore: false,
+    apply: ((state, patches) =>
+      apply(
+        state === undefined ? undefined : { modules: state },
+        prefixRootPatches(patches) as never,
+      )) as StoreApply,
+    getPureState: () => coactionStore.getPureState().modules,
+    getInitialState: () => coactionStore.getInitialState().modules,
+    ...(coactionStore.patch === undefined ? {} : { patch: coactionStore.patch }),
+    ...(coactionStore.trace === undefined ? {} : { trace: coactionStore.trace }),
+  };
+
+  return store;
+}
+
+function wrapRootStateUpdate(
+  next: Parameters<StoreSetState>[0],
+): Parameters<CoactionStoreSetState>[0] {
+  if (next === null) {
+    return null;
+  }
+
+  return (draft) => {
+    const update = typeof next === "function" ? next(draft.modules as never) : next;
+
+    if (typeof update !== "object" || update === null) {
+      return;
+    }
+
+    for (const name of Object.keys(update)) {
+      if (!isUnsafeStateKey(name)) {
+        draft.modules[name] = update[name] as never;
+      }
+    }
+  };
+}
+
+function prefixRootPatches(patches: unknown): unknown {
+  return mapRootPatches(patches, (path) => ["modules", ...path]);
+}
+
+function unwrapRootPatches(patches: unknown): unknown {
+  return mapRootPatches(patches, (path) => (path[0] === "modules" ? path.slice(1) : path));
+}
+
+function mapRootPatches(
+  patches: unknown,
+  mapPath: (path: readonly unknown[]) => readonly unknown[],
+): unknown {
+  if (!Array.isArray(patches)) {
+    return patches;
+  }
+
+  return patches.map((patch) => {
+    if (typeof patch !== "object" || patch === null || !("path" in patch)) {
+      return patch;
+    }
+
+    const path = (patch as { readonly path: unknown }).path;
+
+    return Array.isArray(path) ? { ...patch, path: mapPath(path) } : patch;
+  });
+}
+
+function wrapRootMutationResult(
+  result: unknown,
+  mapPatches: (patches: unknown) => unknown,
+): unknown {
+  if (!Array.isArray(result) || result.length < 3) {
+    return result;
+  }
+
+  return [{ modules: result[0] }, mapPatches(result[1]), mapPatches(result[2])];
+}
+
+function unwrapRootMutationResult(result: unknown): unknown {
+  if (!Array.isArray(result) || result.length < 3) {
+    return result;
+  }
+
+  const state = result[0];
+  const rootState =
+    typeof state === "object" && state !== null && "modules" in state
+      ? (state as CoactionRootState).modules
+      : state;
+
+  return [rootState, unwrapRootPatches(result[1]), unwrapRootPatches(result[2])];
 }
 
 function shouldEnablePatches(options: InternalCreateAppOptions): boolean {

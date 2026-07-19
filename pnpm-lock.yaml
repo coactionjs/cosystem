@@ -64,8 +64,8 @@ catalogs:
       specifier: 3.5.38
       version: 3.5.38
     coaction:
-      specifier: 2.0.0
-      version: 2.0.0
+      specifier: 3.1.0
+      version: 3.1.0
     commitizen:
       specifier: 4.3.2
       version: 4.3.2
@@ -482,7 +482,7 @@ importers:
     dependencies:
       coaction:
         specifier: 'catalog:'
-        version: 2.0.0
+        version: 3.1.0
     devDependencies:
       '@cosystem/tsconfig':
         specifier: workspace:*
@@ -3098,8 +3098,8 @@ packages:
     resolution: {integrity: sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==}
     engines: {node: '>=6'}
 
-  coaction@2.0.0:
-    resolution: {integrity: sha512-Wy3eDWxjL1FEKQucn04znanTrRsRwt4XVeA4xrj9gTfxWTJ8yzGrftllQ221Rb+exTliLBFWYT9pNjyvfyWLZg==}
+  coaction@3.1.0:
+    resolution: {integrity: sha512-esCphoBCKN58muGVMgSyFppnlKtcj3wWtoN9ZQrdf4yo0QqvwOuFzQUkzUa8mb2W42bEK/4MpPCADrI3AGd4eQ==}
 
   code-block-writer@12.0.0:
     resolution: {integrity: sha512-q4dMFMlXtKR3XNBHyMHt/3pwYNA69EDk00lloMOaaUMKPUXBw6lpXtbu3MMVG6/uOihGnRDOlkyqsONEUj60+w==}
@@ -6651,7 +6651,7 @@ snapshots:
 
   clsx@2.1.1: {}
 
-  coaction@2.0.0:
+  coaction@3.1.0:
     dependencies:
       alien-signals: 3.2.1
       data-transport: 5.0.3
