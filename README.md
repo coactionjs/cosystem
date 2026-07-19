@@ -365,6 +365,12 @@ app.getModule(AdminCounter).increase();
 `createApp({ providers: [lazyModule(...)] })` records lazy entries without
 loading them. Call `await app.load()` to load all pending lazy modules.
 
+Actions compose: an action may call other actions (same module or another
+module) and write other modules' state directly. Everything inside the
+outermost action merges into a single store commit — one state notification,
+one patch set — and the whole commit rolls back if the outermost action
+throws. Errors caught inside an action keep the writes made before the catch.
+
 ## UI Adapters
 
 CoSystem does not own rendering. There is no `ViewModule`, root component base

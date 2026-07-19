@@ -1434,6 +1434,12 @@ class RuntimeApp implements App {
       return;
     }
 
+    if (this.activeRootDraft !== undefined) {
+      const slice = (this.activeRootDraft[moduleBinding.name] ??= {});
+      slice[property] = value;
+      return;
+    }
+
     if (this.devOptions.strictActions === true && this.actionDepth === 0) {
       throw new CosystemError(
         `Cannot write ${moduleBinding.name}.${String(property)} outside an action.`,

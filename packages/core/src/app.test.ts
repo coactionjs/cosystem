@@ -3812,6 +3812,193 @@ describe("app runtime", () => {
     });
   });
 
+  it("composes same-module nested action calls into a single commit", () => {
+    class SelfNesting {
+      count = 0;
+
+      outer(): void {
+        this.inner();
+        this.count += 1;
+      }
+
+      inner(): void {
+        this.count += 10;
+      }
+    }
+
+    defineModule(SelfNesting, {
+      actions: ["inner", "outer"],
+      name: "selfNesting",
+      state: ["count"],
+    });
+
+    const app = testApp({
+      engine: { patches: true },
+      providers: [SelfNesting],
+    });
+
+    app.getModule(SelfNesting).outer();
+
+    expect(app.getModule(SelfNesting).count).toBe(11);
+    expect(app.store.getPureState()).toEqual({ selfNesting: { count: 11 } });
+    expect(app.test.getPatches()).toHaveLength(1);
+    expect(app.state.version).toBe(1);
+    expect(app.test.getActions().map((event) => event.method)).toEqual(["inner", "outer"]);
+  });
+
+  it("composes cross-module action calls into a single commit", () => {
+    class CartTotals {
+      total = 0;
+
+      add(amount: number): void {
+        this.total += amount;
+      }
+    }
+
+    defineModule(CartTotals, {
+      actions: ["add"],
+      name: "cartTotals",
+      state: ["total"],
+    });
+
+    class Cart {
+      items = 0;
+
+      constructor(readonly totals: CartTotals) {}
+
+      addItem(price: number): void {
+        this.items += 1;
+        this.totals.add(price);
+      }
+    }
+
+    defineModule(Cart, {
+      actions: ["addItem"],
+      deps: [CartTotals],
+      name: "cart",
+      state: ["items"],
+    });
+
+    const app = testApp({
+      engine: { patches: true },
+      providers: [Cart, CartTotals],
+    });
+
+    app.getModule(Cart).addItem(25);
+
+    expect(app.store.getPureState()).toEqual({
+      cart: { items: 1 },
+      cartTotals: { total: 25 },
+    });
+    expect(app.test.getPatches()).toHaveLength(1);
+    expect(app.state.version).toBe(1);
+    expect(app.test.getActions().map((event) => `${event.module}.${event.method}`)).toEqual([
+      "cartTotals.add",
+      "cart.addItem",
+    ]);
+  });
+
+  it("allows cross-module state writes inside an action under strictActions", () => {
+    class Wallet {
+      balance = 0;
+    }
+
+    defineModule(Wallet, {
+      name: "wallet",
+      state: ["balance"],
+    });
+
+    class Payment {
+      constructor(readonly wallet: Wallet) {}
+
+      charge(amount: number): void {
+        this.wallet.balance -= amount;
+      }
+    }
+
+    defineModule(Payment, {
+      actions: ["charge"],
+      deps: [Wallet],
+      name: "payment",
+    });
+
+    const app = testApp({
+      providers: [Payment, Wallet],
+      strictActions: true,
+    });
+
+    app.getModule(Payment).charge(30);
+
+    expect(app.getModule(Wallet).balance).toBe(-30);
+
+    expect(() => {
+      app.getModule(Wallet).balance = 0;
+    }).toThrow(CosystemError);
+  });
+
+  it("rolls back the whole commit when a nested action throws", () => {
+    class Faulty {
+      count = 0;
+
+      outer(): void {
+        this.count += 1;
+        this.explode();
+      }
+
+      explode(): void {
+        this.count += 1;
+        throw new Error("nested boom");
+      }
+    }
+
+    defineModule(Faulty, {
+      actions: ["explode", "outer"],
+      name: "faulty",
+      state: ["count"],
+    });
+
+    const app = createApp({ providers: [Faulty] });
+
+    expect(() => app.getModule(Faulty).outer()).toThrow("nested boom");
+    expect(app.getModule(Faulty).count).toBe(0);
+    expect(app.store.getPureState()).toEqual({ faulty: { count: 0 } });
+  });
+
+  it("keeps nested writes when the outer action catches the inner error", () => {
+    class Recovering {
+      count = 0;
+
+      outer(): void {
+        this.count += 1;
+
+        try {
+          this.explode();
+        } catch {
+          // Recovered: the inner action's writes stay in the open commit.
+        }
+
+        this.count += 1;
+      }
+
+      explode(): void {
+        this.count += 100;
+        throw new Error("boom");
+      }
+    }
+
+    defineModule(Recovering, {
+      actions: ["explode", "outer"],
+      name: "recovering",
+      state: ["count"],
+    });
+
+    const app = createApp({ providers: [Recovering] });
+
+    app.getModule(Recovering).outer();
+
+    expect(app.getModule(Recovering).count).toBe(102);
+  });
+
   it("keeps the root container private while allowing parent app resolution", () => {
     const logger = new MemoryLogger();
     const parent = createApp({
