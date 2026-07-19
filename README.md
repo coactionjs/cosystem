@@ -837,6 +837,9 @@ await app.get(StorageToken).set("draft", { title: "Hello" });
 await app.dispose(); // also waits for pending storage writes
 ```
 
+Pass `throttleMs` to write at most once per interval (always with the latest
+state); pending writes flush on dispose or via `plugin.flush()`.
+
 ## Router
 
 ```ts

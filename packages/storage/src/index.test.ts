@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createApp, defineModule } from "@cosystem/core";
 
@@ -74,6 +74,111 @@ describe("storage plugin", () => {
     await plugin.flush();
 
     expect(storage.getItem("app")).toBe(JSON.stringify({ storageCounter: { count: 5 } }));
+  });
+
+  it("throttles persistence to the latest state and flushes on dispose", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const storage = new MemoryStorage();
+      let writes = 0;
+      const countingStorage: StorageLike = {
+        getItem: (key) => storage.getItem(key),
+        removeItem: (key) => {
+          storage.removeItem(key);
+        },
+        setItem: (key, value) => {
+          writes += 1;
+          storage.setItem(key, value);
+        },
+      };
+
+      const plugin = createStoragePlugin({
+        key: "app",
+        storage: countingStorage,
+        throttleMs: 100,
+      });
+      const app = createApp({
+        plugins: [plugin],
+        providers: [Counter],
+      });
+
+      await app.start();
+
+      app.getModule(Counter).increase();
+      app.getModule(Counter).increase();
+
+      expect(writes).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(writes).toBe(1);
+      expect(storage.getItem("app")).toBe(JSON.stringify({ storageCounter: { count: 2 } }));
+
+      app.getModule(Counter).increase();
+
+      await app.dispose();
+
+      expect(writes).toBe(2);
+      expect(storage.getItem("app")).toBe(JSON.stringify({ storageCounter: { count: 3 } }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels a scheduled throttled write when storage is cleared", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const storage = new MemoryStorage();
+      const plugin = createStoragePlugin({
+        key: "app",
+        storage,
+        throttleMs: 100,
+      });
+      const app = createApp({ plugins: [plugin], providers: [Counter] });
+      await app.start();
+
+      app.getModule(Counter).increase();
+      await plugin.clear();
+      await vi.advanceTimersByTimeAsync(100);
+      await plugin.flush();
+
+      expect(storage.getItem("app")).toBeNull();
+      await app.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("flushes a throttled write on dispose after hydration fails", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const persisted: string[] = [];
+      const plugin = createStoragePlugin({
+        key: "app",
+        storage: {
+          getItem() {
+            throw new Error("hydrate failed");
+          },
+          setItem(_key, value) {
+            persisted.push(value);
+          },
+        },
+        throttleMs: 100,
+      });
+      const app = createApp({ plugins: [plugin], providers: [Counter] });
+
+      app.getModule(Counter).increase();
+
+      await expect(app.ready).rejects.toThrow("hydrate failed");
+      await expect(app.dispose()).rejects.toThrow("One or more app resources failed to dispose");
+
+      expect(persisted).toEqual([JSON.stringify({ storageCounter: { count: 1 } })]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("can clear stored state", async () => {
@@ -308,6 +413,34 @@ describe("localspace storage plugin", () => {
     expect(await plugin.storage.get("app")).toEqual({ storageCounter: { count: 5 } });
 
     await app.dispose();
+  });
+
+  it("throttles localspace persistence and flushes the latest state", async () => {
+    const plugin = createLocalSpaceStoragePlugin<{
+      readonly storageCounter: { readonly count: number };
+    }>({
+      destroyOnDispose: false,
+      key: "app",
+      options: createMemoryLocalSpaceOptions("throttle"),
+      throttleMs: 100,
+    });
+    const app = createApp({ plugins: [plugin], providers: [Counter] });
+    await app.start();
+
+    app.getModule(Counter).increase();
+    app.getModule(Counter).increase();
+
+    expect(await plugin.storage.get("app")).toBeNull();
+
+    await plugin.flush();
+
+    expect(await plugin.storage.get("app")).toEqual({ storageCounter: { count: 2 } });
+
+    app.getModule(Counter).increase();
+    await app.dispose();
+
+    expect(await plugin.storage.get("app")).toEqual({ storageCounter: { count: 3 } });
+    await plugin.storage.destroy();
   });
 
   it("provides a cross-framework storage service through app DI", async () => {

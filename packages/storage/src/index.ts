@@ -115,6 +115,13 @@ export interface StoragePluginOptions<TState = unknown> {
   readonly merge?: (persisted: TState, current: unknown) => unknown;
   readonly shouldPersist?: (event: StateChangeEvent) => boolean;
   readonly onError?: (error: unknown, phase: StoragePluginErrorPhase) => void;
+  /**
+   * Trailing-edge throttle for state-change persistence in milliseconds.
+   * At most one write per interval, always with the latest state. Pending
+   * writes are flushed on plugin dispose. Omit or pass 0 to persist every
+   * state change.
+   */
+  readonly throttleMs?: number;
 }
 
 export type StoragePluginErrorPhase = "clear" | "hydrate" | "persist";
@@ -138,6 +145,11 @@ export interface LocalSpaceStoragePluginOptions<
   readonly merge?: (persisted: TState, current: unknown) => unknown;
   readonly shouldPersist?: (event: StateChangeEvent) => boolean;
   readonly onError?: (error: unknown, phase: StoragePluginErrorPhase) => void;
+  /**
+   * Trailing-edge throttle for state-change persistence in milliseconds.
+   * Omit or pass 0 to persist every state change.
+   */
+  readonly throttleMs?: number;
 }
 
 export interface LocalSpaceStoragePlugin extends StoragePlugin {
@@ -231,6 +243,11 @@ export function createLocalSpaceStoragePlugin<TState = unknown>(
 
     return operation;
   };
+  const pendingWrites = createTrailingThrottle<TState>(options.throttleMs ?? 0, (state) => {
+    void runQueued("persist", async () => {
+      await storage.set(key, state);
+    }).catch(() => undefined);
+  });
 
   return {
     name: "cosystem:storage",
@@ -238,12 +255,14 @@ export function createLocalSpaceStoragePlugin<TState = unknown>(
     storage,
     async clear() {
       await readyPromise;
+      pendingWrites.discard();
       await runQueued("clear", async () => {
         await storage.remove(key);
       });
     },
     async flush() {
       await readyPromise;
+      pendingWrites.flush();
       await writeQueue;
     },
     onStateChange(event) {
@@ -255,12 +274,11 @@ export function createLocalSpaceStoragePlugin<TState = unknown>(
         return;
       }
 
-      void runQueued("persist", async () => {
-        await storage.set(key, partialize(event.state));
-      }).catch(() => undefined);
+      pendingWrites.schedule(partialize(event.state));
     },
     async persist(app) {
       await readyPromise;
+      pendingWrites.discard();
       await runQueued("persist", async () => {
         await storage.set(key, partialize(app.store.getPureState()));
       });
@@ -277,6 +295,8 @@ export function createLocalSpaceStoragePlugin<TState = unknown>(
         } catch (error) {
           errors.push(error);
         }
+
+        pendingWrites.flush();
 
         try {
           await writeQueue;
@@ -351,17 +371,24 @@ export function createStoragePlugin<TState = unknown>(
 
     return operation;
   };
+  const pendingWrites = createTrailingThrottle<TState>(options.throttleMs ?? 0, (state) => {
+    void runQueued("persist", async () => {
+      await options.storage.setItem(options.key, serialize(state));
+    }).catch(() => undefined);
+  });
 
   return {
     name: "cosystem:storage",
     async clear() {
       await readyPromise;
+      pendingWrites.discard();
       await runQueued("clear", async () => {
         await options.storage.removeItem?.(options.key);
       });
     },
     async flush() {
       await readyPromise;
+      pendingWrites.flush();
       await writeQueue;
     },
     onStateChange(event) {
@@ -369,12 +396,11 @@ export function createStoragePlugin<TState = unknown>(
         return;
       }
 
-      void runQueued("persist", async () => {
-        await options.storage.setItem(options.key, serialize(partialize(event.state)));
-      }).catch(() => undefined);
+      pendingWrites.schedule(partialize(event.state));
     },
     async persist(app) {
       await readyPromise;
+      pendingWrites.discard();
       await runQueued("persist", async () => {
         await options.storage.setItem(options.key, serialize(partialize(app.store.getPureState())));
       });
@@ -384,8 +410,29 @@ export function createStoragePlugin<TState = unknown>(
     },
     setup(app, context) {
       context.onDispose(async () => {
-        await readyPromise;
-        await writeQueue;
+        const errors: unknown[] = [];
+
+        try {
+          await readyPromise;
+        } catch (error) {
+          errors.push(error);
+        }
+
+        pendingWrites.flush();
+
+        try {
+          await writeQueue;
+        } catch (error) {
+          errors.push(error);
+        }
+
+        if (errors.length === 1) {
+          throw errors[0];
+        }
+
+        if (errors.length > 1) {
+          throw new AggregateError(errors, "One or more storage disposal steps failed.");
+        }
       });
 
       readyPromise = (async () => {
@@ -407,6 +454,61 @@ export function createStoragePlugin<TState = unknown>(
       })();
 
       return readyPromise;
+    },
+  };
+}
+
+interface TrailingThrottle<T> {
+  discard(): void;
+  flush(): void;
+  schedule(value: T): void;
+}
+
+function createTrailingThrottle<T>(
+  throttleMs: number,
+  enqueue: (value: T) => void,
+): TrailingThrottle<T> {
+  const delay = Number.isFinite(throttleMs) && throttleMs > 0 ? throttleMs : 0;
+  let hasPending = false;
+  let pendingValue: T | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const cancelTimer = (): void => {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+  const discard = (): void => {
+    cancelTimer();
+    hasPending = false;
+    pendingValue = undefined;
+  };
+  const flush = (): void => {
+    cancelTimer();
+
+    if (!hasPending) {
+      return;
+    }
+
+    const value = pendingValue as T;
+    hasPending = false;
+    pendingValue = undefined;
+    enqueue(value);
+  };
+
+  return {
+    discard,
+    flush,
+    schedule(value) {
+      if (delay === 0) {
+        enqueue(value);
+        return;
+      }
+
+      hasPending = true;
+      pendingValue = value;
+      timer ??= setTimeout(flush, delay);
     },
   };
 }

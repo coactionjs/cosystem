@@ -68,6 +68,7 @@ await kv.set("draft", { title: "Hello" });
 | `service`          | `StorageService`                       | —                  | Existing CoSystem storage service to provide.                        |
 | `hydrate`          | `boolean`                              | `true`             | Hydrate app state from `key` during plugin setup.                    |
 | `persist`          | `boolean`                              | `true`             | Persist app state on store changes.                                  |
+| `throttleMs`       | `number`                               | `0`                | Trailing throttle for app-state persistence writes.                  |
 | `destroyOnDispose` | `boolean`                              | owns instance      | Destroy localspace resources when the app is disposed.               |
 | `partialize`       | `(state) => TState`                    | identity           | Pick the subset of app state to persist.                             |
 | `merge`            | `(persisted, current) => state`        | use persisted      | Combine persisted state with current defaults on hydrate.            |
@@ -107,6 +108,7 @@ to `true` destroys that resource exactly once during app disposal.
 | `deserialize`   | `(value) => TState`                    | `JSON.parse`     | Decode persisted text on hydrate.                          |
 | `partialize`    | `(state) => TState`                    | identity         | Pick the subset of state to persist.                       |
 | `merge`         | `(persisted, current) => state`        | use persisted    | Combine persisted state with the current state on hydrate. |
+| `throttleMs`    | `number`                               | `0`              | Trailing throttle for persistence writes.                  |
 | `shouldPersist` | `(event: StateChangeEvent) => boolean` | always           | Skip persisting selected state changes.                    |
 | `onError`       | `(error, phase) => void`               | —                | Observe `"hydrate"`, `"persist"`, or `"clear"` failures.   |
 
