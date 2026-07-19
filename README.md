@@ -365,6 +365,10 @@ app.getModule(AdminCounter).increase();
 `createApp({ providers: [lazyModule(...)] })` records lazy entries without
 loading them. Call `await app.load()` to load all pending lazy modules.
 
+Every module must declare an explicit `name` in its metadata — state slices,
+persistence keys, and worker calls are addressed by it, and class names are
+not stable under minification.
+
 Actions compose: an action may call other actions (same module or another
 module) and write other modules' state directly. Everything inside the
 outermost action merges into a single store commit — one state notification,

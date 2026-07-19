@@ -108,11 +108,9 @@ means:
 ## Naming
 
 A module's `name` is the key its state appears under in the store, so it must be
-stable. The runtime resolves the name in this priority order:
-
-```txt
-@Module({ name })  >  defineModule(..., { name })  >  provider token description  >  camelCased class name
-```
+stable. Declare it explicitly with `@Module({ name })` or
+`defineModule(..., { name })`; class names are not stable under minification and
+are never used as store keys.
 
 Duplicate names in one app are a development-time error — two modules cannot both
 claim `"counter"`.

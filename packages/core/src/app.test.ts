@@ -3999,6 +3999,17 @@ describe("app runtime", () => {
     expect(app.getModule(Recovering).count).toBe(102);
   });
 
+  it("rejects modules without an explicit name", () => {
+    class Unnamed {
+      count = 0;
+    }
+
+    defineModule(Unnamed, {
+      state: ["count"],
+    });
+
+    expect(() => createApp({ providers: [Unnamed] })).toThrow(/no explicit name/);
+  });
   it("keeps the root container private while allowing parent app resolution", () => {
     const logger = new MemoryLogger();
     const parent = createApp({

@@ -112,6 +112,10 @@ const app = createApp({
 app.getModule(Counter).increase();
 ```
 
+Every module must declare an explicit `name`. It is the stable key used by app
+state, persistence, devtools, and worker RPC; deriving it from a class name
+would break when application code is minified.
+
 ### With decorators
 
 The same module reads more declaratively with decorators. `@State` targets

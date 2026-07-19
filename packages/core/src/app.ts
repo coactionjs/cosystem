@@ -2783,7 +2783,14 @@ function instantiateModules(
       );
     }
 
-    const name = metadata.name ?? stableModuleName(moduleToken);
+    const name = metadata.name;
+
+    if (name === undefined) {
+      throw new CosystemError(
+        `Module ${tokenName(moduleToken)} has no explicit name. ` +
+          "Set name in @Module()/defineModule metadata; class names are not stable under minification.",
+      );
+    }
     assertSafeModuleMetadata(name, metadata);
 
     if (modules.some((moduleBinding) => moduleBinding.name === name)) {
@@ -2851,11 +2858,6 @@ function createRootState(modules: readonly ModuleBinding[]): RootState {
   return rootState;
 }
 
-function stableModuleName(token: InjectionToken): string {
-  const name = tokenName(token);
-  return `${name.slice(0, 1).toLowerCase()}${name.slice(1)}`;
-}
-
 function assertSafeModuleMetadata(name: string, metadata: ModuleMetadata): void {
   if (isUnsafeStateKey(name)) {
     throw new CosystemError(`CoSystem module name ${name} is unsafe.`);
@@ -2878,7 +2880,6 @@ function assertSafeModuleMetadata(name: string, metadata: ModuleMetadata): void 
 function isUnsafeStateKey(value: string): boolean {
   return value === "__proto__" || value === "constructor" || value === "prototype";
 }
-
 function getMethod(
   instance: Record<PropertyKey, unknown>,
   property: PropertyKey,
