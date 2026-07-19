@@ -1,14 +1,7 @@
 {
   "bracketSpacing": true,
   "endOfLine": "lf",
-  "ignorePatterns": [
-    ".changeset/**",
-    ".turbo/**",
-    "coverage/**",
-    "dist/**",
-    "node_modules/**",
-    "pnpm-lock.yaml"
-  ],
+  "ignorePatterns": [".turbo/**", "coverage/**", "dist/**", "node_modules/**", "pnpm-lock.yaml"],
   "insertFinalNewline": true,
   "printWidth": 100,
   "semi": true,
