@@ -375,6 +375,11 @@ outermost action merges into a single store commit — one state notification,
 one patch set — and the whole commit rolls back if the outermost action
 throws. Errors caught inside an action keep the writes made before the catch.
 
+Actions and writes triggered synchronously from `watch` listeners or plugin
+state hooks are queued until the in-flight commit and notification batch finish,
+then run before the triggering mutation returns. Queued call sites receive
+`undefined`; self-triggering cascades abort after 1000 mutations.
+
 ## UI Adapters
 
 CoSystem does not own rendering. There is no `ViewModule`, root component base

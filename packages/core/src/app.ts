@@ -259,6 +259,7 @@ const runtimeModuleMetadataKey = Symbol.for("@cosystem/core/runtimeModule");
 const appContainerMap = new WeakMap<App, Container>();
 const appRuntimeMap = new WeakMap<App, RuntimeApp>();
 const appManagedExecutionContext = createRuntimeAsyncContext<AppManagedExecution>();
+const maxQueuedMutations = 1000;
 
 export function createApp(options: CreateAppOptions = {}): App {
   return createAppInternal(options);
@@ -593,6 +594,10 @@ class RuntimeApp implements App {
   private readonly synchronousFallbackManagedExecutions: AppManagedExecution[] = [];
   private actionDepth = 0;
   private internalMutationDepth = 0;
+  private storeMutationDepth = 0;
+  private notificationDepth = 0;
+  private flushingMutations = false;
+  private readonly pendingMutations: Array<() => unknown> = [];
   private activeRootDraft: RootState | undefined;
   private detachedDraftContext: DetachedDraftContext | undefined;
   private draftMutationContext:
@@ -758,10 +763,29 @@ class RuntimeApp implements App {
     this.assertActive("run actions");
 
     if (typeof callbackOrOptions !== "function") {
+      if (this.shouldQueueMutation()) {
+        this.enqueueMutation(() =>
+          this.runStoreActionCallback(moduleOrCallback as () => T, callbackOrOptions),
+        );
+        return undefined as T;
+      }
+
       return this.runStoreActionCallback(moduleOrCallback as () => T, callbackOrOptions);
     }
 
     const moduleBinding = this.resolveModuleBinding(moduleOrCallback as RunInActionTarget);
+
+    if (this.shouldQueueMutation()) {
+      this.enqueueMutation(() =>
+        this.runActionCallback(
+          moduleBinding,
+          options.name ?? "runInAction",
+          options.args ?? [],
+          callbackOrOptions,
+        ),
+      );
+      return undefined as T;
+    }
 
     return this.runActionCallback(
       moduleBinding,
@@ -1446,6 +1470,11 @@ class RuntimeApp implements App {
       );
     }
 
+    if (this.shouldQueueMutation()) {
+      this.enqueueMutation(() => this.writeModuleState(moduleBinding, property, value));
+      return;
+    }
+
     if (!moduleBinding.reactiveSlice) {
       const state = this.readRawStoreState();
       const slice = state[moduleBinding.name] ?? {};
@@ -1475,6 +1504,11 @@ class RuntimeApp implements App {
 
     if (action === undefined) {
       throw new CosystemError(`${moduleBinding.name}.${String(property)} is not an action.`);
+    }
+
+    if (this.shouldQueueMutation()) {
+      this.enqueueMutation(() => this.runAction(moduleBinding, property, args));
+      return undefined;
     }
 
     return this.runActionCallback(moduleBinding, property, args, () =>
@@ -2194,6 +2228,13 @@ class RuntimeApp implements App {
 
     this.store.setState = ((...args: Parameters<StoreSetState>) => {
       this.assertStoreMutationAllowed("setState");
+
+      if (this.shouldQueueMutation()) {
+        const queuedArgs = [...args] as Parameters<StoreSetState>;
+        this.enqueueMutation(() => this.store.setState(...queuedArgs));
+        return undefined as never;
+      }
+
       const guardedArgs = [...args] as Parameters<StoreSetState>;
       const update = guardedArgs[0];
       let detachedDrafts: ReadonlyMap<ModuleBinding, Record<PropertyKey, unknown>> | undefined;
@@ -2216,22 +2257,23 @@ class RuntimeApp implements App {
           )) as typeof update;
       }
 
-      const applyUpdate = () => {
-        const result = originalSetState(...guardedArgs);
-        this.recordMutationResult(result);
+      const applyUpdate = () =>
+        this.runStoreMutation(() => {
+          const result = originalSetState(...guardedArgs);
+          this.recordMutationResult(result);
 
-        if (detachedDrafts !== undefined && detachedDrafts.size > 0) {
-          const nextState: RootState = {};
+          if (detachedDrafts !== undefined && detachedDrafts.size > 0) {
+            const nextState: RootState = {};
 
-          for (const [moduleBinding, draft] of detachedDrafts) {
-            nextState[moduleBinding.name] = draft;
+            for (const [moduleBinding, draft] of detachedDrafts) {
+              nextState[moduleBinding.name] = draft;
+            }
+
+            this.recordMutationResult(originalSetState(nextState));
           }
 
-          this.recordMutationResult(originalSetState(nextState));
-        }
-
-        return result as never;
-      };
+          return result as never;
+        });
 
       return typeof update === "function" && this.statePublication === undefined
         ? this.runStatePublicationTransaction(applyUpdate)
@@ -2240,7 +2282,14 @@ class RuntimeApp implements App {
 
     this.store.apply = ((...args: Parameters<StoreApply>) => {
       this.assertStoreMutationAllowed("apply");
-      return originalApply(...args);
+
+      if (this.shouldQueueMutation()) {
+        const queuedArgs = [...args] as Parameters<StoreApply>;
+        this.enqueueMutation(() => this.store.apply(...queuedArgs));
+        return undefined as ReturnType<StoreApply>;
+      }
+
+      return this.runStoreMutation(() => originalApply(...args));
     }) as StoreApply;
 
     this.store.getState = (() =>
@@ -2272,6 +2321,79 @@ class RuntimeApp implements App {
         unsubscribe();
       };
     }) as Store<RootState>["subscribe"];
+  }
+
+  private shouldQueueMutation(): boolean {
+    return (
+      this.activeRootDraft === undefined &&
+      (this.storeMutationDepth > 0 || this.notificationDepth > 0)
+    );
+  }
+
+  private enqueueMutation(mutation: () => unknown): void {
+    this.pendingMutations.push(mutation);
+  }
+
+  private runStoreMutation<T>(mutation: () => T): T {
+    const pendingStart = this.pendingMutations.length;
+    let completed = false;
+    this.storeMutationDepth += 1;
+
+    try {
+      const result = mutation();
+      completed = true;
+      return result;
+    } catch (error) {
+      this.pendingMutations.splice(pendingStart);
+      throw error;
+    } finally {
+      this.storeMutationDepth -= 1;
+
+      if (completed) {
+        this.flushPendingMutations();
+      }
+    }
+  }
+
+  private flushPendingMutations(): void {
+    if (this.flushingMutations || this.storeMutationDepth > 0 || this.notificationDepth > 0) {
+      return;
+    }
+
+    this.flushingMutations = true;
+
+    try {
+      let iterations = 0;
+
+      while (this.pendingMutations.length > 0) {
+        iterations += 1;
+
+        if (iterations > maxQueuedMutations) {
+          this.pendingMutations.length = 0;
+          throw new CosystemError(
+            `Aborted a mutation cascade after ${maxQueuedMutations} queued mutations; ` +
+              "a watch listener or plugin hook is likely re-triggering itself.",
+          );
+        }
+
+        const mutation = this.pendingMutations.shift();
+
+        if (mutation === undefined) {
+          break;
+        }
+
+        const result = mutation();
+
+        if (isPromiseLike(result)) {
+          void Promise.resolve(result).catch(() => undefined);
+        }
+      }
+    } catch (error) {
+      this.pendingMutations.length = 0;
+      throw error;
+    } finally {
+      this.flushingMutations = false;
+    }
   }
 
   private assertStoreMutationAllowed(operation: "apply" | "setState"): void {
@@ -2349,15 +2471,22 @@ class RuntimeApp implements App {
         this.statePublication = undefined;
 
         if (publish) {
-          for (const listener of publication.listeners) {
-            try {
-              listener();
-            } catch (error) {
-              this.emitError(error, { phase: "store:subscribe" });
+          this.notificationDepth += 1;
+
+          try {
+            for (const listener of publication.listeners) {
+              try {
+                listener();
+              } catch (error) {
+                this.emitError(error, { phase: "store:subscribe" });
+              }
             }
+          } finally {
+            this.notificationDepth -= 1;
           }
 
           this.recordMutationResults(publication.mutationResults);
+          this.flushPendingMutations();
         }
       }
     }

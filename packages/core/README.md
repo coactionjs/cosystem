@@ -265,6 +265,11 @@ for fulfilled resources instead of leaking them.
 - **Effects** run once after init and re-run when their tracked state changes.
   Effects are torn down on `dispose()`.
 
+Mutations dispatched synchronously from a `watch` listener or plugin state hook
+are queued until the current store notification finishes. They drain before the
+triggering mutation returns; a self-triggering cascade aborts after 1000 queued
+mutations.
+
 ## Async actions and `runInAction`
 
 Async `@Action` methods may return promises. Synchronous writes before the first

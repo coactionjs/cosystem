@@ -3999,6 +3999,250 @@ describe("app runtime", () => {
     expect(app.getModule(Recovering).count).toBe(102);
   });
 
+  it("queues notification actions, state writes, and direct store updates", () => {
+    class Source {
+      count = 0;
+
+      bump(): void {
+        this.count += 1;
+      }
+    }
+
+    class ActionMirror {
+      value = 0;
+
+      sync(value: number): number {
+        this.value = value;
+        return value;
+      }
+    }
+
+    class WriteMirror {
+      value = 0;
+    }
+
+    defineModule(Source, { actions: ["bump"], name: "queueSource", state: ["count"] });
+    defineModule(ActionMirror, {
+      actions: ["sync"],
+      name: "queueActionMirror",
+      state: ["value"],
+    });
+    defineModule(WriteMirror, { name: "queueWriteMirror", state: ["value"] });
+
+    for (const patches of [false, true]) {
+      const app = createApp({
+        engine: { patches },
+        providers: [Source, ActionMirror, WriteMirror],
+      });
+      const queuedReturns: unknown[] = [];
+
+      app.watch(
+        () => app.getModule(Source).count,
+        (value) => {
+          queuedReturns.push(app.getModule(ActionMirror).sync(value));
+          app.getModule(WriteMirror).value = value * 10;
+          queuedReturns.push(
+            app.store.setState({
+              queueWriteMirror: { value: value * 100 },
+            }),
+          );
+        },
+      );
+
+      app.getModule(Source).bump();
+
+      expect(queuedReturns).toEqual([undefined, undefined]);
+      expect(app.getModule(ActionMirror).value).toBe(1);
+      expect(app.getModule(WriteMirror).value).toBe(100);
+    }
+  });
+
+  it("drains cascaded notification actions in FIFO order", () => {
+    class First {
+      count = 0;
+
+      bump(): void {
+        this.count += 1;
+      }
+    }
+
+    class Second {
+      count = 0;
+
+      follow(value: number): void {
+        this.count = value;
+      }
+    }
+
+    class Third {
+      count = 0;
+
+      follow(value: number): void {
+        this.count = value;
+      }
+    }
+
+    defineModule(First, {
+      actions: ["bump"],
+      name: "cascadeFirst",
+      state: ["count"],
+    });
+    defineModule(Second, {
+      actions: ["follow"],
+      name: "cascadeSecond",
+      state: ["count"],
+    });
+    defineModule(Third, {
+      actions: ["follow"],
+      name: "cascadeThird",
+      state: ["count"],
+    });
+
+    const app = testApp({ providers: [First, Second, Third] });
+
+    app.watch(
+      () => app.getModule(First).count,
+      (value) => {
+        app.getModule(Second).follow(value + 1);
+      },
+    );
+    app.watch(
+      () => app.getModule(Second).count,
+      (value) => {
+        app.getModule(Third).follow(value + 1);
+      },
+    );
+
+    app.getModule(First).bump();
+
+    expect(app.getModule(First).count).toBe(1);
+    expect(app.getModule(Second).count).toBe(2);
+    expect(app.getModule(Third).count).toBe(3);
+    expect(app.test.getActions().map((event) => event.module)).toEqual([
+      "cascadeSecond",
+      "cascadeThird",
+      "cascadeFirst",
+    ]);
+  });
+
+  it("queues actions dispatched from plugin state hooks", () => {
+    class Source {
+      count = 0;
+
+      bump(): void {
+        this.count += 1;
+      }
+    }
+
+    class Mirror {
+      value = 0;
+
+      sync(value: number): number {
+        this.value = value;
+        return value;
+      }
+    }
+
+    defineModule(Source, { actions: ["bump"], name: "pluginQueueSource", state: ["count"] });
+    defineModule(Mirror, {
+      actions: ["sync"],
+      name: "pluginQueueMirror",
+      state: ["value"],
+    });
+
+    const queuedReturns: unknown[] = [];
+    const valuesInsideHook: number[] = [];
+    const app = createApp({
+      plugins: [
+        {
+          onStateChange(event, context) {
+            const state = event.state as {
+              pluginQueueMirror: { value: number };
+              pluginQueueSource: { count: number };
+            };
+
+            if (state.pluginQueueMirror.value !== state.pluginQueueSource.count) {
+              queuedReturns.push(context.app.getModule(Mirror).sync(state.pluginQueueSource.count));
+              valuesInsideHook.push(context.app.getModule(Mirror).value);
+            }
+          },
+        },
+      ],
+      providers: [Source, Mirror],
+    });
+
+    app.getModule(Source).bump();
+
+    expect(queuedReturns).toEqual([undefined]);
+    expect(valuesInsideHook).toEqual([0]);
+    expect(app.getModule(Mirror).value).toBe(1);
+  });
+
+  it("queues notification actions from lazy-module object commits", async () => {
+    class LazySource {
+      count = 0;
+
+      bump(): void {
+        this.count += 1;
+      }
+    }
+
+    class Mirror {
+      value = 0;
+
+      sync(value: number): void {
+        this.value = value;
+      }
+    }
+
+    defineModule(LazySource, {
+      actions: ["bump"],
+      name: "lazyQueueSource",
+      state: ["count"],
+    });
+    defineModule(Mirror, {
+      actions: ["sync"],
+      name: "lazyQueueMirror",
+      state: ["value"],
+    });
+
+    const app = createApp({ providers: [Mirror] });
+    await app.load(lazyModule(() => LazySource));
+    app.watch(
+      () => app.getModule(LazySource).count,
+      (value) => {
+        app.getModule(Mirror).sync(value);
+      },
+    );
+
+    app.getModule(LazySource).bump();
+
+    expect(app.getModule(Mirror).value).toBe(1);
+    await app.dispose();
+  });
+
+  it("aborts unbounded notification mutation cascades", () => {
+    class Loop {
+      count = 0;
+
+      bump(): void {
+        this.count += 1;
+      }
+    }
+
+    defineModule(Loop, { actions: ["bump"], name: "mutationLoop", state: ["count"] });
+    const app = createApp({ providers: [Loop] });
+
+    app.watch(
+      () => app.getModule(Loop).count,
+      () => {
+        app.getModule(Loop).bump();
+      },
+    );
+
+    expect(() => app.getModule(Loop).bump()).toThrow(/1000 queued mutations/);
+  });
+
   it("rejects modules without an explicit name", () => {
     class Unnamed {
       count = 0;
