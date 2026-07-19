@@ -1,13 +1,7 @@
 # @cosystem/tsconfig
 
-## 0.0.2
+## 0.1.0
 
 ### Patch Changes
 
-- fix
-
-## 0.0.1
-
-### Patch Changes
-
-- fix
+- Version alignment release with no public API changes in this package.
