@@ -10,7 +10,7 @@
 pnpm add @cosystem/angular @cosystem/core
 ```
 
-Peer dependencies: `@angular/core` `>=17 <23`, `rxjs` `>=7.5 <8`.
+Peer dependency: `@angular/core` `>=17 <23`.
 
 ## Quick start
 

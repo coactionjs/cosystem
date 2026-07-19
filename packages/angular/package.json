@@ -44,7 +44,6 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
-    "@angular/core": ">=17.0.0 <23",
-    "rxjs": ">=7.5.0 <8"
+    "@angular/core": ">=17.0.0 <23"
   }
 }
