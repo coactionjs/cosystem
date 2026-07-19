@@ -529,11 +529,12 @@ Worker host disposal aborts in-flight app initialization before awaiting
 readiness. Worker client disposal rejects both pending and newly attempted RPC
 calls, so no request can remain orphaned after subscriptions are removed.
 
-Only declared module actions are remotely callable. Protocol messages are
-schema-validated (including safe patch paths), and client requests default to a
-30-second timeout with per-call timeout/`AbortSignal` support through
-`callWithOptions()`. Bare/custom transports are trusted-endpoint APIs;
-postMessage adds `targetOrigin` plus origin/source filters, while broadcast
+Declared module actions are remotely callable by default. Opt additional plain
+methods in per module with `createWorkerApp({ expose: { counter: ["refresh"] }, ... })`.
+Protocol messages are schema-validated (including safe patch paths), and client
+requests default to a 30-second timeout with per-call timeout/`AbortSignal`
+support through `callWithOptions()`. Bare/custom transports are trusted-endpoint
+APIs; postMessage adds `targetOrigin` plus origin/source filters, while broadcast
 transports support a shared `authToken` routing capability. Broadcast peers can
 observe that token, so BroadcastChannel remains a trusted same-origin transport,
 not an adversarial security boundary.

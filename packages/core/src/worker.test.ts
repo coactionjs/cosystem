@@ -232,6 +232,25 @@ describe("worker prototype", () => {
     await host.dispose();
   });
 
+  it("allows ordinary methods explicitly listed in the worker expose map", async () => {
+    const [hostTransport, clientTransport] = createMemoryWorkerTransportPair();
+    const client = createWorkerClient({ transport: clientTransport });
+    const host = createWorkerApp({
+      expose: {
+        workerCounter: ["readCount"],
+      },
+      providers: [WorkerCounter],
+      transport: hostTransport,
+    });
+
+    await client.ready;
+    await expect(client.call("workerCounter", "increase", 2)).resolves.toBe(2);
+    await expect(client.call("workerCounter", "readCount")).resolves.toBe(2);
+
+    client.dispose();
+    await host.dispose();
+  });
+
   it("observes failures while posting worker call results", async () => {
     const listeners = new Set<(message: WorkerMessage) => void>();
     const unhandledRejections: unknown[] = [];

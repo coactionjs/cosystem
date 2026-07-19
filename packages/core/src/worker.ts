@@ -142,6 +142,11 @@ export interface SerializedWorkerError {
 
 export interface CreateWorkerAppOptions extends CreateAppOptions {
   readonly transport: WorkerTransport;
+  /**
+   * Additional methods callable per module name. Declared module actions are
+   * always callable; ordinary methods require an explicit entry here.
+   */
+  readonly expose?: Readonly<Record<string, readonly string[]>>;
   readonly sync?: WorkerStateSyncMode;
   readonly stateSections?: readonly WorkerStateSection[];
   readonly onInvalidMessage?: (message: unknown) => void;
@@ -261,7 +266,14 @@ interface PendingWorkerResult {
 const maximumArrayIndex = 2 ** 32 - 2;
 
 export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost {
-  const { onInvalidMessage, stateSections, sync = "snapshot", transport, ...appOptions } = options;
+  const {
+    expose,
+    onInvalidMessage,
+    stateSections,
+    sync = "snapshot",
+    transport,
+    ...appOptions
+  } = options;
   let stateSyncVersion = 0;
   let publishPatches = false;
   const patchPlugin: Plugin = {
@@ -321,7 +333,7 @@ export function createWorkerApp(options: CreateWorkerAppOptions): WorkerAppHost 
       }
 
       if (message.type === "call") {
-        void handleCall(app, transport, message, ready, () => stateSyncVersion).catch(
+        void handleCall(app, transport, message, ready, expose, () => stateSyncVersion).catch(
           () => undefined,
         );
       }
@@ -1141,6 +1153,7 @@ async function handleCall(
   transport: WorkerTransport,
   message: WorkerCallMessage,
   ready: Promise<void>,
+  expose: Readonly<Record<string, readonly string[]>> | undefined,
   getStateVersion: () => number,
 ): Promise<void> {
   try {
@@ -1148,9 +1161,13 @@ async function handleCall(
     const module = app.getModuleByName<Record<string, unknown>>(message.module);
     const metadata = getModuleMetadata(module.constructor as Constructor);
 
-    if (metadata?.actions.has(message.method) !== true) {
+    if (
+      metadata?.actions.has(message.method) !== true &&
+      expose?.[message.module]?.includes(message.method) !== true
+    ) {
       throw new CosystemError(
-        `${message.module}.${message.method} is not exposed as a remote action.`,
+        `${message.module}.${message.method} is not exposed as a remote action ` +
+          "or through createWorkerApp({ expose }).",
       );
     }
 

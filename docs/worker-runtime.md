@@ -90,7 +90,9 @@ RPC calls default to a 30-second timeout (`requestTimeout` on
 `createWorkerClient`; `0` disables it). Use `callWithOptions()` for a per-call
 timeout or `AbortSignal`. Remote invocation is restricted to methods explicitly
 listed in the module's `actions` metadata; ordinary methods, lifecycle hooks,
-computed properties, and arbitrary callable fields are not remotely exposed.
+computed properties, and arbitrary callable fields are not remotely exposed by
+default. When a plain method intentionally belongs to the RPC surface, list it
+by module name with `createWorkerApp({ expose: { counter: ["refresh"] }, ... })`.
 
 ## Trust boundary
 

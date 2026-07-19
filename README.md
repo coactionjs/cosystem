@@ -766,6 +766,10 @@ for worker-hosted state, `postMessage` endpoints, and a `data-transport`-style
 coordination with routed call results. It does not attempt full shared-runtime
 conflict handling or framework-specific worker bootstrapping.
 
+Remote calls are limited to declared module actions by default. Additional
+methods can be enabled explicitly per module with
+`createWorkerApp({ expose: { counter: ["refresh"] }, ... })`.
+
 ## Logger Plugin
 
 ```ts
