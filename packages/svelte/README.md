@@ -38,7 +38,7 @@ const count = selectedModuleStore(Counter, (module) => module.count);
 | -------------------------------------------- | ------------------ | ------------------------------------------ |
 | `setCoSystemApp(app)` / `clearCoSystemApp()` | `App`              | Set/clear the module-global app.           |
 | `setCoSystemContext(app)`                    | `App`              | Provide the app via Svelte context.        |
-| `getCoSystemApp()`                           | `App`              | Resolve the active app (global → context). |
+| `getCoSystemApp()`                           | `App`              | Resolve the active app (context → global). |
 | `moduleStore(token, app?)`                   | `Readable<T>`      | Store of the bound module facade.          |
 | `selectorStore(fn, opts?)`                   | `Readable<T>`      | Store of `fn(app)`.                        |
 | `selectedModuleStore(token, fn, opts?)`      | `Readable<TValue>` | Store of `fn(module, app)`.                |

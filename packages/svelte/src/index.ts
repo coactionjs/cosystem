@@ -52,14 +52,16 @@ export function setWorkerClientContext(client: WorkerClient): WorkerClient {
 }
 
 export function getCoSystemApp(): App {
-  if (defaultApp !== undefined) {
-    return defaultApp;
-  }
-
+  // Component context wins over the global default so nested apps and
+  // per-request (SSR) apps are not shadowed by module-level state.
   const contextApp = getCoSystemContextApp();
 
   if (contextApp !== undefined) {
     return contextApp;
+  }
+
+  if (defaultApp !== undefined) {
+    return defaultApp;
   }
 
   throw new CosystemError(
