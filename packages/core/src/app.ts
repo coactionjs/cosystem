@@ -353,6 +353,7 @@ export function createAppInternal(options: InternalCreateAppOptions = {}): App {
       devOptions: options.devOptions ?? {},
       lazyModules,
       modules,
+      ...(parentApp === undefined ? {} : { parentApp }),
       plugins: options.plugins ?? [],
       state,
       store,
@@ -613,6 +614,7 @@ class RuntimeApp implements App {
     readonly devOptions: AppDevOptions;
     readonly lazyModules: readonly LazyModule[];
     readonly modules: ModuleBinding[];
+    readonly parentApp?: RuntimeApp;
     readonly plugins: readonly Plugin[];
     readonly state: AppState;
     readonly store: Store<RootState>;
@@ -622,6 +624,7 @@ class RuntimeApp implements App {
     this.devOptions = options.devOptions;
     this.pendingLazyModules = [...options.lazyModules];
     this.modules = options.modules;
+    this.parentApp = options.parentApp;
     this.state = options.state;
     this.store = options.store;
     this.readRawStoreState = options.store.getPureState.bind(options.store);
@@ -697,25 +700,36 @@ class RuntimeApp implements App {
   }
 
   getModule<T>(token: InjectionToken<T>): T {
-    this.assertActive("access modules");
-    const moduleBinding = this.moduleByToken.get(token);
+    const moduleBinding = this.findModuleBindingByToken(token);
 
-    if (moduleBinding === undefined) {
-      throw new CosystemError(`${tokenName(token)} is not a CoSystem module.`);
+    if (moduleBinding !== undefined) {
+      return moduleBinding.instance as T;
     }
 
-    return moduleBinding.instance as T;
+    // Preserve the container's MissingProviderError for a token that is not
+    // registered anywhere. A registered plain provider is still not a module.
+    this.get(token);
+    throw new CosystemError(`${tokenName(token)} is not a CoSystem module.`);
   }
 
   getModuleByName<T = unknown>(name: string): T {
-    this.assertActive("access modules");
-    const moduleBinding = this.moduleByName.get(name);
+    const moduleBinding = this.findModuleBindingByName(name);
 
-    if (moduleBinding === undefined) {
-      throw new CosystemError(`${name} is not a CoSystem module.`);
+    if (moduleBinding !== undefined) {
+      return moduleBinding.instance as T;
     }
 
-    return moduleBinding.instance as T;
+    throw new CosystemError(`${name} is not a CoSystem module.`);
+  }
+
+  private findModuleBindingByToken(token: InjectionToken): ModuleBinding | undefined {
+    this.assertActive("access modules");
+    return this.moduleByToken.get(token) ?? this.parentApp?.findModuleBindingByToken(token);
+  }
+
+  private findModuleBindingByName(name: string): ModuleBinding | undefined {
+    this.assertActive("access modules");
+    return this.moduleByName.get(name) ?? this.parentApp?.findModuleBindingByName(name);
   }
 
   watch<T>(

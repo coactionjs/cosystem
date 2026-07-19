@@ -222,6 +222,10 @@ the parent's providers:
 const child = createApp({ parent: app, providers: [FeatureModule] });
 ```
 
+When the parent is an `App`, `child.getModule(token)` and
+`child.getModuleByName(name)` search the app chain after checking the child's
+own modules. An inherited module remains bound to the parent app and its store.
+
 Disposing a parent app disposes its child apps first, in reverse creation order.
 Once parent disposal begins, creating another child app is rejected.
 

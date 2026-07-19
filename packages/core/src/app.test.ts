@@ -4254,6 +4254,72 @@ describe("app runtime", () => {
 
     expect(() => createApp({ providers: [Unnamed] })).toThrow(/no explicit name/);
   });
+
+  it("resolves modules through the parent app chain", () => {
+    class ParentModule {
+      count = 0;
+
+      bump(): void {
+        this.count += 1;
+      }
+    }
+
+    defineModule(ParentModule, {
+      actions: ["bump"],
+      name: "parentModule",
+      state: ["count"],
+    });
+
+    const parent = createApp({ providers: [ParentModule] });
+    const child = createApp({ parent });
+    const grandchild = createApp({ parent: child });
+    const viaGrandchild = grandchild.getModule(ParentModule);
+
+    expect(viaGrandchild).toBe(parent.getModule(ParentModule));
+    expect(grandchild.getModuleByName("parentModule")).toBe(viaGrandchild);
+
+    viaGrandchild.bump();
+
+    expect(parent.store.getPureState()).toEqual({ parentModule: { count: 1 } });
+    expect(child.store.getPureState()).toEqual({});
+    expect(grandchild.store.getPureState()).toEqual({});
+
+    class PlainProvider {
+      readonly kind = "plain";
+    }
+
+    class Unregistered {
+      readonly kind = "missing";
+    }
+
+    const plainChild = createApp({ parent, providers: [PlainProvider] });
+
+    expect(() => plainChild.getModule(PlainProvider)).toThrow(/not a CoSystem module/);
+    expect(() => grandchild.getModule(Unregistered)).toThrow(/Missing provider/);
+    expect(() => grandchild.getModuleByName("missing")).toThrow(/not a CoSystem module/);
+
+    class ChildModule {
+      readonly kind = "child";
+    }
+
+    defineModule(ChildModule, { name: "childModule" });
+    let resolvedDuringCreation: ParentModule | undefined;
+
+    createApp({
+      parent,
+      plugins: [
+        {
+          onModuleCreated(_event, context) {
+            resolvedDuringCreation = context.app.getModule(ParentModule);
+          },
+        },
+      ],
+      providers: [ChildModule],
+    });
+
+    expect(resolvedDuringCreation).toBe(parent.getModule(ParentModule));
+  });
+
   it("keeps the root container private while allowing parent app resolution", () => {
     const logger = new MemoryLogger();
     const parent = createApp({
