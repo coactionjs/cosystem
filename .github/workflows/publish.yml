@@ -14,6 +14,10 @@ concurrency:
   group: publish-packages-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  # Keep in sync with .github/workflows/ci.yml so CI verifies the release toolchain.
+  NPM_VERSION: 11.18.0
+
 jobs:
   publish:
     if: github.repository == 'coactionjs/cosystem'
@@ -49,9 +53,9 @@ jobs:
           package-manager-cache: false
           registry-url: https://registry.npmjs.org
 
-      - name: Install latest npm CLI
+      - name: Install pinned npm CLI
         if: steps.changesets.outputs.pending != 'true'
-        run: npm install -g npm@latest
+        run: npm install -g npm@${{ env.NPM_VERSION }}
 
       - name: Install dependencies
         if: steps.changesets.outputs.pending != 'true'

@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Keep in sync with .github/workflows/publish.yml so CI verifies the release toolchain.
+  NPM_VERSION: 11.18.0
+
 jobs:
   verify:
     name: Node ${{ matrix.node-version }}
@@ -34,6 +38,9 @@ jobs:
         with:
           cache: pnpm
           node-version: ${{ matrix.node-version }}
+
+      - name: Install pinned npm CLI
+        run: npm install -g npm@${{ env.NPM_VERSION }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
