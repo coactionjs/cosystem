@@ -61,6 +61,12 @@ jobs:
         if: steps.changesets.outputs.pending != 'true'
         run: pnpm install --frozen-lockfile
 
+      - name: Install Playwright browser
+        if: steps.changesets.outputs.pending != 'true'
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          echo "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(node -e 'const { chromium } = require(\"playwright\"); console.log(chromium.executablePath())')" >> "$GITHUB_ENV"
+
       - name: Verify
         if: steps.changesets.outputs.pending != 'true'
         run: pnpm run ci
