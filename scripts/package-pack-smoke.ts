@@ -65,9 +65,9 @@ async function readPackManifest(pkg) {
     cwd: pkg.dir,
     maxBuffer: 1024 * 1024 * 10,
   });
-  const entries = JSON.parse(stdout);
+  const entries = readPackEntries(JSON.parse(stdout));
 
-  if (!Array.isArray(entries) || entries.length !== 1) {
+  if (entries.length !== 1) {
     throw new Error(`${pkg.packageJson.name} pack output must contain exactly one manifest.`);
   }
 
@@ -82,6 +82,19 @@ async function readPackManifest(pkg) {
   }
 
   return pack;
+}
+
+function readPackEntries(output) {
+  // npm 11 and older print an array of manifests; npm 12 prints an object keyed by package name.
+  if (Array.isArray(output)) {
+    return output;
+  }
+
+  if (output === null || typeof output !== "object") {
+    return [];
+  }
+
+  return Object.values(output);
 }
 
 async function getRequiredPackageFiles(pkg) {
